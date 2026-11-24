@@ -206,10 +206,17 @@
         // Placed once, with the state in, so it measures its real height: placed while loading, the short
         // spinner fits above the button and the full sheet then drops below it. Until placed, app.css hides it
         // on desktop, so it never shows where its host would put it.
-        if (_placed || _state == null) return;
-        _placed = true;
         try
         {
+            if (firstRender)
+            {
+                _module ??= await JS.InvokeAsync<IJSObjectReference>(
+                    "import", FileVersionProvider.AddFileVersionToPath("", "/js/fixed-popover.js"));
+                // Animates the height as it loads and as options add fields.
+                await _module.InvokeVoidAsync("watch", _pop);
+            }
+            if (_placed || _state == null) return;
+            _placed = true;
             _module ??= await JS.InvokeAsync<IJSObjectReference>(
                 "import", FileVersionProvider.AddFileVersionToPath("", "/js/fixed-popover.js"));
             await _module.InvokeVoidAsync("place", _pop, Anchor, new { above = true });

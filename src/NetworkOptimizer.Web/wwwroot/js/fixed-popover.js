@@ -11,7 +11,7 @@ const placed = new Map();
  *   card), dropping below only when the space above is too short.
  */
 export function place(pop, anchor, opts) {
-    release(pop);
+    unplace(pop);
     if (!pop || !anchor) return;
     const above = !!(opts && opts.above);
     const update = () => {
@@ -33,12 +33,52 @@ export function place(pop, anchor, opts) {
     placed.set(pop, update);
 }
 
-/** Stops following the button: call when the popover closes. With no argument, releases every popover. */
-export function release(pop) {
+const watched = new Map();
+
+/**
+ * Animates the popover's height whenever its content changes it (loading to loaded, an option that adds a
+ * field), on a phone's bottom sheet and a desktop popover alike, and re-pins a placed popover at its new
+ * height. Call once, when the popover first renders.
+ */
+export function watch(pop) {
+    if (!pop || watched.has(pop) || typeof ResizeObserver === 'undefined') return;
+    let prev = pop.offsetHeight;
+    let animating = false;
+    const ro = new ResizeObserver(() => {
+        if (animating) return;
+        const next = pop.offsetHeight;
+        if (Math.abs(next - prev) < 2) return;
+        placed.get(pop)?.();
+        const from = prev;
+        prev = next;
+        if (!from || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        animating = true;
+        // Runs before paint, so the new height never shows unanimated.
+        const a = pop.animate([{ height: `${from}px`, overflow: 'hidden' }, { height: `${next}px`, overflow: 'hidden' }],
+            { duration: 180, easing: 'ease-out' });
+        const done = () => { animating = false; prev = pop.offsetHeight; };
+        a.onfinish = done;
+        a.oncancel = done;
+    });
+    ro.observe(pop);
+    watched.set(pop, ro);
+}
+
+function unplace(pop) {
     for (const [p, update] of placed) {
         if (pop && p !== pop) continue;
         window.removeEventListener('scroll', update, true);
         window.removeEventListener('resize', update);
         placed.delete(p);
+    }
+}
+
+/** Stops following the button: call when the popover closes. With no argument, releases every popover. */
+export function release(pop) {
+    unplace(pop);
+    for (const [p, ro] of watched) {
+        if (pop && p !== pop) continue;
+        ro.disconnect();
+        watched.delete(p);
     }
 }

@@ -27317,11 +27317,37 @@ body:has(.top-bar-hidden) .btn-fit {
     color: var(--text-primary);
 }
 
-/* Desktop: hidden until fixed-popover.js pins it, so it never flashes at its host's corner first. */
+/* Desktop: hidden until fixed-popover.js pins it, so it never flashes at its host's corner first, then
+   fades in. A phone's bottom sheet slides up. Height changes animate in fixed-popover.js (watch). */
 @media (min-width: 769px) {
     .device-restart-pop:not([style*="fixed"]) {
         visibility: hidden;
     }
+
+    .device-restart-pop[style*="fixed"] {
+        animation: device-restart-pop-in 0.16s ease-out;
+    }
+}
+
+@media (max-width: 768px) {
+    .device-restart-pop {
+        animation: device-restart-sheet-up 0.22s ease-out;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .device-restart-pop,
+    .device-restart-pop[style*="fixed"] {
+        animation: none;
+    }
+}
+
+@keyframes device-restart-pop-in {
+    from { opacity: 0; transform: translateY(6px); }
+}
+
+@keyframes device-restart-sheet-up {
+    from { transform: translateY(100%); }
 }
 
 /* Custom Apps' close button, in the header's flow rather than pinned to a corner. */
