@@ -40,23 +40,6 @@ internal sealed class FakeTimeProvider : TimeProvider
     public void Advance(TimeSpan by) => _utcNow = _utcNow.Add(by);
 }
 
-/// <summary>Alert bus that keeps everything published.</summary>
-internal sealed class CapturingBus : IAlertEventBus
-{
-    public List<AlertEvent> Published { get; } = [];
-
-    public ValueTask PublishAsync(AlertEvent alertEvent, CancellationToken cancellationToken = default)
-    {
-        Published.Add(alertEvent);
-        return ValueTask.CompletedTask;
-    }
-
-    public async IAsyncEnumerable<AlertEvent> ConsumeAsync([EnumeratorCancellation] CancellationToken cancellationToken)
-    {
-        await Task.CompletedTask;
-        yield break;
-    }
-}
 
 /// <summary>
 /// Scripted command surface. Every call is recorded so a test can assert which path a step took -

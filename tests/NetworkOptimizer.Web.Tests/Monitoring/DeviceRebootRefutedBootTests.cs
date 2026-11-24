@@ -15,17 +15,6 @@ namespace NetworkOptimizer.Web.Tests.Monitoring;
 /// </summary>
 public class DeviceRebootRefutedBootTests
 {
-    private sealed class NullBus : IAlertEventBus
-    {
-        public ValueTask PublishAsync(AlertEvent alertEvent, CancellationToken ct = default) => ValueTask.CompletedTask;
-
-        public async IAsyncEnumerable<AlertEvent> ConsumeAsync(
-            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
-        {
-            await Task.CompletedTask;
-            yield break;
-        }
-    }
 
     private sealed class NullProbe : DeviceRebootProbe
     {
@@ -43,7 +32,7 @@ public class DeviceRebootRefutedBootTests
 
     private static DeviceRebootTracker BuildTracker() => new(
         new NullProbe(), new NullInflux(),
-        new DeviceRebootAlertEvaluator(new NullBus(), NullLogger<DeviceRebootAlertEvaluator>.Instance),
+        new DeviceRebootAlertEvaluator(new CapturingBus(), NullLogger<DeviceRebootAlertEvaluator>.Instance),
         NullLogger<DeviceRebootTracker>.Instance);
 
     [Fact]

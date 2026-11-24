@@ -24,23 +24,6 @@ public class DeviceStateAlertEvaluatorTests
     private const string Mac = "aabbccddeeff";
     private static readonly DateTime Now = new(2026, 7, 25, 12, 0, 0, DateTimeKind.Utc);
 
-    private sealed class CapturingBus : IAlertEventBus
-    {
-        public List<AlertEvent> Published { get; } = new();
-
-        public ValueTask PublishAsync(AlertEvent alertEvent, CancellationToken ct = default)
-        {
-            Published.Add(alertEvent);
-            return ValueTask.CompletedTask;
-        }
-
-        public async IAsyncEnumerable<AlertEvent> ConsumeAsync(
-            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
-        {
-            await Task.CompletedTask;
-            yield break;
-        }
-    }
 
     /// <summary>A reachability check that answers with whatever the test last set, counting calls.</summary>
     private sealed class FakeProbe : IDeviceReachabilityProbe
