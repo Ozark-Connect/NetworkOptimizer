@@ -412,28 +412,3 @@ public sealed class FlexibleObjectListConverter<T> : JsonConverter<List<T>?>
         else JsonSerializer.Serialize(writer, value, options);
     }
 }
-
-/// <summary>
-/// One nested object read tolerantly: an object deserializes as <typeparamref name="T"/>; anything else (a string,
-/// an array, a number) or an object that fails to read is null, so one odd field never fails the whole parent.
-/// </summary>
-public sealed class FlexibleObjectConverter<T> : JsonConverter<T?> where T : class
-{
-    public override T? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-    {
-        if (reader.TokenType != JsonTokenType.StartObject)
-        {
-            reader.Skip();
-            return null;
-        }
-        using var doc = JsonDocument.ParseValue(ref reader);
-        try { return doc.RootElement.Deserialize<T>(options); }
-        catch (JsonException) { return null; }
-    }
-
-    public override void Write(Utf8JsonWriter writer, T? value, JsonSerializerOptions options)
-    {
-        if (value == null) writer.WriteNullValue();
-        else JsonSerializer.Serialize(writer, value, options);
-    }
-}
