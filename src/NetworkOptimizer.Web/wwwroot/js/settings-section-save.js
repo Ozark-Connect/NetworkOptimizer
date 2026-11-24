@@ -57,8 +57,9 @@ const SUCCESS = '.alert-success';
 const PROBLEM = '.alert-danger, .alert-error, .alert-warning, .form-error';
 const RESULT_WAIT = 15000;     // ms a save has to report before we stop listening
 const RESULT_SHOWN = 2500;     // ms the check or cross stays up
-// A save that neither disables its button nor posts a message counts as done after this long. A
-// failure that reports later, inside RESULT_WAIT, marks the card unsaved again.
+// A save that neither disables its button nor posts a new message is judged after this long, by the
+// message the card still shows (none: done). A failure that reports later, inside RESULT_WAIT, marks
+// the card unsaved again.
 const QUIET = 1500;
 const ICONS = {
     success: '<path d="M20 6 9 17l-5-5"/>',
@@ -116,6 +117,26 @@ function startSettle(card, button) {
     setTimeout(schedule, QUIET + 50);
 }
 
+/** Settles the card's save on the first problem or success among these messages; false when there is neither. */
+function settleOn(card, s, candidates) {
+    const problem = candidates.find(el => el.matches(PROBLEM));
+    const ok = candidates.find(el => el.matches(SUCCESS));
+    if (!problem && !ok) return false;
+    settling.delete(card);
+    if (s.dirty) {
+        if (problem && !reportsSaved(problem)) unsaved.add(card);
+        else unsaved.delete(card);
+    }
+    if (!s.float) return true;
+    if (problem) {
+        showResult(floats.get(card), problem.matches('.alert-warning') ? 'warning' : 'error');
+        problem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else {
+        showResult(floats.get(card), 'success');
+    }
+    return true;
+}
+
 function checkSettles() {
     const now = Date.now();
     for (const [card, s] of settling) {
@@ -124,27 +145,17 @@ function checkSettles() {
         // A repeat save can leave the same message in place: once the button has been busy and is back,
         // whatever message the card shows is this save's.
         const fresh = [...messages(card)].filter(([el, text]) => s.sawBusy || s.before.get(el) !== text).map(([el]) => el);
-        const problem = fresh.find(el => el.matches(PROBLEM));
-        const ok = fresh.find(el => el.matches(SUCCESS));
-        if (problem || ok) {
-            settling.delete(card);
-            if (s.dirty) {
-                if (problem && !reportsSaved(problem)) unsaved.add(card);
-                else unsaved.delete(card);
-            }
-            if (!s.float) continue;
-            if (problem) {
-                showResult(floats.get(card), problem.matches('.alert-warning') ? 'warning' : 'error');
-                problem.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            } else {
-                showResult(floats.get(card), 'success');
-            }
-            continue;
-        }
+        if (settleOn(card, s, fresh)) continue;
         // No message: a busy spell that has ended is a finished save. A button that never goes busy
         // gets QUIET, and stays watched in case its failure reports late.
         if (s.sawBusy) { settling.delete(card); if (s.dirty) unsaved.delete(card); }
-        else if (!s.cleared && now - s.since >= QUIET) { s.cleared = true; if (s.dirty) unsaved.delete(card); }
+        else if (!s.cleared && now - s.since >= QUIET) {
+            // A save that finishes in one render repeats its last message unchanged, with no busy spell:
+            // nothing in the card moved, so the message it still shows is this save's too.
+            if (settleOn(card, s, [...messages(card).keys()])) continue;
+            s.cleared = true;
+            if (s.dirty) unsaved.delete(card);
+        }
     }
 }
 
