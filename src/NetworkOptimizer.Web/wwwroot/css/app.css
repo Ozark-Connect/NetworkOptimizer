@@ -30313,6 +30313,11 @@ body:has(.top-bar-hidden) .btn-fit {
     gap: 0.5rem;
 }
 
+/* The Fabrics badge after an object's name, spaced like the other name badges. */
+.cc-fabric-badge {
+    margin-left: 0.4rem;
+}
+
 /* The edited badge goes to the next edit: a status badge that is a button. */
 .change-control .cc-edited-badge {
     border: none;

@@ -38,6 +38,10 @@ public sealed class ChangeObjectView
     public ConfigChangeAction Action { get; init; }
     public List<StoredField> Fields { get; init; } = [];
     public string? OwnedBy { get; init; }
+
+    /// <summary>A Site Manager Fabric manages the object: "locked" or "overridable"; null otherwise.</summary>
+    public string? Fabric { get; init; }
+
     public string ChangeText { get; init; } = "";
 
     /// <summary>For a policy order change, the policies that moved; shown in place of the order lists.</summary>

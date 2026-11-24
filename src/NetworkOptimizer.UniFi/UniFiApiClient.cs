@@ -2074,6 +2074,30 @@ public partial class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// GET v2/api/site/{site}/port-automations - Port Automations (Network 11.1+). Empty on an older Network app,
+    /// which has no such route (404).
+    /// </summary>
+    public async Task<List<UniFiPortAutomation>> GetPortAutomationsAsync(CancellationToken cancellationToken = default)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken)) return [];
+        try
+        {
+            var response = await _httpClient!.GetAsync(BuildV2ApiPath($"site/{_site}/port-automations"), cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogDebug("Port Automations not available: {StatusCode}", response.StatusCode);
+                return [];
+            }
+            return await response.Content.ReadFromJsonAsync<List<UniFiPortAutomation>>(cancellationToken: cancellationToken) ?? [];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch Port Automations");
+            return [];
+        }
+    }
+
+    /// <summary>
     /// GET v2/api/site/{site}/wireguard/{networkId}/users: the peers of a WireGuard server network,
     /// with the subnets each routes. Empty on any failure.
     /// </summary>

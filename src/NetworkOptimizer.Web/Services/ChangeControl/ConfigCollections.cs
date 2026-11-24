@@ -277,7 +277,7 @@ public static class ConfigCollections
 
     private static HashSet<string> Set(params string[] items) => new(items, StringComparer.Ordinal);
 
-    private static readonly HashSet<string> CommonReadOnly = Set("site_id", "attr_hidden_id", "attr_no_delete", "attr_no_edit", "external_id");
+    private static readonly HashSet<string> CommonReadOnly = Set("site_id", "attr_hidden_id", "attr_no_delete", "attr_no_edit", "external_id", "cloud_template");
 
     private static string? Str(JsonObject o, string field) =>
         o[field] is JsonValue v && v.TryGetValue<string>(out var s) ? s : o[field]?.ToString();
@@ -367,6 +367,31 @@ public static class ConfigCollections
         field.StartsWith("x_", StringComparison.Ordinal)
         || (def != null && def.ExtraSecretFields.Contains(field));
 
+    /// <summary>Who pushes Fabric objects, as UniFi names it ("created through Site Manager").</summary>
+    public const string SiteManager = "Site Manager";
+
+    /// <summary>
+    /// The Site Manager template behind an object a Fabric pushed (Network 11.1+), or null. A detached copy is
+    /// the site's own again. Objects outside a Fabric carry no cloud_template, or a null one (firewall zones).
+    /// </summary>
+    [VendorSpecific("UniFi", "cloud_template {orchestration_id, config_id, template_id, revision_id, detached, allow_overrides}")]
+    public static JsonObject? FabricTemplate(JsonObject obj) =>
+        obj["cloud_template"] is JsonObject t && !(t["detached"] is JsonValue d && d.TryGetValue<bool>(out var detached) && detached) ? t : null;
+
+    /// <summary>A Fabric object the console refuses to edit locally: its template does not allow overrides.</summary>
+    public static bool FabricLocked(JsonObject obj) =>
+        FabricTemplate(obj) is { } t && !(t["allow_overrides"] is JsonValue v && v.TryGetValue<bool>(out var allowed) && allowed);
+
+    /// <summary>Stored Fabric state of a locked object (<see cref="FabricState"/>).</summary>
+    public const string FabricLockedState = "locked";
+
+    /// <summary>Stored Fabric state of an object whose template allows local overrides.</summary>
+    public const string FabricOverridableState = "overridable";
+
+    /// <summary>"locked", "overridable", or null for an object no Fabric manages: what the Fabrics badge shows.</summary>
+    public static string? FabricState(JsonObject? obj) =>
+        obj == null || FabricTemplate(obj) == null ? null : FabricLocked(obj) ? FabricLockedState : FabricOverridableState;
+
     /// <summary>The owning NO feature of an object, or null when the user owns it.</summary>
     public static string? OwnedBy(ConfigCollectionDef def, JsonObject obj)
     {
@@ -378,12 +403,14 @@ public static class ConfigCollections
 
     /// <summary>
     /// Who manages an object the editor never changes: "UniFi" for its predefined and generated
-    /// objects, a Network Optimizer feature for its own; null when the user owns it. Narrower than
+    /// objects, a Network Optimizer feature for its own, "Site Manager" for a locked Fabric object;
+    /// null when the user owns it. Narrower than
     /// <see cref="DeleteCascade.CannotDelete"/>: the Default network and built-in zones cannot be
     /// deleted but are the user's to edit.
     /// </summary>
     public static string? ManagedBy(ConfigCollectionDef def, JsonObject obj) =>
         OwnedBy(def, obj)
+        ?? (FabricLocked(obj) ? SiteManager : null)
         ?? (def.IsGenerated?.Invoke(obj) == true
             || new[] { "predefined", "is_predefined" }.Any(f => obj[f] is JsonValue v && v.TryGetValue<bool>(out var b) && b)
             ? "UniFi" : null);
@@ -492,7 +519,7 @@ public static class ConfigCollections
                 ReadOnlyFields = CommonReadOnly,
                 // Not x_-prefixed, but carry keys: the WireGuard config file holds the PrivateKey line.
                 ExtraSecretFields = Set("wireguard_client_preshared_key", "wireguard_client_configuration_file", "openvpn_configuration"),
-                SetArrays = Set("dhcpd_dns", "nat_outbound_ip_addresses", "lte_lan_enabled_devices"),
+                SetArrays = Set("dhcpd_dns", "nat_outbound_ip_addresses", "lte_lan_enabled_devices", "tagged_networkconf_ids"),
                 EnforcedKey = (o, _) => NetworkKey(o), KeyIsUnique = true,
                 // Sites numbered by different people share names ("IoT") more reliably than VLAN IDs (TJ, 2026-10-29).
                 NameFirstAcrossSites = true,
@@ -583,6 +610,18 @@ public static class ConfigCollections
                 AuditSections = ["PORT_PROFILE"], AuditCollectionNames = ["portconf"], AuditInput = true,
                 TagsForField = (_, f) => Tags(f, ("multicast", ServiceTags.Mdns), ("poe", ServiceTags.Poe)),
                 IsManagementField = (_, f) => f is "native_networkconf_id" or "tagged_vlan_mgmt" or "excluded_networkconf_ids" or "forward" or "tagged_networkconf_ids",
+            },
+            new()
+            {
+                // Settings - Port Automations (Network 11.1): apply a port profile by vendor or MAC OUI. Recorded, diffed, and
+                // listed; not written: the order is a separate list (port-automations/order) that is not grounded. UniFi
+                // applies an automation into the device's port_system_overrides, never port_overrides.
+                Key = "port_automation", DisplayName = "Port Automations", Noun = "Port Automation", Group = "Port Profiles",
+                Scope = UniFiApiScope.SiteV2, ReadPath = "port-automations", Order = 4,
+                ReadOnlyFields = Set([.. CommonReadOnly, "automation_index"]),
+                SetArrays = Set("vendor_ids", "mac_ouis", "switch_macs", "device_tag_ids"),
+                // UniFi keeps names unique per site, ignoring case.
+                EnforcedKey = (o, _) => Str(o, "name")?.ToLowerInvariant(), KeyIsUnique = true,
             },
             new()
             {

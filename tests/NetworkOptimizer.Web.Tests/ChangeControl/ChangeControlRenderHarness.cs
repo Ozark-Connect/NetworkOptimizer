@@ -76,6 +76,11 @@ public class ChangeControlRenderHarness
         services.AddSingleton(site);
         services.AddSingleton<NavigationManager>(new FakeNav(path ?? "change-control"));
         services.AddSingleton<IJSRuntime>(Mock.Of<IJSRuntime>());
+        var displayTime = new Mock<IDisplayTimeZone>();
+        displayTime.SetupGet(d => d.Zone).Returns(TimeZoneInfo.Utc);
+        displayTime.SetupGet(d => d.Format).Returns(NetworkOptimizer.Core.Helpers.DisplayFormat.Fallback);
+        displayTime.SetupGet(d => d.BrowserFormat).Returns(NetworkOptimizer.Core.Helpers.DisplayFormat.Fallback);
+        services.AddSingleton(displayTime.Object);
         services.AddSingleton((SiteSwitchService)RuntimeHelpers.GetUninitializedObject(typeof(SiteSwitchService)));
         // Read for IsConnected (false here) and its change event only.
         services.AddSingleton((UniFiConnectionService)RuntimeHelpers.GetUninitializedObject(typeof(UniFiConnectionService)));
@@ -224,6 +229,9 @@ public class ChangeControlRenderHarness
         [
             new() { Collection = "wlanconf", CollectionName = "WLANs", ObjectId = "w1", Name = "Home", Action = ConfigChangeAction.Updated,
                 Fields = [new() { Label = "Security protocol", Old = "WPA2", New = "WPA2/WPA3" }, new() { Label = "PMF", Old = "Disabled", New = "Optional" }] },
+            // A Site Manager Fabric's network, for the Fabrics badge.
+            new() { Collection = "networkconf", CollectionName = "Networks", ObjectId = "n9", Name = "Branch Guest", Action = ConfigChangeAction.Created,
+                Fabric = ConfigCollections.FabricLockedState },
         ],
         MadeBy = "Alex", MadeVia = "UniFi Web App", MadeOn = "desktop", MadeFromIp = "203.0.113.24",
         BeforeAfter = [new("Loaded latency", "34", "35 ms", false), new("Loaded loss", "0.0", "0.0%", false), new("Gateway CPU", "18", "19%", false)],

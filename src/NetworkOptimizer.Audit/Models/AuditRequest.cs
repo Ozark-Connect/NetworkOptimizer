@@ -164,6 +164,11 @@ public class AuditRequest
     public List<UniFiFirewallZone>? FirewallZones { get; init; }
 
     /// <summary>
+    /// Optional: Port Automations from the v2 port-automations API (Network 11.1+); empty or null on older apps.
+    /// </summary>
+    public List<UniFiPortAutomation>? PortAutomations { get; init; }
+
+    /// <summary>
     /// Optional: User overrides for network purpose classification.
     /// Keys are UniFi network IDs, values are NetworkPurpose enum names (e.g., "IoT", "Guest").
     /// Overrides are applied after VlanAnalyzer extraction in Phase 1.

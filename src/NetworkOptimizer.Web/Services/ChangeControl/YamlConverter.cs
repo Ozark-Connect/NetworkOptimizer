@@ -799,9 +799,12 @@ public static partial class YamlConverter
                 continue;
             }
             var name = $"{def.Noun} {ConfigState.DisplayName(def, before)}";
-            result.Problems.Add(new YamlProblem("Error", fileName, Line(node), who == "UniFi"
-                ? $"{name} is managed by UniFi and cannot be edited here."
-                : $"{name} belongs to {who} and cannot be edited here."));
+            result.Problems.Add(new YamlProblem("Error", fileName, Line(node), who switch
+            {
+                "UniFi" => $"{name} is managed by UniFi and cannot be edited here.",
+                ConfigCollections.SiteManager => $"{name} is centrally managed by the Fabric and cannot be edited locally. Change it in Site Manager.",
+                _ => $"{name} belongs to {who} and cannot be edited here.",
+            }));
         }
 
         // An object removed from the file is deleted. Say what that does: nothing in a collection
@@ -853,6 +856,14 @@ public static partial class YamlConverter
                 if (DeleteCascade.CannotDelete(def, removed))
                 {
                     result.Problems.Add(new YamlProblem("Error", fileName, 1, $"{name} is built into UniFi and cannot be deleted."));
+                    continue;
+                }
+                // A Fabric pushes it back at the next sync, whatever its lock state (UniFi's wording, as PlanBuilder's note).
+                if (ConfigCollections.FabricTemplate(removed) != null)
+                {
+                    result.Problems.Add(new YamlProblem("Error", fileName, 1, ConfigCollections.FabricLocked(removed)
+                        ? $"{name}: created through Site Manager. Remove it from Site Manager, or it reappears after the next sync."
+                        : $"{name}: created through Site Manager. To permanently delete it, remove it from Site Manager."));
                     continue;
                 }
                 var id = ConfigState.IdOf(removed);

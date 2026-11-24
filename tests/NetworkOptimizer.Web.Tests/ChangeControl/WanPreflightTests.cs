@@ -82,6 +82,30 @@ public class WanPreflightTests
     }
 
     [Fact]
+    public void LiveWan_PassthroughVlans_AreAPossibleLockout_NamedAsSuch()
+    {
+        var doc = Plan(s =>
+        {
+            s.Collections["networkconf"].Add(new JsonObject { ["_id"] = "n-vo", ["name"] = "IPTV", ["purpose"] = "vlan-only", ["vlan"] = 690, ["vlan_enabled"] = true });
+            Wan(s, "n-wan2")["tagged_networkconf_ids"] = new JsonArray("n-vo");
+        }, OnWan2);
+
+        doc.Lockouts.Single().Detail.Should().Be("This changes how it connects (Passthrough VLANs). A wrong value takes the WAN offline.");
+        Op(doc, "n-wan2").Fields.Should().Contain(f => f.Label == "Passthrough VLANs");
+    }
+
+    [Fact]
+    public void LiveWan_PassthroughVlanOrder_IsNotAChange()
+    {
+        var live = Site();
+        live.Collections["networkconf"].Add(new JsonObject { ["_id"] = "n-a", ["name"] = "IPTV", ["purpose"] = "vlan-only", ["vlan"] = 690 });
+        live.Collections["networkconf"].Add(new JsonObject { ["_id"] = "n-b", ["name"] = "VoIP", ["purpose"] = "vlan-only", ["vlan"] = 691 });
+        Wan(live, "n-wan2")["tagged_networkconf_ids"] = new JsonArray("n-a", "n-b");
+
+        Plan(s => Wan(s, "n-wan2")["tagged_networkconf_ids"] = new JsonArray("n-b", "n-a"), OnWan2, live: live).Operations.Should().BeEmpty();
+    }
+
+    [Fact]
     public void LiveWan_ChangeOffTheUplink_IsNotFlagged()
     {
         Plan(s => Wan(s, "n-wan2")["wan_smartq_enabled"] = true, OnWan2).Lockouts.Should().BeEmpty();

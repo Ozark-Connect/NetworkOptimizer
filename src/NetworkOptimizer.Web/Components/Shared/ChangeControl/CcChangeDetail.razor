@@ -50,9 +50,9 @@ else
                 }
                 @foreach (var o in Detail.Objects.OrderBy(o => o.Action == ConfigChangeAction.Deleted ? 0 : 1))
                 {
-                    @if (Detail.Objects.Count > 1 || o.Action != ConfigChangeAction.Updated || o.OrderMoves != null)
+                    @if (Detail.Objects.Count > 1 || o.Action != ConfigChangeAction.Updated || o.OrderMoves != null || o.Fabric != null)
                     {
-                        <tr><td colspan="2"><span class="cc-action-text @CcFormat.ActionClass(o.Action)">@CcFormat.ActionText(o.Action, true)</span> @o.CollectionName: @o.Name</td></tr>
+                        <tr><td colspan="2"><span class="cc-action-text @CcFormat.ActionClass(o.Action)">@CcFormat.ActionText(o.Action, true)</span> @o.CollectionName: @o.Name <CcFabricBadge State="@o.Fabric" /></td></tr>
                     }
                     @if (o.OrderMoves is { } moves)
                     {

@@ -43,6 +43,9 @@ public sealed class PlanOperation
     public string? ObjectId { get; set; }
     public string ObjectName { get; set; } = "";
 
+    /// <summary>A Site Manager Fabric manages the object it writes: "overridable" (a locked one is never written); null otherwise.</summary>
+    public string? Fabric { get; set; }
+
     /// <summary>Request body, with references already mapped to live IDs or <c>@ref:key</c> tokens for objects this plan creates. Can hold secrets.</summary>
     public JsonNode? Body { get; set; }
 
@@ -154,6 +157,12 @@ public sealed class PlanDocument
 
     /// <summary>What the plan does not write and why (NO-owned, generated, read-only collections).</summary>
     public List<string> Notes { get; set; } = [];
+
+    /// <summary>
+    /// The notes (also in <see cref="Notes"/>) for changes the plan wanted and the console does not take: a Fabric's
+    /// objects. When nothing else is written, they are why the plan is empty.
+    /// </summary>
+    public List<string> Unwritable { get; set; } = [];
 
     /// <summary>Per-site generated values a plan onto another site kept from the target, in plain words.</summary>
     public List<string> KeptValues { get; set; } = [];

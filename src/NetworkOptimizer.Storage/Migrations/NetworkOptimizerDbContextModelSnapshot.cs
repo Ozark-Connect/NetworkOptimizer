@@ -1385,6 +1385,10 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Fabric")
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("FieldsJson")
                         .IsRequired()
                         .HasColumnType("TEXT");

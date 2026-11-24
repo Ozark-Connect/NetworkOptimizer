@@ -1693,6 +1693,17 @@ public partial class AuditService : IAuditScanService
                 _logger.LogWarning(ex, "Failed to fetch firewall zones for zone validation");
             }
 
+            // Port Automations (Network 11.1+): which port profiles a vendor or MAC OUI can claim.
+            List<NetworkOptimizer.UniFi.Models.UniFiPortAutomation>? portAutomations = null;
+            try
+            {
+                portAutomations = await _connectionService.Client.GetPortAutomationsAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch Port Automations");
+            }
+
             // The gateway's own firewall, to check it enforces what UniFi Network says. Skipped without gateway SSH.
             Audit.Models.GatewayFirewallSnapshot? gatewayFirewall = null;
             List<Audit.Models.GatewayWanPath>? gatewayWans = null;
@@ -1790,6 +1801,7 @@ public partial class AuditService : IAuditScanService
                 ConsoleApiKeys = consoleApiKeys,
                 ConnectedUsername = _connectionService.Client?.SignInUsername,
                 FirewallZones = firewallZones,
+                PortAutomations = portAutomations,
                 NetworkPurposeOverrides = options.NetworkPurposeOverrides,
                 ThreatContext = threatContext,
                 GatewayFirewall = gatewayFirewall,
@@ -2183,7 +2195,8 @@ public partial class AuditService : IAuditScanService
         Audit.IssueTypes.AllowSubvertsDeny or Audit.IssueTypes.AllowExceptionPattern or Audit.IssueTypes.DenyShadowsAllow or
         Audit.IssueTypes.PermissiveRule or Audit.IssueTypes.BroadRule or Audit.IssueTypes.OrphanedRule or
         Audit.IssueTypes.MissingIsolation or Audit.IssueTypes.IsolationBypassed or
-        Audit.IssueTypes.GatewayManagementExposed or Audit.IssueTypes.GatewayWanManagementExposed => "Firewall Rules",
+        Audit.IssueTypes.GatewayManagementExposed or Audit.IssueTypes.GatewayWanManagementExposed or
+        Audit.IssueTypes.WanPassthroughVlan => "Firewall Rules",
         var t when t.StartsWith("FW-") => "Firewall Rules",
 
         // VLAN security issues (includes device placement - putting devices on correct VLAN)
@@ -2198,7 +2211,8 @@ public partial class AuditService : IAuditScanService
         Audit.IssueTypes.InfraNotOnMgmt => "VLAN Security",
 
         // Port security issues
-        Audit.IssueTypes.MacRestriction or Audit.IssueTypes.PortLock or Audit.IssueTypes.UnusedPort or Audit.IssueTypes.PortIsolation or "PORT_SECURITY" => "Port Security",
+        Audit.IssueTypes.MacRestriction or Audit.IssueTypes.PortLock or Audit.IssueTypes.UnusedPort or Audit.IssueTypes.PortIsolation or "PORT_SECURITY" or
+        Audit.IssueTypes.PortAutomationTrustedNetwork => "Port Security",
 
         // DNS security issues
         Audit.IssueTypes.DnsLeakage or Audit.IssueTypes.DnsSharedServers or Audit.IssueTypes.DnsNoDoh or Audit.IssueTypes.DnsDohAuto or Audit.IssueTypes.DnsNo53Block or
@@ -2332,6 +2346,8 @@ public partial class AuditService : IAuditScanService
             Audit.IssueTypes.UpnpPortsExposed => "UPnP: Ports Exposed",
             Audit.IssueTypes.StaticPortForward => "Port Forwards: Static Rules",
             Audit.IssueTypes.StaticPrivilegedPort => "Port Forwards: Privileged Ports",
+            Audit.IssueTypes.WanPassthroughVlan => "WAN: Passthrough VLANs Bypass the Firewall",
+            Audit.IssueTypes.PortAutomationTrustedNetwork => "Port Automation: Trusted Network by Vendor or MAC OUI",
 
             // Threat Intelligence
             Audit.IssueTypes.ThreatExposedPortForward => "Threat: Actively Targeted Port Forward",
@@ -2503,6 +2519,8 @@ public partial class AuditService : IAuditScanService
         Audit.IssueTypes.UpnpPortsExposed => "Review UPnP mappings periodically in the UPnP Inspector.",
         Audit.IssueTypes.StaticPortForward => "Review static port forwards periodically to ensure they are still needed.",
         Audit.IssueTypes.StaticPrivilegedPort => "Ensure these privileged ports are intentionally exposed and properly secured.",
+        Audit.IssueTypes.WanPassthroughVlan => "Keep each passthrough VLAN to the ISP service it carries, tagged only on that equipment's ports.",
+        Audit.IssueTypes.PortAutomationTrustedNetwork => "Point the automation at a restricted network, and set ports on trusted networks by hand.",
         _ => "Review the configuration and apply security best practices."
     };
 }

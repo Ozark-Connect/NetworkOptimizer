@@ -37,8 +37,9 @@ public static partial class YamlConverter
             var json = shape.ToJson(def, targets);
             // The editor offers its remove button only where a delete can be written.
             if (def.Write?.CanDelete != true) json["readOnly"] = true;
-            // ...and never on an object no plan deletes, by the ID the editor writes on its first line.
-            var keep = state.Get(def.Key).Where(o => DeleteCascade.CannotDelete(def, o) || ConfigCollections.OwnedBy(def, o) != null)
+            // ...and never on an object no plan deletes, by the ID the editor writes on its first line (a Fabric's included).
+            var keep = state.Get(def.Key).Where(o => DeleteCascade.CannotDelete(def, o) || ConfigCollections.OwnedBy(def, o) != null
+                    || ConfigCollections.FabricTemplate(o) != null)
                 .Select(o => (JsonNode?)ConfigState.IdOf(o)).ToArray();
             if (keep.Length > 0) json["undeletable"] = new JsonArray(keep);
             // ...and read-only, by ID, with who manages it, on UniFi's own and Network Optimizer's objects.

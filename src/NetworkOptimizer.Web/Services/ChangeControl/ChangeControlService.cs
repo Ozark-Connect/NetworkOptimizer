@@ -428,6 +428,7 @@ public sealed partial class ChangeControlService : IChangeControlService
             Action = o.Action,
             Fields = fields,
             OwnedBy = o.OwnedBy,
+            Fabric = o.Fabric,
             ChangeText = ChangeDescriber.ObjectChangeText(summaryObject),
         };
     }

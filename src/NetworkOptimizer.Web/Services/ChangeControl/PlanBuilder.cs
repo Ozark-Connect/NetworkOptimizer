@@ -99,7 +99,11 @@ public static class PlanBuilder
         // lacks, so work on a copy.
         var otherVersion = desired.NetworkAppVersion != null && live.NetworkAppVersion != null
             && !string.Equals(desired.NetworkAppVersion, live.NetworkAppVersion, StringComparison.OrdinalIgnoreCase);
-        if (!options.SameSite || otherVersion || !options.DeleteMissing) desired = desired.Clone();
+        // A Fabric object on the target stays (a local delete is undone at the next sync), and the desired side gains the
+        // references to it (KeepReferencesToFabricObjects). Only a target with Fabric objects takes this path.
+        var keepsFabric = options.DeleteMissing
+            && live.Collections.Values.Any(list => list.Any(o => ConfigCollections.FabricTemplate(o) != null));
+        if (!options.SameSite || otherVersion || !options.DeleteMissing || keepsFabric) desired = desired.Clone();
         var desiredCtx = new ConfigIdentityContext(desired.NamesById());
         var liveCtx = new ConfigIdentityContext(live.NamesById());
         var desiredById = desired.ObjectsById();
@@ -114,13 +118,20 @@ public static class PlanBuilder
         // A snapshot from another Network version predates the columns the upgrade added.
         if (!options.SameSite || otherVersion)
         {
+            // Live objects the source lacks, which this plan deletes: a filled value cannot vouch for a link to them.
+            // A Fabric object on the target is not deleted (Site Manager owns it).
+            var deleted = options.DeleteMissing
+                ? matches.Values.SelectMany(m => m.Pairs).Where(p => p.Left == null && p.Right != null)
+                    .Where(p => !keepsFabric || ConfigCollections.FabricTemplate(p.Right!) == null)
+                    .Select(p => ConfigState.IdOf(p.Right!)).ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : [];
             foreach (var def in ConfigCollections.All.Where(d => matches.ContainsKey(d.Key)))
                 foreach (var p in matches[def.Key].Pairs.Where(p => p.Left != null && p.Right != null))
                 {
                     // A field the source never carried (an older Network version, a setting never saved there)
                     // is unspecified, not unset: the target keeps its own.
                     foreach (var (k, v) in p.Right!)
-                        if (!p.Left!.ContainsKey(k)) p.Left[k] = v?.DeepClone();
+                        if (!p.Left!.ContainsKey(k)) p.Left[k] = WithoutIds(v, deleted);
                     if (!options.SameSite && def.KeepTargetValues?.Invoke(p.Left!, p.Right!) is { } what)
                         doc.KeptValues.Add(what);
                     if (options.MergeLists) MergeListsInto(def, p.Left!, p.Right!);
@@ -128,6 +139,7 @@ public static class PlanBuilder
         }
 
         if (options.SameSite && !options.DeleteMissing) KeepReferencesToKeptObjects(matches);
+        if (keepsFabric) KeepReferencesToFabricObjects(matches);
         SetApGroupModes(desired, live, idMap);
 
         var mgmtNetworks = ConfigDiffEngine.ManagementNetworkIds(live);
@@ -340,6 +352,14 @@ public static class PlanBuilder
         if (desired == null)
         {
             if (!options.DeleteMissing) return null;
+            // UniFi's own warning, per lock state: a locked Site Manager object deleted here reappears at the next sync.
+            if (ConfigCollections.FabricTemplate(live!) != null)
+            {
+                AddUnwritable(doc, ConfigCollections.FabricLocked(live!)
+                    ? $"{def.Noun} {name}: created through Site Manager. Remove it from Site Manager, or it reappears after the next sync. Not deleted."
+                    : $"{def.Noun} {name}: created through Site Manager. To permanently delete it, remove it from Site Manager. Not deleted.");
+                return null;
+            }
             // A WLAN's own AP group (Specific APs on that WLAN) is removed by UniFi with the WLAN; deleting it
             // ourselves races that removal, and fails while the WLAN still points at it.
             if (def.Key == "apgroups" && live!["for_wlanconf"] is JsonValue fw && fw.TryGetValue<bool>(out var forWlan) && forWlan)
@@ -386,6 +406,7 @@ public static class PlanBuilder
                 Action = PlanAction.Delete,
                 ObjectId = ConfigState.IdOf(live!),
                 ObjectName = name,
+                Fabric = ConfigCollections.FabricState(live),
                 Order = def.Order,
                 ChangeText = DescribeObject(def, live!, liveCtx),
                 Tier = PlanTiers.Acknowledge,
@@ -523,6 +544,12 @@ public static class PlanBuilder
         if (diff == null) return null;
         diff = DropKeptSecrets(diff);
         if (diff.Fields.Count == 0) return null;
+        // The console refuses a local edit to a locked Fabric object, whatever the source; Site Manager is where it changes.
+        if (ConfigCollections.FabricLocked(live))
+        {
+            AddUnwritable(doc, $"{def.Noun} {name}: centrally managed by the Fabric and cannot be edited locally. Change it in Site Manager.");
+            return null;
+        }
 
         var update = new PlanOperation
         {
@@ -531,6 +558,7 @@ public static class PlanBuilder
             Action = PlanAction.Update,
             ObjectId = ConfigState.IdOf(live),
             ObjectName = name,
+            Fabric = ConfigCollections.FabricState(live),
             Order = def.Order,
             NeedsGateway = write.NeedsGateway,
             DevicePhase = def.Key == "device",
@@ -828,6 +856,7 @@ public static class PlanBuilder
             Before = diff.Before,
             After = diff.After,
             OwnedBy = diff.OwnedBy,
+            Fabric = diff.Fabric,
             Generated = diff.Generated,
             ManagementPath = diff.ManagementPath,
             WanPath = diff.WanPath,
@@ -1282,6 +1311,15 @@ public static class PlanBuilder
         _ => node?.DeepClone(),
     };
 
+    /// <summary>
+    /// A copy of a list with the given IDs taken out (a WAN's Passthrough VLANs naming a network the plan deletes).
+    /// Any other value is copied as is.
+    /// </summary>
+    private static JsonNode? WithoutIds(JsonNode? value, IReadOnlySet<string> ids) =>
+        value is JsonArray arr && ids.Count > 0
+            ? new JsonArray(arr.Where(e => !(e is JsonValue v && v.TryGetValue<string>(out var s) && ids.Contains(s))).Select(e => e?.DeepClone()).ToArray())
+            : value?.DeepClone();
+
     private static JsonObject MergeForCheck(JsonObject live, JsonObject body)
     {
         var merged = (JsonObject)live.DeepClone();
@@ -1429,14 +1467,47 @@ public static class PlanBuilder
             AddBack(p.Left!, p.Right!, kept);
     }
 
-    /// <summary>Puts kept IDs back into the desired lists that held them live (port lists matched by port_idx).</summary>
-    private static void AddBack(JsonNode desired, JsonNode live, HashSet<string> kept)
+    /// <summary>
+    /// A Fabric object this plan leaves in place keeps every reference to it, as a kept object does. A list the source
+    /// lacks altogether gains it too: a port profile with no exclusions before the Fabric pushed a network excludes it
+    /// now, and dropping that would tag the network on the profile's ports.
+    /// </summary>
+    internal static void KeepReferencesToFabricObjects(Dictionary<string, MatchResult> matches)
+    {
+        var kept = matches.Values
+            .SelectMany(m => m.Pairs.Where(p => p.Left == null && p.Right != null && ConfigCollections.FabricTemplate(p.Right) != null)
+                .Select(p => ConfigState.IdOf(p.Right!)))
+            .Where(id => id.Length > 0).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (kept.Count == 0) return;
+        foreach (var p in matches.Values.SelectMany(m => m.Pairs).Where(p => p.Left != null && p.Right != null))
+            AddBack(p.Left!, p.Right!, kept, fillAbsent: true);
+    }
+
+    /// <summary>A change the console will not take (a Fabric's object): noted once, and kept as a reason the plan may be empty.</summary>
+    private static void AddUnwritable(PlanDocument doc, string note)
+    {
+        if (doc.Notes.Contains(note)) return;
+        doc.Notes.Add(note);
+        doc.Unwritable.Add(note);
+    }
+
+    /// <summary>
+    /// Puts kept IDs back into the desired lists that held them live (port lists matched by port_idx). With
+    /// <paramref name="fillAbsent"/>, a list the desired side lacks (or holds as null) is created with just the kept IDs.
+    /// </summary>
+    private static void AddBack(JsonNode desired, JsonNode live, HashSet<string> kept, bool fillAbsent = false)
     {
         switch (desired, live)
         {
             case (JsonObject d, JsonObject l):
                 foreach (var (k, lv) in l)
-                    if (lv != null && d[k] is { } dv) AddBack(dv, lv, kept);
+                {
+                    if (lv == null) continue;
+                    if (d[k] is { } dv) AddBack(dv, lv, kept, fillAbsent);
+                    else if (fillAbsent && lv is JsonArray la && la.All(n => n is JsonValue)
+                             && la.Select(n => n?.ToString()).OfType<string>().Where(kept.Contains).ToList() is { Count: > 0 } ids)
+                        d[k] = new JsonArray(ids.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray());
+                }
                 break;
             case (JsonArray d, JsonArray l) when l.All(n => n is JsonValue):
                 var have = d.Select(n => n?.ToString()).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -1451,7 +1522,7 @@ public static class PlanBuilder
                     var match = idx != null
                         ? d.OfType<JsonObject>().FirstOrDefault(o => o["port_idx"]?.ToString() == idx)
                         : i < d.Count ? d[i] as JsonObject : null;
-                    if (match != null) AddBack(match, lo, kept);
+                    if (match != null) AddBack(match, lo, kept, fillAbsent);
                 }
                 break;
         }
