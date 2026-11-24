@@ -982,7 +982,8 @@ public partial class UniFiApiClient : IDisposable
         CancellationToken cancellationToken = default,
         bool throwOnPermissionError = false,
         string? permissionErrorMessage = null,
-        bool throwOnApiError = false) where T : class
+        bool throwOnApiError = false,
+        string? expectedApiError = null) where T : class
     {
         if (!await EnsureAuthenticatedAsync(cancellationToken))
         {
@@ -1025,9 +1026,11 @@ public partial class UniFiApiClient : IDisposable
             if (!response.IsSuccessStatusCode)
             {
                 var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError("API call failed with status {StatusCode}: {Error}",
-                    response.StatusCode, errorBody);
-                if (throwOnApiError && TryReadApiErrorCode(errorBody) is { } code)
+                var apiCode = TryReadApiErrorCode(errorBody);
+                // A code the caller handles as an expected outcome (expectedApiError) is not an error.
+                _logger.Log(apiCode != null && apiCode == expectedApiError ? LogLevel.Debug : LogLevel.Error,
+                    "API call failed with status {StatusCode}: {Error}", response.StatusCode, errorBody);
+                if (throwOnApiError && apiCode is { } code)
                     throw new UniFiApiErrorException(code, (int)response.StatusCode);
                 return null;
             }
@@ -1830,8 +1833,12 @@ public partial class UniFiApiClient : IDisposable
         if (response?.Meta.Rc == "ok" && group.Id != null)
             return new UniFiFirewallGroup
             {
-                Id = group.Id, Name = group.Name, GroupType = group.GroupType,
-                GroupMembers = [.. group.GroupMembers], Description = group.Description, Source = group.Source,
+                Id = group.Id,
+                Name = group.Name,
+                GroupType = group.GroupType,
+                GroupMembers = [.. group.GroupMembers],
+                Description = group.Description,
+                Source = group.Source,
             };
         throw new InvalidOperationException("The UniFi Console did not confirm the firewall group change.");
     }
@@ -1848,7 +1855,8 @@ public partial class UniFiApiClient : IDisposable
                 cancellationToken,
                 throwOnPermissionError: true,
                 permissionErrorMessage: FirewallPermissionMessage,
-                throwOnApiError: true);
+                throwOnApiError: true,
+                expectedApiError: "api.err.IdInvalid");
             if (response?.Meta.Rc != "ok")
                 throw new InvalidOperationException("The UniFi Console did not confirm deleting the firewall group.");
         }
