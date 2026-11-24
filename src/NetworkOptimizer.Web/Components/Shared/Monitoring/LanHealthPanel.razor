@@ -504,6 +504,14 @@ else
         }
     }
 
+    /// <summary>The drill-down back button, as Threat Intelligence's IP, port, and protocol details have it.</summary>
+    private RenderFragment BackButton => __builder =>
+    {
+        <div id="lan-health-link-top" class="lan-health-back">
+            <button class="btn btn-secondary btn-sm" @onclick="() => NavigationManager.NavigateTo(LanHealthLinks.Tab())"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> LAN Health</button>
+        </div>
+    };
+
     /// <summary>One end of the link: the device's icon with its restart button, its name, and its port.</summary>
     private RenderFragment LinkEndView(LinkEnd end) => __builder =>
     {
@@ -534,12 +542,9 @@ else
     private RenderFragment LinkPage => __builder =>
     {
         var l = _link;
-        @* The drill-down back button, as Threat Intelligence's IP, port, and protocol details have it. *@
-        <div id="lan-health-link-top" class="lan-health-back">
-            <button class="btn btn-secondary btn-sm" @onclick="() => NavigationManager.NavigateTo(LanHealthLinks.Tab())"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> LAN Health</button>
-        </div>
-        @if (l == null)
+        if (l == null)
         {
+            @BackButton
             @* With the console disconnected the link is unknown, not gone: Monitoring's ConsoleConnectionBanner says why. *@
             @if (ConnectionService.IsConnected)
             {
@@ -550,8 +555,10 @@ else
         var link = l.Link;
         var drops = l.Incidents.Where(i => i.Kind is IncidentKind.Drop or IncidentKind.Relink && !i.IsExplained).ToList();
         var secs = drops.Select(i => i.DownSeconds).OfType<double>().ToList();
+        @* A grid: the ends span the back button's row and the title's, beside both. *@
         <div class="lan-health-link-head">
-            <div>
+            @BackButton
+            <div class="lan-health-link-name">
                 <h2 class="lan-health-link-title">@link.Name</h2>
                 <div class="lan-health-sub">@Subtitle(link, l)</div>
             </div>

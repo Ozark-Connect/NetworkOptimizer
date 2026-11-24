@@ -20912,26 +20912,30 @@ tr.stats-row-filtered {
 .lan-health .lan-health-link-name { font-weight: 600; }
 .lan-health .lan-health-link-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-top: 0.5rem; }
 .lan-health .lan-health-link-grid > div { display: flex; flex-direction: column; }
+/* Back button over the title on the left, the range on the title's row at the right, and the two ends
+   spanning both rows between them. */
 .lan-health .lan-health-link-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 1rem;
-    flex-wrap: wrap;
-    margin: 0.5rem 0 1rem;
+    display: grid;
+    grid-template-columns: minmax(0, max-content) minmax(0, 1fr) max-content;
+    grid-template-areas: "back ends ." "name ends right";
+    column-gap: 1.5rem;
+    row-gap: 1.5rem;
+    margin-bottom: 1rem;
 }
-.lan-health .lan-health-link-head-right { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
-/* The two ends between the title and the range: each device's icon, its name under it, and its restart button. */
-.lan-health .lan-health-ends { flex: 1 1 auto; display: flex; align-items: flex-start; justify-content: center; gap: 0.75rem; min-width: 0; }
-.lan-health .lan-health-end { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; width: 9rem; min-width: 0; text-align: center; }
+.lan-health .lan-health-link-head > .lan-health-back { grid-area: back; margin-bottom: 0; }
+.lan-health .lan-health-link-name { grid-area: name; min-width: 0; }
+.lan-health .lan-health-link-head-right { grid-area: right; align-self: start; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+/* Each device's icon with its restart button, its name under it, and its port. */
+.lan-health .lan-health-ends { grid-area: ends; align-self: center; display: flex; align-items: flex-start; justify-content: center; gap: 0.75rem; min-width: 0; }
+.lan-health .lan-health-end { flex: 0 1 auto; display: flex; flex-direction: column; align-items: center; gap: 0.25rem; max-width: 18rem; min-width: 0; text-align: center; }
 .lan-health .lan-health-end-icon { position: relative; display: flex; align-items: center; justify-content: center; width: 48px; height: 48px; color: var(--text-muted); }
 .lan-health .lan-health-end-icon > .line-icon { width: 36px; height: 36px; }
 .lan-health .lan-health-end-icon > .device-restart-btn { position: absolute; left: calc(100% + 0.35rem); bottom: 0; }
-.lan-health .lan-health-end-name { font-size: 0.875rem; font-weight: 600; color: var(--text-primary); overflow-wrap: anywhere; }
-.lan-health .lan-health-end-line { flex: 1 1 2rem; max-width: 8rem; margin-top: 24px; border-top: 2px solid var(--border-strong); }
+.lan-health .lan-health-end-name { font-size: 0.875rem; font-weight: 600; color: var(--text-primary); overflow-wrap: break-word; }
+.lan-health .lan-health-end-line { flex: 1 1 2rem; min-width: 2rem; max-width: 8rem; margin-top: 24px; border-top: 2px solid var(--border-strong); }
 .lan-health .lan-health-end-line.is-mesh { border-top-style: dashed; }
 @media (max-width: 768px) {
-    .lan-health .lan-health-ends { order: 3; flex-basis: 100%; }
+    .lan-health .lan-health-link-head { grid-template-columns: minmax(0, 1fr); grid-template-areas: "back" "name" "right" "ends"; row-gap: 1rem; }
 }
 .lan-health .lan-health-link-title { margin: 0 0 0.25rem; font-size: 1.25rem; }
 .lan-health .lan-health-tiles { margin-bottom: 1rem; }
@@ -27305,6 +27309,12 @@ body:has(.top-bar-hidden) .btn-fit {
 
 .device-restart-pop .lt-fpop-head {
     margin-bottom: 0;
+}
+
+/* It renders inside its button's host (a card, LAN Health's centered link end): inherit nothing from it. */
+.device-restart-pop {
+    text-align: left;
+    color: var(--text-primary);
 }
 
 /* Custom Apps' close button, in the header's flow rather than pinned to a corner. */
