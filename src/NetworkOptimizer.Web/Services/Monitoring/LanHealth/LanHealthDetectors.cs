@@ -72,7 +72,7 @@ public static class LanHealthDetectors
         }
         Add(LossWithoutEvidence(ev, incidents, text));
         Add(Storm(ev, text));
-        foreach (var f in Mesh(ev)) Add(f);
+        foreach (var f in Mesh(ev, incidents)) Add(f);
         Add(BackhaulChannelMoves(ev, incidents, text));
         Add(AccessDegraded(ev));
         Add(HiddenSwitch(ev));
@@ -435,8 +435,21 @@ public static class LanHealthDetectors
         };
     }
 
+    /// <summary>
+    /// A reading is the parent at its hour's end, so a change happened in the later reading's hour, and the child's
+    /// re-association is a relink in that hour. When every drop and relink there is
+    /// explained (a rollout or restart of the child or its parent) the change is that event's, not the backhaul's.
+    /// Hours with no relink at all stay counted.
+    /// </summary>
+    internal static bool ParentChangeExplained(IReadOnlyList<LinkIncident>? incidents, DateTime from, DateTime to)
+    {
+        if (incidents == null) return false;
+        var relinks = incidents.Where(i => i.Kind is IncidentKind.Drop or IncidentKind.Relink && i.Start < to && i.End >= from).ToList();
+        return relinks.Count > 0 && relinks.All(i => i.IsExplained);
+    }
+
     // ---- 12 / 28 Mesh uplink (signal, rate, parent changes, MLO, depth) ----
-    internal static IEnumerable<LinkFinding> Mesh(LinkEvidence ev)
+    internal static IEnumerable<LinkFinding> Mesh(LinkEvidence ev, IReadOnlyList<LinkIncident>? incidents = null)
     {
         if (!ev.Link.IsMesh) yield break;
         var baseSignal = Median(ev.MeshBaseline.Select(m => m.SignalDbm).OfType<int>().Select(v => (double)v));
@@ -450,8 +463,9 @@ public static class LanHealthDetectors
         if (baseRate is double br && nowRate is double nr && br > 0 && nr < br * MeshRateShare)
             yield return MeshFinding(ev, "Mesh Rate Drop", $"Backhaul PHY rate is {nr / 1000:0} Mbps, less than half of its normal {br / 1000:0} Mbps.", 15);
 
-        var parents = ev.Mesh.Select(m => m.ParentMac).Where(p => !string.IsNullOrEmpty(p)).ToList();
-        var changes = parents.Zip(parents.Skip(1)).Count(p => p.First != p.Second);
+        var readings = ev.Mesh.Where(m => !string.IsNullOrEmpty(m.ParentMac)).ToList();
+        var changes = readings.Zip(readings.Skip(1)).Count(p => p.First.ParentMac != p.Second.ParentMac
+            && !ParentChangeExplained(incidents, p.Second.At, p.Second.At.AddHours(1)));
         if (changes > 0)
             yield return MeshFinding(ev, "Mesh Parent Change", $"The mesh backhaul switched parent APs {changes} {(changes == 1 ? "time" : "times")} in this window.", 10);
 

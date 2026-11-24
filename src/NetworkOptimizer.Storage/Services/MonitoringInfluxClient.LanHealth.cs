@@ -263,6 +263,28 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
             .ToList();
     }
 
+    /// <summary>
+    /// The mesh children that recorded <paramref name="parentMac"/> as their uplink parent between the two times: what a
+    /// parent's reboot moves, including a child that failed over to another parent meanwhile. Bounded by the caller to minutes.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> QueryMeshChildrenOfAsync(string parentMac, DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured || string.IsNullOrWhiteSpace(parentMac)) return Array.Empty<string>();
+        var flux = $@"
+from(bucket: {FluxLiteral.Quote(_bucket)})
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""device_health"" and r._field == {FluxLiteral.Quote(InfluxFieldNames.UplinkParentMac)})
+  |> filter(fn: (r) => r._value == {FluxLiteral.Quote(parentMac.Trim().ToLowerInvariant())})
+  |> keep(columns: [""device_mac"", ""_value""])
+  |> distinct(column: ""device_mac"")
+";
+        var children = new HashSet<string>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+            if ((record.GetValueByKey("device_mac") ?? record.GetValue()) is string mac && mac.Length > 0)
+                children.Add(NormalizeMac(mac));
+        return children.ToList();
+    }
+
     /// <summary>Raw readings of a few fields on one device's ports, for a link's timeline. Bounded by the caller to one link and a few days.</summary>
     public async Task<IReadOnlyList<(DateTime Time, string IfName, string PortId, string Field, double Value)>> QueryLanPortRawAsync(
         string deviceMac, DateTime from, DateTime to, IReadOnlyList<string> fields, CancellationToken ct = default)

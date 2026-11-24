@@ -309,6 +309,60 @@ public class LinkDetectorTests
         f[2].Points.Should().Be(0, "imbalance is information");
     }
 
+    private static LinkIncident Relink(DateTime at, ExplainReason? why) =>
+        new() { Start = at, End = at.AddSeconds(5), Kind = IncidentKind.Relink, Count = 1, Explained = why };
+
+    private static LinkEvidence FailoverAndBack() => Ev(MeshLink(), s =>
+        s.Mesh.AddRange([new(T0, -45, 866_000, 1, "p1"), new(T0.AddHours(1), -45, 866_000, 1, "p2"), new(T0.AddHours(2), -45, 866_000, 1, "p1")]));
+
+    [Fact]
+    public void Mesh_AParentChangeWhoseRelinksAreAllExplained_IsNotCounted()
+    {
+        // The parent rebooted in a rollout: the child failed over in one hour and came back in the next.
+        var incidents = new[]
+        {
+            Relink(T0.AddHours(1).AddMinutes(59), ExplainReason.FirmwareRolloutWave),
+            Relink(T0.AddHours(2).AddMinutes(3), ExplainReason.FirmwareRolloutWave),
+        };
+        LanHealthDetectors.Mesh(FailoverAndBack(), incidents).Select(f => f.Class).Should().NotContain("Mesh Parent Change");
+    }
+
+    [Fact]
+    public void Mesh_AParentChangeWithAnUnexplainedRelink_StillCounts()
+    {
+        var incidents = new[]
+        {
+            Relink(T0.AddHours(1).AddMinutes(10), ExplainReason.FirmwareRolloutWave),
+            Relink(T0.AddHours(1).AddMinutes(40), null),
+            Relink(T0.AddHours(2).AddMinutes(3), ExplainReason.FirmwareRolloutWave),
+        };
+        LanHealthDetectors.Mesh(FailoverAndBack(), incidents).Single(f => f.Class == "Mesh Parent Change")
+            .Body.Should().Be("The mesh backhaul switched parent APs 1 time in this window.");
+    }
+
+    [Fact]
+    public void Mesh_AParentChangeWithNoRelinkSeen_StillCounts() =>
+        LanHealthDetectors.Mesh(FailoverAndBack(), []).Single(f => f.Class == "Mesh Parent Change")
+            .Body.Should().Be("The mesh backhaul switched parent APs 2 times in this window.");
+
+    [Fact]
+    public void RolloutAffected_TakesTheMeshChildThatFailedOverToAnotherParent()
+    {
+        // Back Yard is upgrading; Front Yard (and the AP behind it) now hang off Main Kitchen.
+        LinkRecord Mesh(string up, string down) => new()
+        {
+            Id = $"{up}|{down}", Kind = LinkKind.FabricMesh,
+            Upstream = new LinkEnd { DeviceMac = up, DeviceType = DeviceType.AccessPoint },
+            Downstream = new LinkEnd { DeviceMac = down, DeviceType = DeviceType.AccessPoint },
+        };
+        const string backYard = "aa:bb:cc:00:00:01", kitchen = "aa:bb:cc:00:00:02", frontYard = "aa:bb:cc:00:00:03", behind = "aa:bb:cc:00:00:04";
+        var topology = new LanHealthEngine.Topology { Links = [Mesh(kitchen, frontYard), Mesh(frontYard, behind)] };
+
+        LanHealthEngine.RolloutAffected(backYard, topology, []).Should().BeEquivalentTo([backYard]);
+        LanHealthEngine.RolloutAffected(backYard, topology, [frontYard]).Should().BeEquivalentTo([backYard, frontYard, behind]);
+        LanHealthEngine.RolloutAffected(backYard, topology, [frontYard]).Should().NotContain(kitchen, "the new parent did not reboot");
+    }
+
     [Fact]
     public void Mesh_NothingOnAWiredLink() => MeshClasses(Ev(Fabric())).Should().BeEmpty();
 

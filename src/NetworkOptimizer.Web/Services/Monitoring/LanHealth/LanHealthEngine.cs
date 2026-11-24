@@ -17,7 +17,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 public sealed class LanHealthEngine
 {
     /// <summary>Bump when the roll-up changes; older rows are recomputed on the next backfill pass.</summary>
-    public const int Version = 20;
+    public const int Version = 21;
 
     internal static readonly TimeSpan RunEvery = TimeSpan.FromMinutes(15);
     internal static readonly TimeSpan Settle = TimeSpan.FromMinutes(5);
@@ -352,7 +352,7 @@ public sealed class LanHealthEngine
     /// <summary>
     /// What explains a relink in the hour: a reboot, a device state window padded by a poll on each
     /// side, a Change Control change to the device or its port profile, and a Firmware Rollout wave
-    /// on the device or anything above it.
+    /// on the device, anything above it, or the mesh parent it had during the step.
     /// </summary>
     private async Task<List<ExplainWindow>> ExplainWindowsAsync(DateTime from, DateTime to, Topology topology,
         IReadOnlyList<MonitoringInfluxClient.LanEventPoint> events, IReadOnlyList<MonitoringInfluxClient.DeviceRebootPoint> reboots, CancellationToken ct)
@@ -439,7 +439,10 @@ public sealed class LanHealthEngine
                 var start = s.WentDownAt!.Value.AddMinutes(-2);
                 var end = (s.BackAt ?? to).AddMinutes(5);
                 var stepMac = LanLinkBuilder.Mac(s.DeviceMac);
-                var below = Below(stepMac, topology).ToHashSet();
+                IReadOnlyList<string> meshChildren = [];
+                try { meshChildren = await _influx().QueryMeshChildrenOfAsync(stepMac, start, end, ct); }
+                catch (Exception ex) when (ex is not OperationCanceledException) { _logger.LogDebug(ex, "LAN Health: mesh child lookup failed for {Site}", _slug); }
+                var below = RolloutAffected(stepMac, topology, meshChildren);
                 foreach (var mac in below)
                     windows.Add(new ExplainWindow(start, end, mac, ExplainReason.FirmwareRolloutWave, s.ToVersion));
                 if (observed != null && positions != null)
@@ -561,6 +564,19 @@ public sealed class LanHealthEngine
     }
 
     /// <summary>A device and every UniFi device below it in the uplink tree.</summary>
+    /// <summary>
+    /// What an upgrade of <paramref name="mac"/> takes down: everything below it now, plus each mesh child that had it as
+    /// parent during the step (<paramref name="meshChildren"/>, from the recorded parent) and everything below that child.
+    /// A child that failed over to another AP while its parent rebooted is no longer below it in the live topology.
+    /// </summary>
+    internal static HashSet<string> RolloutAffected(string mac, Topology topology, IEnumerable<string> meshChildren)
+    {
+        var set = Below(mac, topology).ToHashSet();
+        foreach (var child in meshChildren)
+            set.UnionWith(Below(LanLinkBuilder.Mac(child), topology));
+        return set;
+    }
+
     internal static IEnumerable<string> Below(string mac, Topology topology)
     {
         var seen = new HashSet<string>();
