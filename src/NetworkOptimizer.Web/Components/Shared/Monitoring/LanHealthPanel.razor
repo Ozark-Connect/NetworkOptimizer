@@ -157,7 +157,7 @@ else
                             @foreach (var l in shown)
                             {
                                 <tr class="lan-health-row @(l.Exclusion == ExclusionLevel.ExcludeFromScore ? "lan-health-excluded" : "")" @onclick="() => OpenLink(l.Link.Id)">
-                                    <td><div>@l.Link.Upstream.DeviceName @l.Link.Upstream.Label</div><div class="lan-health-sub">to @l.Link.Downstream.DeviceName</div></td>
+                                    <td><div>@l.Link.UpstreamName</div><div class="lan-health-sub">to @l.Link.Downstream.DeviceName</div></td>
                                     <td>@KindLabel(l.Link.Kind)</td>
                                     <td><div>@SpeedLabel(l.Link)</div>@if (l.Link.Forced) {<div class="lan-health-sub">Forced</div>}</td>
                                     <td class="@ScoreClass(l.Score)">@FormatScore(l.Score)</td>
@@ -612,7 +612,7 @@ else
                 <div class="card-body">
                     <div class="table-responsive">
                         <table class="data-table lan-health-ends">
-                            <thead><tr><th></th><th>@link.Upstream.DeviceName @link.Upstream.Label</th><th>@link.Downstream.DeviceName</th></tr></thead>
+                            <thead><tr><th></th><th>@link.UpstreamName</th><th>@link.Downstream.DeviceName</th></tr></thead>
                             <tbody>
                                 <tr><td>Link drops recorded</td><td>@DropCount(link.Upstream, l.UpLinkDownCount, null)</td><td>@DropCount(link.Downstream, l.DownLinkDownCount, l.DownCarrierChanges)</td></tr>
                                 <tr><td>Receive errors</td><td>@($"{l.ErrorsUpstreamRx:0}")</td><td>@(link.Downstream.IsUniFi ? $"{l.ErrorsDownstreamRx:0}" : "--")</td></tr>
