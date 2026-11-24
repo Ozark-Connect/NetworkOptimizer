@@ -875,7 +875,7 @@ public static partial class YamlConverter
                     foreach (var o in objects)
                     {
                         if (ConfigState.IdOf(o) == id || refDef?.IsGenerated?.Invoke(o) == true) continue;
-                        var hits = DeleteCascade.Find(o, id);
+                        var hits = DeleteCascade.Find(PlanBuilder.ReferencesToCheck(refDef, o), id);
                         if (hits.Count == 0) continue;
                         var who = $"{refDef?.Noun ?? refCollection} {ConfigState.DisplayName(refDef, o)}";
                         if (refDef?.Write?.UpdatePath != null && DeleteCascade.CanCascade(hits)) cascaded.Add(who);

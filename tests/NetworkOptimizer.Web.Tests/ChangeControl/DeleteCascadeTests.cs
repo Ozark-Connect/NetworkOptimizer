@@ -143,6 +143,30 @@ public class DeleteCascadeTests
     }
 
     [Fact]
+    public void Lint_DeletedNetwork_InUniFisEtherlightingColors_IsNoBlocker_AsInReviewPlan()
+    {
+        var baseState = new ConfigState();
+        baseState.Collections["networkconf"] =
+        [
+            Obj("""{"_id":"n1","name":"Default","purpose":"corporate","ip_subnet":"192.0.2.1/24"}"""),
+            Obj("""{"_id":"n2","name":"Test","purpose":"corporate","vlan_enabled":true,"vlan":400,"ip_subnet":"198.51.100.1/24"}"""),
+        ];
+        // UniFi's colors per network: read-only, and UniFi drops a deleted network's entry itself.
+        baseState.Collections["setting"] = [Obj("""{"_id":"s1","key":"ether_lighting","network_defaults":[{"key":"n1","raw_color_hex":"00ff00"},{"key":"n2","raw_color_hex":"0000ff"}]}""")];
+        // A single reference the person has to repoint: still a blocker.
+        baseState.Collections["wlanconf"] = [Obj("""{"_id":"w1","name":"Home","networkconf_id":"n2"}""")];
+        var file = YamlConverter.Export(baseState, ["networkconf"], SecretMode.Redact);
+        var without = file[..file.IndexOf("- name: Test", StringComparison.Ordinal)];
+
+        var problems = YamlConverter.Parse(without, baseState, "networks.yaml").Problems;
+        var warning = problems.Should().ContainSingle(p => p.Message.Contains("is still used by")).Subject.Message;
+        warning.Should().Contain("Home").And.NotContain("ether_lighting");
+
+        baseState.Collections["wlanconf"] = [];
+        YamlConverter.Parse(without, baseState, "networks.yaml").Problems.Should().NotContain(p => p.Message.Contains("is still used by"));
+    }
+
+    [Fact]
     public void Lint_ReadOnlyCollection_SaysTheDeleteIsNotApplied()
     {
         var baseState = new ConfigState();

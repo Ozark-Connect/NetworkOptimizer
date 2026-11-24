@@ -1269,7 +1269,7 @@ public static class PlanBuilder
                     if (oid.Equals(del.ObjectId, StringComparison.OrdinalIgnoreCase) || deletedIds.Contains(oid)) continue;
                     // A reference in a field UniFi manages (Etherlighting's network colors) is UniFi's to clean up, and so
                     // is a port's exclusion of a network: UniFi adds each new network to them and takes a deleted one out.
-                    if (!References(WithoutExclusions(WithoutReadOnly(def, o)), del.ObjectId!)) continue;
+                    if (!References(ReferencesToCheck(def, o), del.ObjectId!)) continue;
                     // The referrer is fixed when the plan's update no longer carries the reference.
                     if (updatesById.TryGetValue(oid, out var upd) && upd.Body is JsonObject body && !References(MergeForCheck(o, body), del.ObjectId!))
                         continue;
@@ -1283,6 +1283,12 @@ public static class PlanBuilder
                 doc.Errors.Add($"{ConfigCollections.Get(del.Collection)?.Noun} {del.ObjectName} cannot be deleted while it is still referenced by: {string.Join(", ", still)}.");
         }
     }
+
+    /// <summary>
+    /// The part of an object whose references can block a delete: without the fields UniFi manages and cleans up itself
+    /// (read-only fields, port exclusions). The Edit tab's warning uses it too, so it never names a referrer the plan skips.
+    /// </summary>
+    internal static JsonNode? ReferencesToCheck(ConfigCollectionDef? def, JsonObject o) => WithoutExclusions(WithoutReadOnly(def, o));
 
     private static JsonObject WithoutReadOnly(ConfigCollectionDef? def, JsonObject o)
     {
