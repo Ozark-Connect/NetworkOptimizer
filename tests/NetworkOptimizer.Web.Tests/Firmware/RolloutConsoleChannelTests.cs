@@ -1,8 +1,8 @@
 using System.Text.Json;
 using FluentAssertions;
-using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi.Models;
+using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Firmware;
 using Xunit;
 using static NetworkOptimizer.Web.Tests.Firmware.RolloutFixtures;
@@ -697,6 +697,48 @@ public class RolloutConsoleChannelTests
         harness.Commands.SshCommands.Should().ContainSingle().Which.Url.Should().Be("https://example.test/pinned.bin");
         harness.Commands.ExternalCommands.Should().BeEmpty();
         harness.Commands.UpgradeCommands.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task APinnedDeviceUpgrade_OpensItsAlertWindowsBeforeTheSshInstallReboots()
+    {
+        // The SSH install holds the pass while the device flashes and reboots: the windows must already be open.
+        using var harness = new RolloutHarness();
+        var site = SiteManagementService.DefaultSiteSlug;
+        bool? deviceWindow = null, siteWindow = null;
+        harness.Commands.DuringSshUpgrade = () =>
+        {
+            var now = harness.Time.GetUtcNow().UtcDateTime;
+            deviceWindow = harness.Suppression.IsInRolloutWindow(site, ApMac, now);
+            siteWindow = harness.Suppression.IsSiteActiveRollout(site, now);
+        };
+        var document = Document(Wave(1, PlanStep(ApMac)));
+        document.TargetImages.Add(new PlanTargetImage { Mac = ApMac, Version = ToVersion, Url = "https://example.test/pinned.bin", Pinned = true });
+        await harness.SeedRunningPlanAsync(document, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+
+        deviceWindow.Should().BeTrue();
+        siteWindow.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task AnUpgradeNoPathAccepts_ClosesTheDevicesAlertWindow()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.SshResult = FirmwareCommandResult.Failed("refused");
+        harness.Commands.ExternalResult = FirmwareCommandResult.Failed("404");
+        var document = Document(Wave(1, PlanStep(ApMac)));
+        document.TargetImages.Add(new PlanTargetImage { Mac = ApMac, Version = ToVersion, Url = "https://example.test/pinned.bin", Pinned = true });
+        var plan = await harness.SeedRunningPlanAsync(document, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Failed);
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, ApMac, harness.Time.GetUtcNow().UtcDateTime)
+            .Should().BeFalse();
     }
 
     [Fact]
