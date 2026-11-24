@@ -35,6 +35,7 @@ public sealed class ApAgentRoamCollector
     private readonly ILogger<ApAgentRoamCollector> _logger;
     private readonly string _siteSlug;
     private readonly ApAgentChannelMoveCollector? _channelMoves;
+    private readonly ApAgentLinkEventSink? _linkEvents;
 
     private readonly ApAgentRoamAssembler _assembler = new();
     private readonly Dictionary<string, DateTime> _vapsLoadedAt = new(StringComparer.OrdinalIgnoreCase);
@@ -56,8 +57,10 @@ public sealed class ApAgentRoamCollector
         ApAgentEventsClient events,
         ILogger<ApAgentRoamCollector> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
-        ApAgentChannelMoveCollector? channelMoves = null)
+        ApAgentChannelMoveCollector? channelMoves = null,
+        ApAgentLinkEventSink? linkEvents = null)
     {
+        _linkEvents = linkEvents;
         _serviceProvider = serviceProvider;
         _directory = directory;
         _events = events;
@@ -175,6 +178,12 @@ public sealed class ApAgentRoamCollector
             {
                 if (_channelMoves != null)
                     await _channelMoves.RecordAsync(target.Mac, target.Name, e, ct);
+                continue;
+            }
+            // LAN Health: the access point's wired link, not a client.
+            if (ApAgentLinkEventSink.Handles(e.Type))
+            {
+                _linkEvents?.Record(target.Mac, target.Name, e);
                 continue;
             }
             batch.Add(new ApRoamObservedEvent(target.Mac, e, window.Gap));

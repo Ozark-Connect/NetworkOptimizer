@@ -72,7 +72,10 @@ type Event struct {
 	// Radio and Channel are set on a channel_change event only; it is about a radio, not a client.
 	Radio       string         `json:"radio,omitempty"`
 	Channel     *ChannelChange `json:"channel,omitempty"`
-	CollectedAt time.Time      `json:"collected_at"`
+	// Iface and Counters are set on LAN Health events only: a wired interface, not a client.
+	Iface       string          `json:"iface,omitempty"`
+	Counters    *UplinkCounters `json:"counters,omitempty"`
+	CollectedAt time.Time       `json:"collected_at"`
 }
 
 // EventRing is a bounded in-memory replay window. A collector that restarts asks for everything

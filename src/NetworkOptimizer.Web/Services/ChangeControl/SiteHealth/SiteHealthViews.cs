@@ -25,9 +25,11 @@ public sealed class SiteHealthSeries
     /// <summary>"Wi-Fi: Back Yard 5 GHz": the issue up to its first comma, for tiles.</summary>
     public string? TopShort { get; init; }
     /// <summary>Where to investigate <see cref="TopIssue"/>, as a site-relative URL; null when there is none.</summary>
-    public string? TopHref => SiteHealthSeriesBuilder.IssueHref(TopArea);
+    public string? TopHref => TopItemHref ?? SiteHealthSeriesBuilder.IssueHref(TopArea);
     /// <summary>The page <see cref="TopHref"/> opens, for its tooltip.</summary>
-    public string? TopHrefLabel => SiteHealthSeriesBuilder.IssueHrefLabel(TopArea);
+    public string? TopHrefLabel => TopItemHref != null && TopArea == "LAN" ? "Monitoring - LAN Health" : SiteHealthSeriesBuilder.IssueHrefLabel(TopArea);
+    /// <summary>The issue's own page (a LAN Health link), from the hour <see cref="TopIssue"/>'s text came from.</summary>
+    public string? TopItemHref { get; init; }
 
     /// <summary>
     /// <see cref="TopIssue"/> with its latest-hour measure, for hovers: "Wi-Fi: Back Yard 5 GHz (avg 9 health
@@ -88,7 +90,7 @@ public static class SiteHealthSeriesBuilder
                 Mean(list.Select(h => h.Lan)) ?? 0, worst == null ? null : Tip(worst)));
         }
 
-        var (area, text, cost, at) = TopIssue(inRange);
+        var (area, text, cost, at, href) = TopIssue(inRange);
         // Wi-Fi text is "radio, measure": the card names the radio, the hover gives the measure. Other areas'
         // text is one phrase ("WAN outage, 12 min (ISP)") and is not split.
         var comma = area == "Wi-Fi" && text != null ? text.IndexOf(',') : -1;
@@ -103,6 +105,7 @@ public static class SiteHealthSeriesBuilder
             TopDetail = comma > 0 ? text![(comma + 1)..].Trim() : null,
             TopDetailAt = comma > 0 ? at : null,
             TopArea = area,
+            TopItemHref = href,
             TopShort = text == null ? null : $"{area}: {text.Split(',')[0]}",
         };
     }
@@ -147,22 +150,23 @@ public static class SiteHealthSeriesBuilder
     /// Of the areas that qualify as an issue, the one that cost the most over the range: its latest
     /// description, the average points it cost, and the hour of that description.
     /// </summary>
-    internal static (string? Area, string? Text, double Points, DateTime At) TopIssue(IReadOnlyList<SiteHealthHour> hours)
+    internal static (string? Area, string? Text, double Points, DateTime At, string? Href) TopIssue(IReadOnlyList<SiteHealthHour> hours)
     {
-        var byArea = new Dictionary<string, (double Sum, double Peak, string Text, DateTime At)>();
+        var byArea = new Dictionary<string, (double Sum, double Peak, string Text, DateTime At, string? Href)>();
         foreach (var h in hours)
             foreach (var c in SiteHealthScorer.Contributors(h))
             {
                 var cur = byArea.GetValueOrDefault(c.Area);
+                var newer = h.HourStart >= cur.At;
                 byArea[c.Area] = (cur.Sum + c.Impairment, Math.Max(cur.Peak, c.Impairment),
-                    h.HourStart >= cur.At ? c.Text : cur.Text, h.HourStart >= cur.At ? h.HourStart : cur.At);
+                    newer ? c.Text : cur.Text, newer ? h.HourStart : cur.At, newer ? c.Href : cur.Href);
             }
-        if (byArea.Count == 0 || hours.Count == 0) return (null, null, 0, default);
+        if (byArea.Count == 0 || hours.Count == 0) return (null, null, 0, default, null);
         var top = byArea
             .Where(kv => kv.Value.Sum / hours.Count * 100 >= IssueAveragePoints || kv.Value.Peak * 100 >= IssuePeakHourPoints)
             .OrderByDescending(kv => kv.Value.Sum)
             .FirstOrDefault();
-        return top.Key == null ? (null, null, 0, default) : (top.Key, top.Value.Text, top.Value.Sum / hours.Count * 100, top.Value.At);
+        return top.Key == null ? (null, null, 0, default, null) : (top.Key, top.Value.Text, top.Value.Sum / hours.Count * 100, top.Value.At, top.Value.Href);
     }
 
     /// <summary>"Health 86. Wi-Fi: Back Yard 5 GHz, 18% of client satisfaction under 80 (costs 9 health points)" for one hour.</summary>

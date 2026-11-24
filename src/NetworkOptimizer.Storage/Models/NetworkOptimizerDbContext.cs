@@ -142,6 +142,9 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<ConsoleBackupRecord> ConsoleBackups { get; set; }
     public DbSet<AttentionDismissal> AttentionDismissals { get; set; }
     public DbSet<SiteHealthHour> SiteHealthHours { get; set; }
+    public DbSet<LanHealthLinkHour> LanHealthLinkHours { get; set; }
+    public DbSet<LanHealthSiteHour> LanHealthSiteHours { get; set; }
+    public DbSet<LanHealthExclusion> LanHealthExclusions { get; set; }
 
     /// <summary>Instance-wide config templates. Meaningful only in the MAIN database.</summary>
     public DbSet<ConfigTemplate> ConfigTemplates { get; set; }
@@ -913,6 +916,25 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("SiteHealthHours");
             entity.HasIndex(e => e.HourStart).IsUnique();
+        });
+
+        modelBuilder.Entity<LanHealthLinkHour>(entity =>
+        {
+            entity.ToTable("LanHealthLinkHours");
+            entity.HasIndex(e => new { e.HourStart, e.LinkId }).IsUnique();
+            entity.HasIndex(e => e.LinkId);
+        });
+
+        modelBuilder.Entity<LanHealthSiteHour>(entity =>
+        {
+            entity.ToTable("LanHealthSiteHours");
+            entity.HasIndex(e => e.HourStart).IsUnique();
+        });
+
+        modelBuilder.Entity<LanHealthExclusion>(entity =>
+        {
+            entity.ToTable("LanHealthExclusions");
+            entity.HasIndex(e => new { e.Scope, e.Key }).IsUnique();
         });
 
         modelBuilder.Entity<ConfigPlan>(entity =>

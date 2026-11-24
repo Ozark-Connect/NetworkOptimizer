@@ -208,6 +208,8 @@ public static class AuditActions
     // ISP Health: the operator's answers to its findings
     public const string IspFindingAcknowledged = "isp.finding.acknowledged";
     public const string IspFindingRestored = "isp.finding.restored";
+    public const string LanHealthExclusionSaved = "lan_health.exclusion.saved";
+    public const string LanHealthExclusionRemoved = "lan_health.exclusion.removed";
     public const string WiFiRadioReleased = "wifi.radio.released";
 
     /// <summary>Recommended channels were written to access points in UniFi Network.</summary>

@@ -12,6 +12,12 @@ public static class DisplayFormatters
             ? (mbps / 1000.0).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " Gbps"
             : mbps.ToString(System.Globalization.CultureInfo.InvariantCulture) + " Mbps";
 
+    /// <summary>A link rate for tight spots (chips, labels): "2.5G", "100M".</summary>
+    public static string FormatLinkSpeedShort(int mbps) =>
+        mbps >= 1000
+            ? (mbps / 1000.0).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + "G"
+            : mbps.ToString(System.Globalization.CultureInfo.InvariantCulture) + "M";
+
     #region Device Name Formatting
 
     // Known network device type keywords for prefix/suffix stripping

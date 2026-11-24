@@ -55,6 +55,7 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly Monitoring.DeviceStateAlertEvaluator _deviceStateAlertEvaluator;
     private readonly Monitoring.WanLinkSpeedAlertEvaluator _wanLinkSpeedAlertEvaluator;
     private readonly Monitoring.GatewayLinkSpeedSnapshots _linkSpeedSnapshots = new();
+    private readonly Monitoring.LanHealth.LanPortSnapshotRecorder _lanPortSnapshots = new();
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly LocalProbeExecutor _localProbe;
     private readonly NetworkOptimizer.Web.Services.Monitoring.MonitoringAlertEvaluator _alertEvaluator;
@@ -2286,7 +2287,8 @@ public class MonitoringCollectionAgent : BackgroundService
             mcastPktsOut: iface.OutMulticastPkts > 0 ? iface.OutMulticastPkts : null,
             bcastPktsIn: iface.InBroadcastPkts > 0 ? iface.InBroadcastPkts : null,
             bcastPktsOut: iface.OutBroadcastPkts > 0 ? iface.OutBroadcastPkts : null,
-            timestamp: now);
+            timestamp: now,
+            lastChange: iface.LastChange > 0 ? iface.LastChange : null);
 
         // Live port-state resilience for gateways: when UniFi's last poll says the port is
         // down or disabled, mark the live port down - UNLESS the SNMP frame counters moved
@@ -2565,6 +2567,15 @@ public class MonitoringCollectionAgent : BackgroundService
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogDebug(ex, "Gateway link speed pass failed for site {Slug}", _siteSlug);
+        }
+
+        try
+        {
+            _lanPortSnapshots.Record(all, _influx, now);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "LAN port snapshot pass failed for site {Slug}", _siteSlug);
         }
     }
 

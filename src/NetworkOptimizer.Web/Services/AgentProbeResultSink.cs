@@ -100,6 +100,8 @@ public class AgentProbeResultSink
     // the same LanFabricAggregator the directly-monitored fast tier uses. Keyed by slug
     // because this sink is a singleton serving every agent site.
     private readonly ConcurrentDictionary<string, LanFabricAggregator> _fabricBySite = new();
+    // LAN Health's console port snapshots for agent sites, as the direct path records them.
+    private readonly ConcurrentDictionary<string, Monitoring.LanHealth.LanPortSnapshotRecorder> _lanSnapshotsBySite = new();
 
     // Agent-site SNMP self-heal. The server doesn't poll SNMP for agent sites (the agent
     // does and only relays results), so there's no per-device failure signal to react to
@@ -1550,6 +1552,17 @@ public class AgentProbeResultSink
             _logger.LogDebug(ex, "Device state alert evaluation failed for site {Slug}", connection.SiteSlug);
         }
 
+        // LAN Health: the console port table and device fields, once per fresh device snapshot.
+        try
+        {
+            if (deviceByMac.Count > 0)
+                _lanSnapshotsBySite.GetOrAdd(connection.SiteSlug, _ => new()).Record(deviceByMac.Values, influx, stateObservedAt);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "LAN port snapshot pass failed for site {Slug}", connection.SiteSlug);
+        }
+
         // Topology-boundary aggregates (fabric sums, AP backhaul, gateway WAN), shared
         // verbatim with the directly-monitored fast tier via LanFabricAggregator so
         // secondary sites compute identical numbers. Feed the UniFi port_table + device
@@ -1707,7 +1720,8 @@ public class AgentProbeResultSink
                 mcastPktsOut: sample.McastPktsOut > 0 ? sample.McastPktsOut : null,
                 bcastPktsIn: sample.BcastPktsIn > 0 ? sample.BcastPktsIn : null,
                 bcastPktsOut: sample.BcastPktsOut > 0 ? sample.BcastPktsOut : null,
-                timestamp: timestamp);
+                timestamp: timestamp,
+                lastChange: sample.LastChange > 0 ? sample.LastChange : null);
         }
 
         // Publish fabric sums + mesh-AP backhaul, then the topology-boundary aggregates -

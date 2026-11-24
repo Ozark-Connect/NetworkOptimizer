@@ -2316,6 +2316,28 @@ public partial class UniFiApiClient : IDisposable
     /// <summary>
     /// GET stat/health - Get site health information
     /// </summary>
+    /// <summary>
+    /// GET v2/api/site/{site}/ports/port-anomalies - the port anomaly scores, raw. Null when the
+    /// console does not answer or has no Port Anomalies.
+    /// </summary>
+    [VendorSpecific("UniFi", "port anomaly scores (v2), shown on UniFi Network's Ports page")]
+    public async Task<JsonDocument?> GetPortAnomaliesRawAsync(CancellationToken cancellationToken = default)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken)) return null;
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.GetAsync(BuildV2ApiPath("ports/port-anomalies"), cancellationToken);
+            if (IsRecoverableAuthFailure(response.StatusCode))
+            {
+                _isAuthenticated = false;
+                if (!await LoginAsync(cancellationToken)) return null;
+                response = await _httpClient!.GetAsync(BuildV2ApiPath("ports/port-anomalies"), cancellationToken);
+            }
+            if (!response.IsSuccessStatusCode) return null;
+            return JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        });
+    }
+
     public async Task<JsonDocument?> GetSiteHealthAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Fetching site health for {Site}", _site);

@@ -69,6 +69,23 @@ public class PerformanceAnalyzer
     }
 
     /// <summary>
+    /// The link configuration checks alone (Jumbo Frames and Flow Control consistency), for LAN
+    /// Health, which shows them on the links they concern. The same checks the full run makes.
+    /// </summary>
+    public List<PerformanceIssue> AnalyzeLinkConfig(
+        List<UniFiDeviceResponse> devices,
+        List<UniFiNetworkConfig> networks,
+        List<UniFiClientResponse> clients,
+        JsonDocument? settingsData,
+        List<UniFiPortProfile>? portProfiles = null)
+    {
+        var issues = new List<PerformanceIssue>();
+        issues.AddRange(CheckJumboFrames(devices, settingsData));
+        issues.AddRange(CheckFlowControl(devices, networks, clients, settingsData, portProfiles));
+        return issues;
+    }
+
+    /// <summary>
     /// Check if Hardware Acceleration (packet offload) is enabled on the gateway.
     /// Suppressed when NetFlow is enabled, since NetFlow requires CPU-based packet inspection.
     /// </summary>
@@ -822,7 +839,7 @@ public class PerformanceAnalyzer
     /// pattern of auto-negotiation failing with the ISP's equipment (or a marginal cable), and
     /// forcing the port's speed is the usual fix. A single drop is left to the link speed alert.
     /// </summary>
-    internal const int WanLinkSpeedEpisodesToRecommend = 2;
+    public const int WanLinkSpeedEpisodesToRecommend = 2;
 
     [VendorSpecific("UniFi", "Reads gateway port_table autoneg and name for the WAN port")]
     internal List<PerformanceIssue> CheckWanLinkSpeedHistory(

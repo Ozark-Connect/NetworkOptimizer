@@ -59,10 +59,31 @@ public sealed class HealthHourInputs
     public bool HasLinkData { get; init; }
     public double LinkImpairment { get; init; }
     public string? LinkText { get; init; }
+
+    /// <summary>LAN Health's impairment for the hour; when set it is the LAN factor, in place of Fabric loss and port errors.</summary>
+    public double? LanHealthImpairment { get; init; }
+    /// <summary>The worst link's name, for the hover.</summary>
+    public string? LanHealthWorst { get; init; }
+
+    /// <summary>These inputs with LAN Health's hour in place of the older LAN inputs.</summary>
+    /// <summary>The LAN Health link page for <see cref="LanHealthWorst"/>.</summary>
+    public string? LanHealthWorstHref { get; init; }
+
+    public HealthHourInputs WithLanHealth(double impairment, string? worst, string? worstHref = null) => new()
+    {
+        Hour = Hour, LossPct = LossPct, LossWindows = LossWindows, IdleRttMs = IdleRttMs, LoadedRttMs = LoadedRttMs,
+        LoadedShare = LoadedShare, OutageMinutes = OutageMinutes, OutageText = OutageText, LocalCause = LocalCause,
+        BaselineRttMs = BaselineRttMs, WifiSamples = WifiSamples, WifiBelow80 = WifiBelow80, WifiBelow60 = WifiBelow60,
+        WorstRadio = WorstRadio, WorstRadioShare = WorstRadioShare, WirelessClients = WirelessClients, WiredClients = WiredClients,
+        Availability = Availability, AvailabilityText = AvailabilityText, FabricLossPct = FabricLossPct, FabricWindows = FabricWindows,
+        HasLinkData = HasLinkData, LinkImpairment = LinkImpairment, LinkText = LinkText,
+        LanHealthImpairment = impairment, LanHealthWorst = worst, LanHealthWorstHref = worstHref,
+    };
 }
 
 /// <summary>One contributor to an hour's impairment, for the hover and the worst label.</summary>
-public sealed record HealthContributor(string Area, double Impairment, string Text);
+/// <summary>One area's cost in an hour. <paramref name="Href"/> opens the thing itself (a LAN Health link), when there is one.</summary>
+public sealed record HealthContributor(string Area, double Impairment, string Text, string? Href = null);
 
 /// <summary>
 /// Site Health for one hour: the share of user-time with good service. Each area's impairment is the
@@ -72,7 +93,7 @@ public sealed record HealthContributor(string Area, double Impairment, string Te
 public static class SiteHealthScorer
 {
     /// <summary>Bump when the scoring changes; stored hours at an older version are recomputed.</summary>
-    public const int Version = 11;
+    public const int Version = 12;
 
     /// <summary>Gateway CPU at or above this, averaged over a window or an hour, makes that time's Internet impairment local.</summary>
     public const double GatewayBusyCpuPct = 90;
@@ -146,11 +167,21 @@ public static class SiteHealthScorer
         var availability = Math.Clamp(x.Availability, 0, 1);
         if (availability > 0) contributors.Add(new("Availability", availability, x.AvailabilityText ?? "devices offline"));
 
-        var (fabric, fabricText) = FabricImpairment(x);
-        var link = Math.Clamp(x.LinkImpairment, 0, 1);
-        double? lan = x.FabricLossPct != null || x.FabricWindows.Count > 0 || x.HasLinkData ? Combine(fabric, link) : null;
-        if (fabric > 0) contributors.Add(new("LAN", fabric, fabricText!));
-        if (link > 0) contributors.Add(new("LAN", link, x.LinkText ?? "port errors"));
+        double? lan;
+        if (x.LanHealthImpairment is double lanHealth)
+        {
+            // LAN Health replaces the Fabric loss and port error inputs from the hour it first rolled up.
+            lan = Math.Clamp(lanHealth, 0, 1);
+            if (lan > 0) contributors.Add(new("LAN", lan.Value, x.LanHealthWorst ?? "LAN Health", x.LanHealthWorst != null ? x.LanHealthWorstHref : null));
+        }
+        else
+        {
+            var (fabric, fabricText) = FabricImpairment(x);
+            var link = Math.Clamp(x.LinkImpairment, 0, 1);
+            lan = x.FabricLossPct != null || x.FabricWindows.Count > 0 || x.HasLinkData ? Combine(fabric, link) : null;
+            if (fabric > 0) contributors.Add(new("LAN", fabric, fabricText!));
+            if (link > 0) contributors.Add(new("LAN", link, x.LinkText ?? "port errors"));
+        }
 
         double? health = internet == null && wifi == null && lan == null
             ? null

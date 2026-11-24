@@ -1,0 +1,43 @@
+@using NetworkOptimizer.Web.Services.Monitoring.LanHealth
+@using NetworkOptimizer.Web.Services.Monitoring.IspHealth
+@implements IDisposable
+@inject ILanHealthService LanHealth
+@inject NavigationManager NavigationManager
+
+@* The ISP Health tile's twin: same shared .health-tile look, grade accent, score bar, and click. *@
+<div class="monitoring-stat-card clickable-stat-card health-tile @GradeClass" data-tour="lan-health-tile" @onclick="@(() => NavigationManager.NavigateTo(LanHealthLinks.Tab()))">
+    <div class="stat-value health-tile-score">@TileText</div>
+    <div class="stat-label">LAN Health</div>
+    @if (_tile?.Score is double score)
+    {
+        <div class="health-tile-bar"><div class="health-tile-bar-fill" style="width: @(Math.Round(score))%"></div></div>
+    }
+</div>
+
+@code {
+    private LanHealthTileScore? _tile;
+    private System.Threading.Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        // Live while watched; the report behind it is cached a minute across viewers.
+        _timer = new System.Threading.Timer(async _ =>
+        {
+            try { await InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }); }
+            catch { /* the circuit is gone */ }
+        }, null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
+    }
+
+    private async Task LoadAsync()
+    {
+        try { _tile = await LanHealth.GetTileAsync(); }
+        catch (Exception) { /* keep the last value */ }
+    }
+
+    private string TileText => _tile?.Score is double s ? Math.Round(s).ToString("0") : "--";
+
+    private string GradeClass => LanHealthPanel.ScoreClass(_tile?.Score);
+
+    public void Dispose() => _timer?.Dispose();
+}

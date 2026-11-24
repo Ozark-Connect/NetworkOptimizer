@@ -230,7 +230,9 @@ func NewSyslogSource(path string, ring *EventRing, observe ...func(Event)) *Sysl
 }
 
 // Run tails the file until ctx is cancelled. It starts at the end: the ring is a live replay
-// window, and replaying a boot's worth of history on every agent start would evict it.
+// window, and replaying a boot's worth of history on every agent start would evict it. The one
+// exception is LAN Health's link lines, replayed first and bounded (replayLinkLines), so a drop
+// while the agent was down is not lost; they carry their line's time, so a repeat is the same point.
 func (s *SyslogSource) Run(ctx context.Context) {
 	var (
 		file   *os.File
@@ -260,6 +262,9 @@ func (s *SyslogSource) Run(ctx context.Context) {
 		return true
 	}
 
+	for _, ev := range replayLinkLines(ctx, s.path, time.Now().UTC()) {
+		s.emit(ev)
+	}
 	if !open() {
 		slog.Warn("syslog unavailable, roam quality and peer gossip will be missing", "path", s.path)
 	}
@@ -307,6 +312,11 @@ func (s *SyslogSource) consume(line string) {
 		return
 	}
 	if ev, ok := parseUbntRoamLine(line, now); ok {
+		s.emit(ev)
+		return
+	}
+	if ev, ok := parseLanHealthLine(line, now); ok {
+		stampLineTime(context.Background(), &ev, line)
 		s.emit(ev)
 	}
 }

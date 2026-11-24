@@ -18,6 +18,8 @@ import { DEPTH, deviceIconUrl, estimateRealSizeM, isPanelModel, isRoundBody, isS
 // KEEP IN SYNC: lan-flow-map-2d.js imports the same module. Both must use the same ?v= or they get separate instances.
 import * as flowData from './lan-flow-data.js?v=18';
 import { opaqueBounds, logoFit } from './image-bounds.js?v=1';
+// KEEP IN SYNC: lan-flow-map-2d.js imports the same module with the same ?v=.
+import * as lanHealth from './lan-health-map.js?v=1';
 
 const COLORS = {
     background: 0x1c2128,
@@ -594,6 +596,7 @@ export class LanFlowMap {
     // ------------------------------------------------------------------------
 
     async start() {
+        this._healthUnsub = lanHealth.subscribe(m => { this._linkHealth = m; this._applyLinkHealth(); });
         this._buildOverlayUI();
         await this._loadSnapshot();
         await this._loadInitialSpeedTests();
@@ -612,6 +615,7 @@ export class LanFlowMap {
     }
 
     dispose() {
+        if (this._healthUnsub) { this._healthUnsub(); this._healthUnsub = null; }
         this._destroyed = true;
         if (this.stage.classList.contains('lan-flow-map-fullscreen'))
             this.stage.classList.remove('lan-flow-map-fullscreen');
@@ -1984,9 +1988,22 @@ export class LanFlowMap {
         }
     }
 
+    // LAN Health badges ride the link's rate pill: one per fabric link LAN Health knows.
+    _applyLinkHealth() {
+        if (!this._linkLabels) return;
+        for (const [linkId, entry] of this._linkLabels) {
+            entry.healthEl?.remove();
+            const h = this._linkHealth?.get(linkId);
+            entry.health = h || null;
+            entry.healthEl = h ? lanHealth.createBadge(h) : null;
+        }
+        this._refreshLinkLabels();
+    }
+
     _refreshLinkLabels() {
         if (!this._linkLabels || this._linkLabels.size === 0) return;
-        for (const [linkId, { el, kind, link }] of this._linkLabels) {
+        for (const [linkId, entry] of this._linkLabels) {
+            const { el, kind, link } = entry;
             // The negotiated-speed hover follows the tick for a mesh backhaul, as the node
             // tooltips do: the scrubbed PHY for the child node wins over the snapshot
             // capacities. The app's tooltip sweep rebinds when the attribute changes.
@@ -2006,11 +2023,18 @@ export class LanFlowMap {
             const isWan = kind === LINK_KIND.Wan || kind === LINK_KIND.Transit;
             const thresh = isWan ? WAN_LABEL_THRESHOLD_BPS : LINK_LABEL_THRESHOLD_BPS;
             if (down < thresh && up < thresh) {
+                // An unhealthy link shows its badge even when idle; a clean map stays clean.
+                if (entry.healthEl && entry.health && !entry.health.healthy) {
+                    el.replaceChildren(entry.healthEl);
+                    el._hasData = true;
+                    continue;
+                }
                 el.classList.remove('is-visible');
                 el._hasData = false;
                 continue;
             }
             el.innerHTML = `<span class="down">↓ ${formatBps(down)}</span><span class="up">↑ ${formatBps(up)}</span>`;
+            if (entry.healthEl) el.appendChild(entry.healthEl);
             // Don't add is-visible here — _updateFloatingLabels will add it
             // after positioning, so the label never flashes at a stale position.
             el._hasData = true;
@@ -3975,6 +3999,7 @@ export class LanFlowMap {
             this._labelsLayer.appendChild(el);
             this._linkLabels.set(link.id, { el, kind: link.kind, link });
         }
+        this._applyLinkHealth();
 
         // Device labels: infrastructure devices (gateway, switch, AP) get DOM labels.
         // Clients stay as sprites for proper 3D depth sorting.

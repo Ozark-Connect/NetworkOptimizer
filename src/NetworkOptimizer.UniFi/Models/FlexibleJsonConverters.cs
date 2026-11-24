@@ -130,6 +130,32 @@ public class FlexibleLongConverter : JsonConverter<long>
 }
 
 /// <summary>
+/// <see cref="FlexibleLongConverter"/> for a counter the console may omit: null when absent or
+/// unreadable, so "not reported" stays apart from a real 0.
+/// </summary>
+public class FlexibleNullableLongConverter : JsonConverter<long?>
+{
+    public override long? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        return reader.TokenType switch
+        {
+            JsonTokenType.Number when reader.TryGetInt64(out var l) => l,
+            JsonTokenType.Number => (long)reader.GetDouble(),
+            JsonTokenType.String when long.TryParse(reader.GetString(), out var value) => value,
+            _ => null,
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, long? value, JsonSerializerOptions options)
+    {
+        if (value.HasValue)
+            writer.WriteNumberValue(value.Value);
+        else
+            writer.WriteNullValue();
+    }
+}
+
+/// <summary>
 /// Tolerant nullable-double parser for UniFi API fields that may arrive as a number, a
 /// stringified number, or an empty string. Mirrors FlexibleIntConverter but for floating
 /// point. SFP DDM values (rxpower, current, temperature, voltage) are the primary case;
@@ -284,5 +310,63 @@ public class FlexibleDateTimeOffsetConverter : JsonConverter<DateTimeOffset?>
             writer.WriteStringValue(value.Value);
         else
             writer.WriteNullValue();
+    }
+}
+
+/// <summary>
+/// Tolerant list of objects: an array reads item by item, an item that fails is skipped, and any
+/// other token reads as null instead of failing the whole object it sits in.
+/// </summary>
+public sealed class FlexibleObjectListConverter<T> : JsonConverter<List<T>?>
+{
+    public override List<T>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.StartArray)
+        {
+            reader.Skip();
+            return null;
+        }
+        using var doc = JsonDocument.ParseValue(ref reader);
+        var list = new List<T>();
+        foreach (var item in doc.RootElement.EnumerateArray())
+        {
+            try
+            {
+                if (item.Deserialize<T>(options) is { } value) list.Add(value);
+            }
+            catch (JsonException) { }
+        }
+        return list;
+    }
+
+    public override void Write(Utf8JsonWriter writer, List<T>? value, JsonSerializerOptions options)
+    {
+        if (value == null) writer.WriteNullValue();
+        else JsonSerializer.Serialize(writer, value, options);
+    }
+}
+
+/// <summary>
+/// One nested object read tolerantly: an object deserializes as <typeparamref name="T"/>; anything else (a string,
+/// an array, a number) or an object that fails to read is null, so one odd field never fails the whole parent.
+/// </summary>
+public sealed class FlexibleObjectConverter<T> : JsonConverter<T?> where T : class
+{
+    public override T? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.StartObject)
+        {
+            reader.Skip();
+            return null;
+        }
+        using var doc = JsonDocument.ParseValue(ref reader);
+        try { return doc.RootElement.Deserialize<T>(options); }
+        catch (JsonException) { return null; }
+    }
+
+    public override void Write(Utf8JsonWriter writer, T? value, JsonSerializerOptions options)
+    {
+        if (value == null) writer.WriteNullValue();
+        else JsonSerializer.Serialize(writer, value, options);
     }
 }

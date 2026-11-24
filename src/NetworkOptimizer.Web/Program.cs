@@ -1,3 +1,4 @@
+using NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 using NetworkOptimizer.Web.Services.ChangeControl;
 using NetworkOptimizer.Web.Services.Monitoring;
 using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
@@ -787,6 +788,10 @@ builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Serv
 // PhysicalLinkResolver, report cache, and compute state) per site; scoped
 // resolution forwards to the current site's instance.
 builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthRegistry>();
+// LAN Health: one engine per site, ticked from the site's Change Control engine loop.
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanHealthRegistry>();
+builder.Services.AddMutatingService<ILanHealthService, LanHealthService>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.LanHealth.SwitchPortLinkSink>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 // Scoped - forwards to the current site's Influx client and database.
@@ -864,6 +869,7 @@ builder.Services.AddMutatingService<ISfpModulePollService, SfpModulePollService>
 // terms as monitoring collection (default always runs; non-default sites start/stop on site
 // enable/disable), and its reconcile tick also starts plans whose scheduled time has come.
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Firmware.RolloutSuppressionRegistry>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanLinkFaults>();
 builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRegistry>();
 builder.Services.AddHostedService(sp =>
     sp.GetRequiredService<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRegistry>());

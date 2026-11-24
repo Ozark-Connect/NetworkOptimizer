@@ -206,6 +206,25 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - Per-WAN scores on multi-WAN sites (WAN Vantage)
 - **Export PDF** report for any window
 
+### LAN Health
+
+- Finds the LAN faults UniFi Network does not report, from sources it does not read: the AP's own kernel log and the Gateway's switch chip. An AP uplink that drops for three seconds a few times a day shows as up in UniFi Network; LAN Health counts every drop, says when the run started, and which end it's on
+- **LAN Health Score** for the site, weighted by the clients behind each link; **Score History** hourly
+- Scores every fabric link (wired uplinks and mesh backhauls) and every wired access port
+- One incident per event, merged across every source that saw it, with **What Each Source Saw**
+- Sources: UniFi port tables, SNMP, fabric probes, the AP Agent's kernel link log ([AP Telemetry](#ap-telemetry)), the gateway's switch chip ([On-Site Agent](#on-site-agent))
+- **Findings**: Link Flapping, Link Speed Degraded, Link Errors (which end receives them), Broadcast Storm, Network Loop, Discards Under Load, Below Capability, Optics, PoE Power Cycling, Link Speed Keeps Dropping (Config Optimizer's WAN link check, on every wired fabric link)
+- Mesh backhauls and Device Bridges: signal and PHY rate against their own normal, parent changes, MLO links lost or out of balance
+- Mesh backhaul quality UniFi Network does not show: transmit retries and drops in both directions (the child's side through [AP Telemetry](#ap-telemetry)), re-associations, probe loss and latency beyond the parent AP's, signal at both ends and on every MLO link graded for its band, and traffic against what the backhaul can carry
+- Backhaul channel changes (DFS or auto channel) explain the drops they cause, and repeated ones are reported
+- Configuration checks: STP root, versions, Edge ports, BPDU guard, blocked ports; native VLAN, trunk VLAN, Jumbo Frames, Flow Control; LACP; multicast
+- Reboots, device upgrades and provisioning, Firmware Rollout waves, Change Control changes, and sleeping clients explain a relink instead of scoring it
+- Link page: **Both Ends**, **Timeline**, and **Next Steps** for every link (a port swap test, an EEE test when Energy Efficient Ethernet is on, and the last port change); a drop UniFi Network's own count missed names Link Debounce when it is on
+- Exclusions (Site Admin): **Mute alerts** or **Exclude from score** for a port, its port profile, or a device
+- Alerts: **Link Flapping**, **Link Speed Degraded**, **Link Errors**, **Broadcast Storm**, **Unusual Link Utilization**; **Link Problems After Upgrade** when a clean link starts dropping or erroring after Firmware Rollout upgrades a device on it
+- Feeds Site Health's LAN factor and the Firmware Rollout health gate
+- **LAN Health** tile on Live View
+
 ### Network Performance
 
 - **Latency & Packet Loss** - RTT, loss, and WAN throughput charts with a stats table

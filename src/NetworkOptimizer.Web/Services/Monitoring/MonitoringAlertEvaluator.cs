@@ -42,6 +42,7 @@ public class MonitoringAlertEvaluator
     private readonly WanOutageEvaluator _wanOutages;
     private readonly DeviceOfflineDeduplicator _dedup;
     private readonly Firmware.RolloutSuppressionRegistry? _rolloutWindows;
+    private readonly LanHealth.LanLinkFaults? _lanFaults;
     private readonly ConcurrentDictionary<string, TargetAlertState> _states = new();
     // Latest fabric probe per device, by normalized MAC, from either vantage (server or agent).
     private readonly ConcurrentDictionary<string, (DateTime At, bool Success)> _fabricByMac = new();
@@ -61,8 +62,10 @@ public class MonitoringAlertEvaluator
         DeviceOfflineDeduplicator dedup,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
         Firmware.RolloutSuppressionRegistry? rolloutWindows = null,
-        IServiceScopeFactory? scopeFactory = null)
+        IServiceScopeFactory? scopeFactory = null,
+        LanHealth.LanLinkFaults? lanFaults = null)
     {
+        _lanFaults = lanFaults;
         _openAtStart = new OpenAlertSeed(scopeFactory, siteSlug ?? SiteManagementService.DefaultSiteSlug,
             [OfflineEventType], a => OpenAlertSeed.Context(a, "target_id"), logger);
         _eventBus = eventBus;
@@ -144,7 +147,10 @@ public class MonitoringAlertEvaluator
                 if (!state.IsLossy && avgLoss >= SustainedLossThresholdPercent)
                 {
                     state.IsLossy = true;
-                    if (publishPerTarget)
+                    // One alert per fault: LAN Health's link alert already names it when the device's uplink is flapping.
+                    if (target.TargetType == MonitoringTargetType.Fabric && _lanFaults?.Has(_siteSlug, target.DeviceMac) == true)
+                        _logger.LogInformation("Suppressing target_sustained_loss for {Target}: its uplink has an open LAN Health alert", target.Name);
+                    else if (publishPerTarget)
                         await _eventBus.PublishAsync(BuildSustainedLossEvent(target, avgLoss), ct);
                 }
                 else if (state.IsLossy && avgLoss < SustainedLossThresholdPercent / 2)

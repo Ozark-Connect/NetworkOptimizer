@@ -49,6 +49,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
     private readonly WanFlood.WanFloodService _wanFlood;
     private readonly ChangeControl.ChangeControlRegistry? _changeControl;
     private readonly Monitoring.LiveTraffic.LiveTrafficRegistry? _liveTraffic;
+    private readonly Monitoring.LanHealth.SwitchPortLinkSink? _switchPorts;
     private readonly Licensing.LicenseStateService _licenseState;
     private readonly ILogger<AgentTunnelService> _logger;
 
@@ -67,8 +68,10 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         Licensing.LicenseStateService licenseState,
         ILogger<AgentTunnelService> logger,
         ChangeControl.ChangeControlRegistry? changeControl = null,
-        Monitoring.LiveTraffic.LiveTrafficRegistry? liveTraffic = null)
+        Monitoring.LiveTraffic.LiveTrafficRegistry? liveTraffic = null,
+        Monitoring.LanHealth.SwitchPortLinkSink? switchPorts = null)
     {
+        _switchPorts = switchPorts;
         _changeControl = changeControl;
         _liveTraffic = liveTraffic;
         _gatewayBlocklist = gatewayBlocklist;
@@ -282,6 +285,13 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                             connection.Drop();
                             break;
                         }
+                        if (message.Sequence > 0)
+                            connection.TrySend(new ServerMessage { ResultAck = new ResultAck { Sequence = message.Sequence } });
+                        break;
+                    case AgentMessage.PayloadOneofCase.SwitchPortLinks:
+                        // Acked even when the gateway is not known yet: the next minute's counters replace it,
+                        // and holding it would stall every later frame behind it.
+                        _switchPorts?.Record(siteSlug, message.SwitchPortLinks);
                         if (message.Sequence > 0)
                             connection.TrySend(new ServerMessage { ResultAck = new ResultAck { Sequence = message.Sequence } });
                         break;
