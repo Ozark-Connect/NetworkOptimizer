@@ -205,11 +205,14 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         return result;
     }
 
-    /// <summary>Device-level LAN Health fields from <c>device_health</c> (mesh uplink, PoE totals) per window: mean and last.</summary>
-    public async Task<IReadOnlyList<(DateTime WindowStart, string DeviceMac, string Field, double? Mean, object? Last, double? First)>> QueryLanDeviceFieldsAsync(
+    /// <summary>
+    /// Device-level LAN Health fields from <c>device_health</c> (mesh uplink, PoE totals) per window: mean, first,
+    /// and last, with the time the last reading was taken (<c>LastAt</c>), which is not the window's end.
+    /// </summary>
+    public async Task<IReadOnlyList<(DateTime WindowStart, string DeviceMac, string Field, double? Mean, object? Last, double? First, DateTime? LastAt)>> QueryLanDeviceFieldsAsync(
         DateTime from, DateTime to, TimeSpan window, IReadOnlyList<string> fields, CancellationToken ct = default)
     {
-        if (!IsConfigured || fields.Count == 0) return Array.Empty<(DateTime, string, string, double?, object?, double?)>();
+        if (!IsConfigured || fields.Count == 0) return Array.Empty<(DateTime, string, string, double?, object?, double?, DateTime?)>();
         var fieldFilter = string.Join(" or ", fields.Select(f => $"r._field == {FluxLiteral.Quote(f)}"));
         async Task<Dictionary<(DateTime, string, string), object?>> Agg(string fn, bool numericOnly)
         {
@@ -229,13 +232,33 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
             }
             return map;
         }
+        // Last keeps its own _time (window + last, not aggregateWindow), keyed by the window's start.
+        async Task<Dictionary<(DateTime, string, string), (object? Value, DateTime At)>> Last()
+        {
+            var flux = $@"
+from(bucket: {FluxLiteral.Quote(_bucket)})
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""device_health"")
+  |> filter(fn: (r) => {fieldFilter})
+  |> window(every: {ToFluxDuration(window)})
+  |> last()
+";
+            var map = new Dictionary<(DateTime, string, string), (object?, DateTime)>();
+            await foreach (var record in QueryFluxAsync(flux, ct))
+            {
+                var at = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow);
+                var start = record.GetStart() is { } s ? s.ToDateTimeUtc() : at;
+                map[(start, record.GetValueByKey("device_mac") as string ?? "", record.GetField() ?? "")] = (record.GetValue(), at);
+            }
+            return map;
+        }
         var mean = Agg("mean", true);
-        var last = Agg("last", false);
+        var last = Last();
         var first = Agg("first", true);
         await Task.WhenAll(mean, last, first);
         return last.Result.Select(kv => (kv.Key.Item1, kv.Key.Item2, kv.Key.Item3,
-                mean.Result.TryGetValue(kv.Key, out var m) ? AsDoubleOrNull(m) : null, kv.Value,
-                first.Result.TryGetValue(kv.Key, out var f) ? AsDoubleOrNull(f) : null))
+                mean.Result.TryGetValue(kv.Key, out var m) ? AsDoubleOrNull(m) : null, kv.Value.Value,
+                first.Result.TryGetValue(kv.Key, out var f) ? AsDoubleOrNull(f) : null, (DateTime?)kv.Value.At))
             .ToList();
     }
 

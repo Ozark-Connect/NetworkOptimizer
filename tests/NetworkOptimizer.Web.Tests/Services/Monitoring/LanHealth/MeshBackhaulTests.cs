@@ -135,13 +135,41 @@ public class MeshBackhaulTests
     public void Reassociation_FromTheParentsAssociationUptime()
     {
         var to = Hour.AddHours(1);
+        var read = to.AddSeconds(-30);
         // Uptime fell inside the hour: re-associated 600 s before the last reading.
-        LanHealthEvidenceBuilder.Reassociation(Hour, to, 25_000, 600).Should().Be(to.AddSeconds(-600));
+        LanHealthEvidenceBuilder.Reassociation(Hour, to, read, 25_000, 600).Should().Be(read.AddSeconds(-600));
         // Associated 20 minutes in, first reading already after it.
-        LanHealthEvidenceBuilder.Reassociation(Hour, to, 60, 2_400).Should().Be(to.AddSeconds(-2_400));
+        LanHealthEvidenceBuilder.Reassociation(Hour, to, read, 60, 2_400).Should().Be(read.AddSeconds(-2_400));
         // Steady association: none.
-        LanHealthEvidenceBuilder.Reassociation(Hour, to, 40_000, 43_500).Should().BeNull();
-        LanHealthEvidenceBuilder.Reassociation(Hour, to, null, null).Should().BeNull();
+        LanHealthEvidenceBuilder.Reassociation(Hour, to, read, 40_000, 43_500).Should().BeNull();
+        LanHealthEvidenceBuilder.Reassociation(Hour, to, read, null, null).Should().BeNull();
+    }
+
+    [Fact]
+    public void Reassociation_InTheRunningHour_CountsBackFromTheReadingNotTheHoursEnd()
+    {
+        // 10:00 to 10:20 so far; the link re-associated at 09:47, so the last reading (10:20) holds 33 minutes.
+        var to = Hour.AddHours(1);
+        var read = Hour.AddMinutes(20);
+        LanHealthEvidenceBuilder.Reassociation(Hour, to, read, 780, 1_980).Should().BeNull(
+            "the association began before the hour; from the hour's end it would read as 10:27, still in the future");
+    }
+
+    [Fact]
+    public void Reassociation_IsOneRelinkNotTwo()
+    {
+        var link = Mesh();
+        var at = Hour.AddMinutes(30);
+        var x = new LanHealthEvidenceBuilder.HourInputs
+        {
+            Hour = Hour,
+            Devices =
+            [
+                (Hour, ChildMac, InfluxFieldNames.UplinkAssocSeconds, null, 600L, 40_000.0, at),
+            ],
+        };
+        var built = LanHealthEvidenceBuilder.BuildHour(link, x, new Dictionary<string, LinkRecord>(), new Dictionary<string, HashSet<string>>(), 1);
+        built.Row.Relinks.Should().Be(1, "a re-association is one drop, not a down and an up counted apart");
     }
 
     [Fact]

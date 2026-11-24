@@ -77,7 +77,7 @@ public static class LanHealthEvidenceBuilder
         public IReadOnlyList<LanEventPoint> Events { get; init; } = [];
         public IReadOnlyList<ProbeLossPoint> Loss { get; init; } = [];
         public IReadOnlyDictionary<string, (int Samples, double MeanLoss, double? RttMs)> Probes { get; init; } = new Dictionary<string, (int, double, double?)>();
-        public IReadOnlyList<(DateTime WindowStart, string DeviceMac, string Field, double? Mean, object? Last, double? First)> Devices { get; init; } = [];
+        public IReadOnlyList<(DateTime WindowStart, string DeviceMac, string Field, double? Mean, object? Last, double? First, DateTime? LastAt)> Devices { get; init; } = [];
         /// <summary>Fabric target id to device MAC.</summary>
         public IReadOnlyDictionary<string, string> TargetDevices { get; init; } = new Dictionary<string, string>();
         /// <summary>(device MAC, SNMP if_name) to port number, from InterfaceNameMaps.</summary>
@@ -236,9 +236,9 @@ public static class LanHealthEvidenceBuilder
         var meshTx = MeshTxFor(link, x, from, to);
         if (meshTx.ReassociatedAt is DateTime reassoc)
         {
-            // Uptime is read once a poll, so the time is good to about a minute either way.
-            events.Add(new LinkEvent(reassoc.AddSeconds(-60), reassoc.AddSeconds(60), LinkEventType.LinkDown, LinkSource.MeshAssociation, LinkSide.Downstream));
-            events.Add(new LinkEvent(reassoc.AddSeconds(MeshReassociationSeconds - 60), reassoc.AddSeconds(MeshReassociationSeconds + 60), LinkEventType.LinkUp, LinkSource.MeshAssociation, LinkSide.Downstream));
+            // Uptime is read once a poll, so the time is good to about a minute either way. One relink, never a
+            // separate down and up: both are imprecise, so the aligner would count each as its own relink.
+            events.Add(new LinkEvent(reassoc.AddSeconds(-60), reassoc.AddSeconds(MeshReassociationSeconds + 60), LinkEventType.Relink, LinkSource.MeshAssociation, LinkSide.Downstream));
         }
         if (meshTx.Observed) observers.Add(new(LinkSource.MeshAssociation, hour, CountsDrops: true, CountsErrors: false));
 
@@ -478,11 +478,13 @@ public static class LanHealthEvidenceBuilder
     /// When the mesh child re-associated in [from, to), from the parent's association uptime at the hour's first
     /// and last reading. A reset (last below first) or an association that began inside the hour is one
     /// re-association; two in one hour count once, and the other sources still see each drop.
+    /// The uptime counts back from <paramref name="lastReadAt"/>, the time of that last reading: from the hour's
+    /// end it lands later than the truth, and in the hour still running it lands in the future.
     /// </summary>
-    internal static DateTime? Reassociation(DateTime from, DateTime to, double? firstUptime, double? lastUptime)
+    internal static DateTime? Reassociation(DateTime from, DateTime to, DateTime lastReadAt, double? firstUptime, double? lastUptime)
     {
         if (lastUptime is not double last) return null;
-        var began = to.AddSeconds(-last);
+        var began = lastReadAt.AddSeconds(-last);
         if (firstUptime is double first && last < first) return began < from ? from : began;
         if (began >= from && began < to && (firstUptime is not double f0 || f0 <= last)) return began;
         return null;
@@ -529,8 +531,8 @@ public static class LanHealthEvidenceBuilder
     {
         if (!link.IsMesh) return (null, null, null, null, false, null, null, null);
         var rows = x.Devices.Where(d => string.Equals(d.DeviceMac, link.Downstream.DeviceMac, StringComparison.OrdinalIgnoreCase)).ToList();
-        (double? First, double? Last) Of(string field) => rows.FirstOrDefault(r => r.Field == field) is var r && r.Field != null
-            ? (r.First, r.Last switch { long l => l, double d => d, _ => (double?)null }) : (null, null);
+        (double? First, double? Last, DateTime? LastAt) Of(string field) => rows.FirstOrDefault(r => r.Field == field) is var r && r.Field != null
+            ? (r.First, r.Last switch { long l => l, double d => d, _ => (double?)null }, r.LastAt) : (null, null, null);
         var retries = Of(InfluxFieldNames.UplinkTxRetries);
         var attempts = Of(InfluxFieldNames.UplinkTxAttempts);
         var dropped = Of(InfluxFieldNames.UplinkTxDropped);
@@ -539,7 +541,7 @@ public static class LanHealthEvidenceBuilder
         var childAttempts = Of(InfluxFieldNames.UplinkChildTxAttempts);
         var childDropped = Of(InfluxFieldNames.UplinkChildTxDropped);
         return (CounterRise(retries.First, retries.Last), CounterRise(attempts.First, attempts.Last), CounterRise(dropped.First, dropped.Last),
-            Reassociation(from, to, assoc.First, assoc.Last), assoc.Last != null,
+            Reassociation(from, to, assoc.LastAt ?? to, assoc.First, assoc.Last), assoc.Last != null,
             CounterRise(childRetries.First, childRetries.Last), CounterRise(childAttempts.First, childAttempts.Last), CounterRise(childDropped.First, childDropped.Last));
     }
 

@@ -17,7 +17,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 public sealed class LanHealthEngine
 {
     /// <summary>Bump when the roll-up changes; older rows are recomputed on the next backfill pass.</summary>
-    public const int Version = 15;
+    public const int Version = 16;
 
     internal static readonly TimeSpan RunEvery = TimeSpan.FromMinutes(15);
     internal static readonly TimeSpan Settle = TimeSpan.FromMinutes(5);
@@ -131,7 +131,7 @@ public sealed class LanHealthEngine
             // Alert text has no viewer: it reads on the notification clock and format, as every alert does.
             var zone = NotificationClock != null ? await NotificationClock.ResolveAsync(_slug, ct) : TimeZoneInfo.Utc;
             var format = NotificationClock != null ? await NotificationClock.ResolveFormatAsync(_slug, ct) : DisplayFormat.Fallback;
-            var report = await GetReportAsync(48, zone, format, ct);
+            var report = await GetReportAsync(48, zone, format, ct, labelZone: true);
             Refreshed?.Invoke(report);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -599,11 +599,12 @@ public sealed class LanHealthEngine
 
     /// <summary>
     /// The report over the last <paramref name="hours"/>, with the current hour computed live (cached
-    /// a minute across viewers). Findings render times on the viewer's clock.
+    /// a minute across viewers). Findings render times on the viewer's clock; <paramref name="labelZone"/> adds the
+    /// zone to each, for alert text, which has no viewer.
     /// </summary>
-    public async Task<LanHealthReport> GetReportAsync(int hours, TimeZoneInfo zone, DisplayFormat format, CancellationToken ct)
+    public async Task<LanHealthReport> GetReportAsync(int hours, TimeZoneInfo zone, DisplayFormat format, CancellationToken ct, bool labelZone = false)
     {
-        var key = $"{hours}|{zone.Id}|{format}";
+        var key = $"{hours}|{zone.Id}|{format}|{labelZone}";
         // A Change Control change since the topology was read drops both caches, so a fixed setting
         // clears its finding on the next reload instead of after the 2-minute console cache.
         var changed = await ConfigChangedSinceTopologyAsync(ct);
@@ -629,7 +630,7 @@ public sealed class LanHealthEngine
             if (!list.Any(x => x.HourStart == r.HourStart)) list.Add(r);
         }
         var baseline = await LoadRowsAsync(db, from.AddDays(-LanHealthReportBuilder.BaselineDays), from, ct);
-        var text = new FindingText(t => TimeFormatHelper.FormatLocalDateTime(t, zone, format), RangeLabel(hours));
+        var text = Text(zone, format, hours, labelZone);
         var tests = await SpeedTestsAsync(db, ct);
         var attributed = LanHealthSpeedTests.Attribute(tests, topology.Links, from, to);
         var forwarding = LanHealthSpeedTests.GatewayForwarding(tests, from, to);
@@ -819,6 +820,11 @@ public sealed class LanHealthEngine
 
     private static double? Percent(string? s) =>
         double.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : null;
+
+    /// <summary>How findings write times: the viewer's clock on the page; labeled with the zone for alert text.</summary>
+    internal static FindingText Text(TimeZoneInfo zone, DisplayFormat format, int hours, bool labelZone) =>
+        new(t => labelZone ? TimeFormatHelper.FormatLabeledDateTime(t, zone, format) : TimeFormatHelper.FormatLocalDateTime(t, zone, format),
+            RangeLabel(hours));
 
     internal static string RangeLabel(int hours) => hours <= 48 ? $"{hours}h" : $"{hours / 24}d";
 
