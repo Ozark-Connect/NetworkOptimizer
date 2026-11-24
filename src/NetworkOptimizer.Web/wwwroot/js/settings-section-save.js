@@ -1,7 +1,7 @@
 // Settings: each card's bottom button row (the last .action-buttons directly in its .card-body) is
 // its save row. On desktop, while a card is on screen and that row is not, a floating copy of the
 // row's Save sits where the real one would, at the bottom of the card's visible area, and clicks it.
-// An edit inside a card marks it unsaved until that button is clicked; leaving Settings then asks.
+// An edit inside a card marks it unsaved until that button's save succeeds; leaving Settings then asks.
 
 const DESKTOP = '(min-width: 769px)';
 const MIN_VISIBLE = 160;   // px of a card on screen before a floating Save is worth showing
@@ -50,18 +50,24 @@ function cardOf(el) {
     return card && card.parentElement === container ? card : null;
 }
 
-// After a floating Save, the card's own message says how it went: a new success alert shows a check
-// beside the button; a new error or warning shows a cross or a mark and scrolls the message into view.
+// After a save click, the card's own message says how it went. A new error or warning keeps the card
+// unsaved, unless its text says the settings were saved ("Saved, but InfluxDB is unreachable").
+// A floating Save also shows a check, cross, or mark beside itself, and scrolls a problem into view.
 const SUCCESS = '.alert-success';
 const PROBLEM = '.alert-danger, .alert-error, .alert-warning, .form-error';
 const RESULT_WAIT = 15000;     // ms a save has to report before we stop listening
 const RESULT_SHOWN = 2500;     // ms the check or cross stays up
+// A save that neither disables its button nor posts a message counts as done after this long. A
+// failure that reports later, inside RESULT_WAIT, marks the card unsaved again.
+const QUIET = 1500;
 const ICONS = {
     success: '<path d="M20 6 9 17l-5-5"/>',
     error: '<path d="M18 6 6 18M6 6l12 12"/>',
     warning: '<path d="M12 8v5M12 17h.01"/>',
 };
-let pending = null;            // { card, before: Map(message element -> text), until }
+// card -> { before: Map(message element -> text), button, since, dirty, sawBusy, cleared, float }.
+// A save on a card with no edits (dirty false) only drives the floating result, never the mark.
+let settling = new Map();
 let result = null;             // the check or cross element
 let resultAnchor = null;       // the floating button it sits beside
 let resultTimer = 0;
@@ -100,23 +106,45 @@ function placeResult() {
     result.style.top = `${r.top + r.height / 2 - 14}px`;
 }
 
-function checkResult() {
-    if (!pending) return;
-    const { card, before, until, button } = pending;
-    if (!card.isConnected || Date.now() > until) { pending = null; return; }
-    if (button.disabled) return;
-    // A repeat save can leave the same message in place: once the button has been busy and is back,
-    // whatever message the card shows is this save's.
-    const fresh = [...messages(card)].filter(([el, text]) => pending.sawBusy || before.get(el) !== text).map(([el]) => el);
-    const problem = fresh.find(el => el.matches(PROBLEM));
-    const ok = fresh.find(el => el.matches(SUCCESS));
-    if (!problem && !ok) return;
-    pending = null;
-    if (problem) {
-        showResult(floats.get(card), problem.matches('.alert-warning') ? 'warning' : 'error');
-        problem.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    } else {
-        showResult(floats.get(card), 'success');
+const reportsSaved = el => /\bsaved\b/i.test(el.textContent) && !/\bnot saved\b/i.test(el.textContent);
+
+function startSettle(card, button) {
+    settling.set(card, {
+        before: messages(card), button, since: Date.now(), dirty: unsaved.has(card),
+        sawBusy: false, cleared: false, float: false,
+    });
+    setTimeout(schedule, QUIET + 50);
+}
+
+function checkSettles() {
+    const now = Date.now();
+    for (const [card, s] of settling) {
+        if (!card.isConnected || now - s.since > RESULT_WAIT) { settling.delete(card); continue; }
+        if (s.button.isConnected && s.button.disabled) continue;
+        // A repeat save can leave the same message in place: once the button has been busy and is back,
+        // whatever message the card shows is this save's.
+        const fresh = [...messages(card)].filter(([el, text]) => s.sawBusy || s.before.get(el) !== text).map(([el]) => el);
+        const problem = fresh.find(el => el.matches(PROBLEM));
+        const ok = fresh.find(el => el.matches(SUCCESS));
+        if (problem || ok) {
+            settling.delete(card);
+            if (s.dirty) {
+                if (problem && !reportsSaved(problem)) unsaved.add(card);
+                else unsaved.delete(card);
+            }
+            if (!s.float) continue;
+            if (problem) {
+                showResult(floats.get(card), problem.matches('.alert-warning') ? 'warning' : 'error');
+                problem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } else {
+                showResult(floats.get(card), 'success');
+            }
+            continue;
+        }
+        // No message: a busy spell that has ended is a finished save. A button that never goes busy
+        // gets QUIET, and stays watched in case its failure reports late.
+        if (s.sawBusy) { settling.delete(card); if (s.dirty) unsaved.delete(card); }
+        else if (!s.cleared && now - s.since >= QUIET) { s.cleared = true; if (s.dirty) unsaved.delete(card); }
     }
 }
 
@@ -130,8 +158,9 @@ function floatFor(card) {
         btn.addEventListener('click', () => {
             const real = floatableSave(card);
             if (!real || real.disabled) return;
-            pending = { card, before: messages(card), until: Date.now() + RESULT_WAIT, button: real, sawBusy: false };
-            real.click();
+            real.click(); // onClick starts the settle
+            const s = settling.get(card);
+            if (s) s.float = true;
         });
         document.body.appendChild(btn);
         floats.set(card, btn);
@@ -142,7 +171,7 @@ function floatFor(card) {
 function place() {
     frame = 0;
     if (!container) return;
-    checkResult();
+    checkSettles();
     const desktop = window.matchMedia(DESKTOP).matches;
     // The page scrolls inside .page-content, with the footer below it: that box, not the window, is
     // the visible area.
@@ -180,7 +209,7 @@ function place() {
     placeResult();
     // Cards Blazor removed take their floating buttons with them.
     for (const [card, btn] of floats) {
-        if (!card.isConnected) { btn.remove(); floats.delete(card); unsaved.delete(card); }
+        if (!card.isConnected) { btn.remove(); floats.delete(card); unsaved.delete(card); settling.delete(card); }
     }
 }
 
@@ -199,6 +228,12 @@ function onEdit(e) {
     if (t.type === 'file' || t.closest('[data-autosave]')) return;
     const card = cardOf(t);
     if (!card || !saveButton(card) || saveRow(card).contains(t)) return;
+    markUnsaved(card);
+}
+
+// An edit made while a save is out is not covered by that save, whatever it reports.
+function markUnsaved(card) {
+    settling.delete(card);
     unsaved.add(card);
 }
 
@@ -207,8 +242,14 @@ function onClick(e) {
     const card = cardOf(e.target);
     if (!card) return;
     const button = e.target.closest('button');
-    if (button && saveRow(card)?.contains(button) && SETTLES.test(label(button))) unsaved.delete(card);
-    else if (e.target.closest('[data-marks-unsaved]') && saveButton(card)) unsaved.add(card);
+    // Once a quiet save has counted as done, a message after another button (Test) is that button's.
+    checkSettles();
+    const s = settling.get(card);
+    if (s?.cleared && button && button !== s.button) settling.delete(card);
+    if (button && saveRow(card)?.contains(button) && SETTLES.test(label(button))) {
+        if (!button.disabled) startSettle(card, button);
+    }
+    else if (e.target.closest('[data-marks-unsaved]') && saveButton(card)) markUnsaved(card);
 }
 
 /** Names of the cards with unsaved edits, for the leave prompt. */
@@ -231,8 +272,10 @@ export function mount(el) {
     });
     // The busy flip can come and go within one frame, so it is caught here rather than in place().
     observer = new MutationObserver(records => {
-        if (pending && records.some(r => r.target === pending.button && r.attributeName === 'disabled' && pending.button.disabled))
-            pending.sawBusy = true;
+        for (const s of settling.values()) {
+            if (records.some(r => r.target === s.button && r.attributeName === 'disabled' && s.button.disabled))
+                s.sawBusy = true;
+        }
         schedule();
     });
     observer.observe(container, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'disabled'] });
@@ -244,6 +287,7 @@ export function confirmLeave(url) {
     try {
         if (new URL(url, location.href).pathname.toLowerCase().startsWith('/settings')) return true;
     } catch { /* an unparseable target is treated as leaving */ }
+    checkSettles();
     const titles = unsavedTitles();
     if (!titles.length) return true;
     return window.confirm(`You have unsaved changes in ${titles.join(', ')}. Leave without saving?`);
@@ -257,7 +301,7 @@ export function unmount() {
     floats = new Map();
     result?.remove();
     result = null;
-    pending = null;
+    settling = new Map();
     clearTimeout(resultTimer);
     unsaved = new Set();
     if (frame) cancelAnimationFrame(frame);
