@@ -3928,10 +3928,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
     /// <summary>
     /// How long a pasted build whose SSH session dropped waits for the device to show the upgrade before
-    /// the Console is sent the same link. A flashing device shows within seconds (UniFi Provisioning, then
-    /// Upgrading or offline); the hold only delays a Console command for one that never does.
+    /// the Console is sent the same link. A device can keep reporting Connected while it writes the image:
+    /// drop to offline took 55 s to 2 min on U7 models, so the hold leaves a minute over the slowest.
     /// </summary>
-    internal TimeSpan SshDropHold { get; set; } = TimeSpan.FromMinutes(2);
+    internal TimeSpan SshDropHold { get; set; } = TimeSpan.FromMinutes(3);
 
     /// <summary>
     /// <see cref="SshUpgradeAsync"/>, except that a session the device closed mid-command
