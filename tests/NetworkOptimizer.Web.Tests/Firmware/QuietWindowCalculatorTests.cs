@@ -44,6 +44,52 @@ public class QuietWindowCalculatorTests
     }
 
     [Fact]
+    public void FindBest_WithHorizon_PicksTheQuietestHourOfTheNextDayOverAQuieterOneLater()
+    {
+        var busy = Uniform(0.5);
+        busy[Bucket(DayOfWeek.Wednesday, 3)] = 0.0;
+        busy[Bucket(DayOfWeek.Tuesday, 2)] = 0.2;
+
+        var proposal = QuietWindowCalculator.FindBest(busy, 600, MondayNoon, TimeSpan.FromMinutes(30), horizon: TimeSpan.FromHours(24));
+
+        proposal.Day.Should().Be(DayOfWeek.Tuesday);
+        proposal.Hour.Should().Be(2);
+        proposal.StartLocal.Should().Be(new DateTime(2026, 8, 18, 2, 0, 0));
+    }
+
+    [Fact]
+    public void FindBest_WithHorizon_InsideTheMondayGuard_StillProposesWithinTheDay()
+    {
+        var sundayEvening = new DateTime(2026, 8, 16, 18, 0, 0);
+        var busy = Uniform(0.5);
+        busy[Bucket(DayOfWeek.Monday, 2)] = 0.0;
+
+        var proposal = QuietWindowCalculator.FindBest(busy, 600, sundayEvening, TimeSpan.FromMinutes(30), avoidMondayMorning: true,
+            horizon: TimeSpan.FromHours(24));
+
+        proposal.StartLocal.Should().BeAfter(sundayEvening).And.BeOnOrBefore(sundayEvening.AddHours(24));
+    }
+
+    [Fact]
+    public void FallbackWithinDay_BeforeTheHour_IsTheSameNight()
+    {
+        var oneAmTuesday = new DateTime(2026, 8, 18, 1, 0, 0);
+
+        var proposal = QuietWindowCalculator.FallbackWithinDay(SiteUsageProfile.Home, oneAmTuesday, TimeSpan.FromMinutes(30));
+
+        proposal.StartLocal.Should().Be(new DateTime(2026, 8, 18, 3, 0, 0));
+        proposal.UsedFallback.Should().BeTrue();
+    }
+
+    [Fact]
+    public void FallbackWithinDay_AfterTheHour_IsTomorrowNight()
+    {
+        var proposal = QuietWindowCalculator.FallbackWithinDay(SiteUsageProfile.Home, MondayNoon, TimeSpan.FromMinutes(30));
+
+        proposal.StartLocal.Should().Be(new DateTime(2026, 8, 18, 3, 0, 0));
+    }
+
+    [Fact]
     public void FindBest_DaytimePenalty_SteersTowardOvernightEvenWhenSlightlyBusier()
     {
         var busy = Uniform(1.0);

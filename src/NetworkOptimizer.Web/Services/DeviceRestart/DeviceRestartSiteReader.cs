@@ -236,6 +236,6 @@ public sealed class DeviceRestartSiteReader
         var quiet = new QuietWindowService(_influx, _loggers.CreateLogger<QuietWindowService>(), _siteSlug, consoleTimeZoneId: zone);
         return await quiet.ProposeAsync(
             planner, (int)RestartRules.OfflineBudget(type).TotalSeconds, new FirmwareRolloutSettings(),
-            clientCount: 0, minLead: TimeSpan.FromMinutes(30), ct);
+            clientCount: 0, minLead: TimeSpan.FromMinutes(30), ct, withinDay: true);
     }
 }
