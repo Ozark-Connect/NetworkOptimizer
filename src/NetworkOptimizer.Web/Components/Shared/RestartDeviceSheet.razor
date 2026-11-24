@@ -203,14 +203,16 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // Placed once the state is in, so the popover measures its real height.
-        if (_placed || _state == null) return;
-        _placed = true;
+        // Placed on the first render (the loading state), so it never shows where its host would put it,
+        // and again once the state is in, so it measures its real height.
+        if (!firstRender && (_placed || _state == null)) return;
         try
         {
             _module ??= await JS.InvokeAsync<IJSObjectReference>(
                 "import", FileVersionProvider.AddFileVersionToPath("", "/js/fixed-popover.js"));
             await _module.InvokeVoidAsync("place", _pop, Anchor, new { above = true });
+            if (_state == null || _placed) return;
+            _placed = true;
             // The first option that can be chosen; the dialog itself when there is no option list.
             var options = _state.Error == null && (_state.Pending == null || _changing);
             await (options ? (NowAllowed ? _nowOption : _atOption) : _pop).FocusAsync();

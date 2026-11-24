@@ -27317,6 +27317,13 @@ body:has(.top-bar-hidden) .btn-fit {
     color: var(--text-primary);
 }
 
+/* Desktop: hidden until fixed-popover.js pins it, so it never flashes at its host's corner first. */
+@media (min-width: 769px) {
+    .device-restart-pop:not([style*="fixed"]) {
+        visibility: hidden;
+    }
+}
+
 /* Custom Apps' close button, in the header's flow rather than pinned to a corner. */
 .device-restart-close {
     flex: none;
