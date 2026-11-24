@@ -221,6 +221,13 @@ public class SiteDetectorTests
         f[1].Body.Should().Be("2 devices of the same model are running 2 different firmware versions (7.1.26, 7.2.120).");
     }
 
+    [Fact]
+    public void FirmwareDrift_OneBuildWithAndWithoutItsBuildNumberIsNotDrift()
+    {
+        var s = new SiteEvidence { Devices = [Switch(CoreMac, "Core", fw: "6.5.87.14874"), Switch(EdgeMac, "Edge", fw: "6.5.87")] };
+        LanSiteDetectors.FabricDeviceHealth(s).Should().NotContain(f => f.Class == "Firmware Drift");
+    }
+
     // ---- L2 / IP ----
 
     [Fact]

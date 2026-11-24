@@ -390,7 +390,9 @@ public static class LanSiteDetectors
         }
         foreach (var g in s.Devices.Where(d => d.Adopted && !string.IsNullOrEmpty(d.Model)).GroupBy(d => d.Model))
         {
-            var versions = g.Select(d => d.DisplayableVersion ?? d.Version).Where(v => !string.IsNullOrEmpty(v)).Distinct().ToList();
+            // By version only: one build reads "6.5.87" on one device and "6.5.87.14874" on another (FirmwareVersionFormat.SameBuild).
+            var versions = g.Select(d => d.DisplayableVersion ?? d.Version).Where(v => !string.IsNullOrEmpty(v))
+                .Select(v => NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.Short(v!)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             if (versions.Count > 1)
                 yield return Site(Detectors.FabricDeviceHealth, "Firmware Drift", g.First().FriendlyModelName,
                     $"{g.Count()} devices of the same model are running {versions.Count} different firmware versions ({string.Join(", ", versions)}).", chips: "Firmware");
