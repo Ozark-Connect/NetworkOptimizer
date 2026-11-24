@@ -17,22 +17,6 @@ public class SfpAlertDeferralTests
     private static readonly SfpDdmThresholds On = SfpDdmThresholds.Defaults with { IgnoreDdmSpikes = true };
     private static readonly SfpDdmThresholds Off = SfpDdmThresholds.Defaults;
 
-    private sealed class CapturingBus : IAlertEventBus
-    {
-        public List<AlertEvent> Events { get; } = new();
-        public ValueTask PublishAsync(AlertEvent alertEvent, CancellationToken ct = default)
-        {
-            Events.Add(alertEvent);
-            return ValueTask.CompletedTask;
-        }
-
-        public async IAsyncEnumerable<AlertEvent> ConsumeAsync(
-            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
-        {
-            await Task.CompletedTask;
-            yield break;
-        }
-    }
 
     private static async Task<CapturingBus> FeedAsync(
         SfpCategory category, SfpDdmThresholds thresholds, params (double Temp, double Rx)[] samples)

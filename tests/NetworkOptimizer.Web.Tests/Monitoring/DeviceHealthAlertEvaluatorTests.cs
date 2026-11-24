@@ -15,23 +15,6 @@ public class DeviceHealthAlertEvaluatorTests
 {
     private const string Mac = "aa:bb:cc:dd:ee:ff";
 
-    private sealed class CapturingBus : IAlertEventBus
-    {
-        public List<AlertEvent> Published { get; } = new();
-
-        public ValueTask PublishAsync(AlertEvent alertEvent, CancellationToken ct = default)
-        {
-            Published.Add(alertEvent);
-            return ValueTask.CompletedTask;
-        }
-
-        public async IAsyncEnumerable<AlertEvent> ConsumeAsync(
-            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
-        {
-            await Task.CompletedTask;
-            yield break;
-        }
-    }
 
     private sealed class NoopSiteScope : IAlertSiteScope
     {

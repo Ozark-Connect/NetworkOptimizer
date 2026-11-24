@@ -43,7 +43,7 @@ public class TeamsDeliveryChannel : IAlertDeliveryChannel
             facts.Add(new { title = "Value", value = $"{alertEvent.MetricValue}{(alertEvent.ThresholdValue.HasValue ? $" / threshold: {alertEvent.ThresholdValue}" : "")}" });
 
         foreach (var ctx in alertEvent.Context)
-            facts.Add(new { title = ctx.Key, value = ctx.Value });
+            facts.Add(new { title = ctx.Key, value = TimestampFormatter.ContextValue(ctx.Value, timeZone, format) });
 
         if (!string.IsNullOrEmpty(alertEvent.SourceUrl))
             facts.Add(new { title = "View", value = alertEvent.SourceUrl });

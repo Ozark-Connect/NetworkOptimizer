@@ -585,17 +585,4 @@ public class OntAlertEvaluatorTests
         bus.Events.Should().ContainSingle().Which.EventType.Should().Be("ont.path_loss_rise");
     }
 
-    private sealed class CapturingBus : IAlertEventBus
-    {
-        public List<AlertEvent> Events { get; } = new();
-
-        public ValueTask PublishAsync(AlertEvent alertEvent, CancellationToken cancellationToken = default)
-        {
-            Events.Add(alertEvent);
-            return ValueTask.CompletedTask;
-        }
-
-        public IAsyncEnumerable<AlertEvent> ConsumeAsync(CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-    }
 }

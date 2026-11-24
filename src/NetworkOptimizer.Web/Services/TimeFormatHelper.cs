@@ -13,6 +13,13 @@ public static class TimeFormatHelper
     public static string FormatLocalDateTime(DateTime utc, TimeZoneInfo zone, DisplayFormat format) =>
         ToLocal(utc, zone).ToString(format.DayTime, DisplayFormat.Culture);
 
+    /// <summary>
+    /// "Oct 20, 16:42 CDT": a day and time with its zone, for text no one viewer owns (alerts, notes stored
+    /// with a plan), written on the notification clock.
+    /// </summary>
+    public static string FormatLabeledDateTime(DateTime utc, TimeZoneInfo zone, DisplayFormat format) =>
+        $"{FormatLocalDateTime(utc, zone, format)} {DateTimeUtilities.ZoneAbbreviation(zone, DateTime.SpecifyKind(utc, DateTimeKind.Utc))}";
+
     /// <summary>A day ("Oct 20") on <paramref name="zone"/>'s clock, in <paramref name="format"/>.</summary>
     public static string FormatLocalDate(DateTime utc, TimeZoneInfo zone, DisplayFormat format) =>
         ToLocal(utc, zone).ToString(format.Day, DisplayFormat.Culture);

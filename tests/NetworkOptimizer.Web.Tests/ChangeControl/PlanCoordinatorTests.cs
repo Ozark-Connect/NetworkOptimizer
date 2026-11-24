@@ -64,7 +64,7 @@ public sealed class PlanCoordinatorTests : IDisposable
     private readonly FakeConsole _console;
     private readonly ChangeControlSiteEngine _engine;
     private readonly PlanCoordinator _plans;
-    private readonly NetworkOptimizer.Web.Tests.Firmware.CapturingBus _bus = new();
+    private readonly NetworkOptimizer.Web.Tests.CapturingBus _bus = new();
 
     public PlanCoordinatorTests()
     {

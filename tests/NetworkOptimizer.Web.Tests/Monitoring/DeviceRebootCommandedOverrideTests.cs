@@ -14,23 +14,6 @@ namespace NetworkOptimizer.Web.Tests.Monitoring;
 /// </summary>
 public class DeviceRebootCommandedOverrideTests
 {
-    private sealed class CapturingBus : IAlertEventBus
-    {
-        public List<AlertEvent> Published { get; } = [];
-
-        public ValueTask PublishAsync(AlertEvent alertEvent, CancellationToken ct = default)
-        {
-            Published.Add(alertEvent);
-            return ValueTask.CompletedTask;
-        }
-
-        public async IAsyncEnumerable<AlertEvent> ConsumeAsync(
-            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
-        {
-            await Task.CompletedTask;
-            yield break;
-        }
-    }
 
     private sealed class NullProbe : DeviceRebootProbe
     {
