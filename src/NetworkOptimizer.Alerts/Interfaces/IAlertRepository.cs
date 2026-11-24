@@ -84,6 +84,12 @@ public interface IAlertRepository
     /// </summary>
     Task<List<AlertHistoryEntry>> ResolveActiveAlertsAnyDeviceAsync(IReadOnlyCollection<string> eventTypes, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// As <see cref="ResolveActiveAlertsAnyDeviceAsync"/>, and closes acknowledged alerts of those types too: for an
+    /// alert whose condition has a definite end (a rollout that finished), where an acknowledgement must not keep it open.
+    /// </summary>
+    Task<List<AlertHistoryEntry>> ResolveOpenAlertsAnyDeviceAsync(IReadOnlyCollection<string> eventTypes, CancellationToken cancellationToken = default);
+
     // --- Alert Incidents ---
     Task<int> SaveIncidentAsync(AlertIncident incident, CancellationToken cancellationToken = default);
     Task UpdateIncidentAsync(AlertIncident incident, CancellationToken cancellationToken = default);
