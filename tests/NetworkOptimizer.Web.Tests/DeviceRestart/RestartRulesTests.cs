@@ -48,6 +48,34 @@ public class RestartRulesTests
     }
 
     [Fact]
+    public void Topology_AGatewayReportingASwitchAsItsUplink_StaysTheRoot()
+    {
+        var tree = new RestartTopology(
+        [
+            new RestartNode(Gw, "Gateway", DeviceType.Gateway, Sw, null, 1, 86400),
+            new RestartNode(Sw, "Office Switch", DeviceType.Switch, Gw, 4, 1, 86400),
+            new RestartNode(Ap, "Main Kitchen", DeviceType.AccessPoint, Gw, 3, 1, 86400),
+        ]);
+
+        tree.Subtree(Sw).Should().BeEmpty();
+        tree.Subtree(Gw).Select(n => n.Mac).Should().BeEquivalentTo([Sw, Ap]);
+        tree.Children(Gw).Select(n => n.Mac).Should().BeEquivalentTo([Sw, Ap]);
+    }
+
+    [Fact]
+    public void Topology_AnUplinkLoop_PutsNeitherDeviceBelowTheOther()
+    {
+        var tree = new RestartTopology(
+        [
+            new RestartNode(Sw, "Office Switch", DeviceType.Switch, Ap, 1, 1, 86400),
+            new RestartNode(Ap, "Main Kitchen", DeviceType.AccessPoint, Sw, 1, 1, 86400),
+        ]);
+
+        tree.Subtree(Sw).Should().BeEmpty();
+        tree.Subtree(Ap).Should().BeEmpty();
+    }
+
+    [Fact]
     public void Topology_ParentLoop_DoesNotSpin()
     {
         var tree = new RestartTopology(

@@ -18,6 +18,9 @@
     <div class="lt-fpop-head">
         <span class="lt-fpop-title">Restart</span>
         <span class="device-restart-name">@Name</span>
+        <button type="button" class="device-restart-close" aria-label="Close" @onclick="CloseAsync">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18" /><line x1="18" y1="6" x2="6" y2="18" /></svg>
+        </button>
     </div>
 
     @if (_state == null)
@@ -40,8 +43,8 @@
         }
         <small class="form-help">@PendingDetail(pending)</small>
         <div class="action-buttons form-footer">
+            <button type="button" class="btn btn-primary" @onclick="() => _changing = true" disabled="@_busy">Change</button>
             <button type="button" class="btn btn-danger" @onclick="CancelRestartAsync" disabled="@(_busy || pending.Status == DeviceRestartStatus.Running)">Cancel Restart</button>
-            <button type="button" class="btn btn-contrast" @onclick="() => _changing = true" disabled="@_busy">Change</button>
         </div>
         @if (_error != null)
         {
@@ -318,14 +321,29 @@
 
     private string SiteAside(DateTime utc) => RolloutScopeCopy.SiteAside(_state?.TimeZoneId, utc, DisplayTime.Zone, DisplayTime.Format);
 
-    /// <summary>What else goes down with it; null for a device with nothing below it.</summary>
+    /// <summary>
+    /// What goes down with it: the clients it and everything below it carry (for a gateway, the internet
+    /// for all of them), and the devices on its PoE, which lose power. Null when neither applies.
+    /// </summary>
     private string? Impact()
     {
-        if (_state == null || (_state.DevicesBelow == 0 && _state.Type != DeviceType.Gateway)) return null;
-        var devices = _state.DevicesBelow == 1 ? "1 device" : $"{_state.DevicesBelow} devices";
-        return _state.ClientsAffected is int clients
-            ? $"Also drops {devices} and {TimeFormatHelper.Pluralize(clients, "client")} while it restarts."
-            : $"Also drops {devices} while it restarts.";
+        if (_state == null) return null;
+        var parts = new List<string>();
+        var clients = _state.ClientsAffected is int n ? TimeFormatHelper.Pluralize(n, "client") : null;
+        if (_state.Type == DeviceType.Gateway)
+            parts.Add(clients != null ? $"Takes the internet down for {clients} while it restarts." : "Takes the internet down while it restarts.");
+        else if (_state.ClientsAffected > 0)
+            parts.Add($"Disconnects {clients} while it restarts.");
+
+        var powered = _state.PoweredDevices;
+        if (powered.Count > 0)
+        {
+            var names = powered.Count <= 3
+                ? NetworkOptimizer.Web.Services.ChangeControl.ChangeDescriber.JoinAnd(powered.ToList())
+                : $"{powered.Count} devices";
+            parts.Add(powered.Count == 1 ? $"{names} runs on its PoE and restarts with it." : $"{names} run on its PoE and restart with it.");
+        }
+        return parts.Count > 0 ? string.Join(" ", parts) : null;
     }
 
     private string MethodLine()

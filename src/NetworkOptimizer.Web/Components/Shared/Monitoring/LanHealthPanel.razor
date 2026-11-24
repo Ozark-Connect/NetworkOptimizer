@@ -9,6 +9,8 @@
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject ILogger<LanHealthPanel> Logger
 @inject UniFiConnectionService ConnectionService
+@inject NetworkOptimizer.Web.Services.DeviceRestart.IDeviceRestartService DeviceRestarts
+@using NetworkOptimizer.Web.Services.DeviceRestart
 
 <div class="lan-health">
 @if (_report == null)
@@ -305,6 +307,7 @@ else
             _report = await LanHealth.GetReportAsync(_hours, DisplayTime.Zone, DisplayTime.Format);
             _loadedLink = LinkId;
             _link = string.IsNullOrEmpty(LinkId) ? null : _report.Links.FirstOrDefault(l => l.Link.Id == LinkId);
+            if (_link != null) await LoadRestartBadgesAsync();
             _historyDirty = true;
             _timelineDirty = true;
         }
@@ -485,6 +488,49 @@ else
     private string _exclusionScope = "port";
     private string? _exclusionError;
 
+    private IReadOnlyDictionary<string, DeviceRestartBadge> _restartBadges = new Dictionary<string, DeviceRestartBadge>();
+
+    /// <summary>Each device's open or recently failed restart, for the badge on the link page's restart buttons.</summary>
+    private async Task LoadRestartBadgesAsync()
+    {
+        try
+        {
+            _restartBadges = await DeviceRestarts.GetBadgesAsync();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The badges are a hint; the buttons render without them.
+            _restartBadges = new Dictionary<string, DeviceRestartBadge>();
+        }
+    }
+
+    /// <summary>One end of the link: the device's icon with its restart button, its name, and its port.</summary>
+    private RenderFragment LinkEndView(LinkEnd end) => __builder =>
+    {
+        <div class="lan-health-end">
+            <div class="lan-health-end-icon">
+                @if (end.IsUniFi)
+                {
+                    <DeviceIcon Model="@end.Model" Size="xl" />
+                    @if (!string.IsNullOrEmpty(end.DeviceMac))
+                    {
+                        <DeviceRestartButton Mac="@end.DeviceMac" Name="@end.DeviceName" OnChanged="LoadRestartBadgesAsync"
+                                             Restart="@_restartBadges.GetValueOrDefault(NetworkOptimizer.Web.Services.Firmware.MacNormalizer.Normalize(end.DeviceMac))" />
+                    }
+                }
+                else
+                {
+                    <AppIcon Name="computer" />
+                }
+            </div>
+            <div class="lan-health-end-name">@end.DeviceName</div>
+            @if (end.PortIdx is int p)
+            {
+                <div class="lan-health-sub">Port @p</div>
+            }
+        </div>
+    };
+
     private RenderFragment LinkPage => __builder =>
     {
         var l = _link;
@@ -508,6 +554,11 @@ else
             <div>
                 <h2 class="lan-health-link-title">@link.Name</h2>
                 <div class="lan-health-sub">@Subtitle(link, l)</div>
+            </div>
+            <div class="lan-health-ends">
+                @LinkEndView(link.Upstream)
+                <div class="lan-health-end-line @(link.Kind is LinkKind.FabricMesh or LinkKind.FabricMeshMlo ? "is-mesh" : null)"></div>
+                @LinkEndView(link.Downstream)
             </div>
             <div class="lan-health-link-head-right">
                 <span class="status-badge @StatusClass(l.Status)">@StatusLabel(l.Status)</span>

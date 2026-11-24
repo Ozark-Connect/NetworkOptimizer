@@ -36,8 +36,8 @@ public sealed class DeviceRestartSheetState
     /// <summary>True when SSH credentials cover the route this device takes.</summary>
     public bool HasSsh { get; init; }
 
-    /// <summary>Devices below it in the uplink tree.</summary>
-    public int DevicesBelow { get; init; }
+    /// <summary>Devices that run on its PoE, and on theirs: they lose power and restart with it.</summary>
+    public IReadOnlyList<string> PoweredDevices { get; init; } = [];
 
     /// <summary>Clients on it or below it; null when the console's client list did not load.</summary>
     public int? ClientsAffected { get; init; }
@@ -187,13 +187,32 @@ public sealed class DeviceRestartService : IDeviceRestartService
             IsOnline = node.IsOnline,
             Lockout = RestartRules.Lockout(topology, key, site, DateTime.UtcNow),
             HasSsh = await _reader.HasSshAsync(device, ct),
-            DevicesBelow = below.Count,
+            PoweredDevices = PoweredBy(topology, key).Select(n => n.Name).ToList(),
             ClientsAffected = await ClientsAffectedAsync(node, below, ct),
             PoePort = _reader.PoweringPort(topology, key),
             Pending = pending,
             RestartsLast30Days = restarts,
             TimeZoneId = await _reader.ConsoleTimeZoneAsync(ct),
         };
+    }
+
+    /// <summary>Devices on its PoE ports, then on theirs, nearest first.</summary>
+    private List<RestartNode> PoweredBy(RestartTopology topology, string mac)
+    {
+        var powered = new List<RestartNode>();
+        var queue = new Queue<string>([mac]);
+        while (queue.Count > 0)
+        {
+            var source = queue.Dequeue();
+            foreach (var child in topology.Children(source))
+            {
+                if (_reader.PoweringPort(topology, child.Mac) is not { } port
+                    || !string.Equals(MacNormalizer.Normalize(port.SwitchMac), source, StringComparison.OrdinalIgnoreCase)) continue;
+                powered.Add(child);
+                queue.Enqueue(MacNormalizer.Normalize(child.Mac));
+            }
+        }
+        return powered;
     }
 
     /// <summary>Clients attached to the device or anything below it; every client for a gateway.</summary>

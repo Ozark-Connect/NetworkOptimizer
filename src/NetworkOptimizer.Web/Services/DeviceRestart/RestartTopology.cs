@@ -54,7 +54,8 @@ public sealed class RestartTopology
 
         foreach (var node in _nodes.Values)
         {
-            if (Parent(node) is not { } parent) continue;
+            // An uplink loop would put each device in the other's subtree: the edge closing it is dropped.
+            if (Parent(node) is not { } parent || IsAbove(node.Mac, parent.Mac)) continue;
             var key = MacNormalizer.Normalize(parent.Mac);
             if (!_children.TryGetValue(key, out var list))
                 _children[key] = list = [];
@@ -69,10 +70,11 @@ public sealed class RestartTopology
     public RestartNode? Find(string? mac) =>
         string.IsNullOrEmpty(mac) ? null : _nodes.GetValueOrDefault(MacNormalizer.Normalize(mac));
 
-    /// <summary>The device it uplinks to, or null at a root.</summary>
+    /// <summary>The device it uplinks to, or null at a root. A gateway is always a root: the console can report
+    /// a LAN switch as its uplink, which would hang the whole site below that switch.</summary>
     public RestartNode? Parent(RestartNode node)
     {
-        if (string.IsNullOrEmpty(node.ParentMac)) return null;
+        if (node.Type == DeviceType.Gateway || string.IsNullOrEmpty(node.ParentMac)) return null;
         var parent = Find(node.ParentMac);
         return parent == null || string.Equals(parent.Mac, node.Mac, StringComparison.OrdinalIgnoreCase) ? null : parent;
     }
@@ -95,6 +97,10 @@ public sealed class RestartTopology
 
     /// <summary>Hops from the root; 0 for a root or an unknown device.</summary>
     public int Depth(string mac) => PathToRoot(mac).Count;
+
+    /// <summary>The devices that uplink straight to it.</summary>
+    public IReadOnlyList<RestartNode> Children(string mac) =>
+        _children.TryGetValue(MacNormalizer.Normalize(mac), out var kids) ? kids.Select(k => _nodes[k]).ToList() : [];
 
     /// <summary>Every device below it, not including itself.</summary>
     public IReadOnlyList<RestartNode> Subtree(string mac)

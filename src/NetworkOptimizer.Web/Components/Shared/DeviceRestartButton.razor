@@ -1,0 +1,91 @@
+@* A device's restart button and its sheet (Site Admin), or the read-only badge for everyone else.
+   The Device Status card places it in its corner; LAN Health's link page beside each end's icon. *@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Services.DeviceRestart
+@using NetworkOptimizer.Storage.Models
+
+<SiteAdminOnly>
+    <ChildContent>
+        <button type="button" @ref="_button" class="device-restart-btn @(_sheetOpen ? "is-open" : null)"
+                aria-label="@($"Restart {Name}")" aria-haspopup="dialog" aria-expanded="@(_sheetOpen ? "true" : "false")"
+                data-tooltip="@Tooltip" data-tooltip-hover-only data-tour="@(TourAnchor ? "device-restart" : null)"
+                @onclick="Toggle">
+            @Glyph()
+        </button>
+        @if (_sheetOpen)
+        {
+            <RestartDeviceSheet Mac="@Mac" Name="@Name" Anchor="@_button" OnClose="Close" OnChanged="OnChanged" />
+        }
+    </ChildContent>
+    <NotAuthorized>
+        @if (Restart != null)
+        {
+            <span class="device-restart-btn is-readonly" data-tooltip="@Tooltip" data-tooltip-hover-only>@Glyph()</span>
+        }
+    </NotAuthorized>
+</SiteAdminOnly>
+
+@code {
+    /// <summary>The device's MAC.</summary>
+    [Parameter, EditorRequired]
+    public string Mac { get; set; } = "";
+
+    /// <summary>The device's name, for the sheet and the button's label.</summary>
+    [Parameter, EditorRequired]
+    public string Name { get; set; } = "";
+
+    /// <summary>The device's open or recently failed restart, or null.</summary>
+    [Parameter]
+    public DeviceRestartBadge? Restart { get; set; }
+
+    /// <summary>Puts the guided tour's anchor on this button.</summary>
+    [Parameter]
+    public bool TourAnchor { get; set; }
+
+    /// <summary>Raised after a restart is requested or cancelled, so the page re-reads the badges.</summary>
+    [Parameter]
+    public EventCallback OnChanged { get; set; }
+
+    [Inject] private IDisplayTimeZone DisplayTime { get; set; } = default!;
+
+    private ElementReference _button;
+    private bool _sheetOpen;
+
+    private void Toggle() => _sheetOpen = !_sheetOpen;
+
+    private void Close() => _sheetOpen = false;
+
+    /// <summary>The button's tooltip: what it does, or where the device's restart is.</summary>
+    private string Tooltip => Restart switch
+    {
+        null => "Restart",
+        { Status: DeviceRestartStatus.Running } => "Restarting",
+        { Status: DeviceRestartStatus.Waiting } r => r.Reason is { Length: > 0 } why ? $"Restart waits: {why}" : "Restart waits until the firmware upgrade finishes",
+        { Status: DeviceRestartStatus.Failed } r => $"Restart failed: {r.Reason}",
+        { } r => $"Restart scheduled {WhenText(r.DueAtUtc)}",
+    };
+
+    private string WhenText(DateTime utc) =>
+        DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToLocalTime(DisplayTime).ToString(DisplayTime.Format.WeekdayDayTime, DisplayFormat.Culture);
+
+    /// <summary>The restart glyph, with a badge for a scheduled, held, or failed restart and a spinner while running.</summary>
+    private RenderFragment Glyph() => __builder =>
+    {
+        if (Restart is { Status: DeviceRestartStatus.Running })
+        {
+            <span class="spinner spinner-sm"></span>
+            return;
+        }
+        <AppIcon Name="restart" />
+        if (Restart is { } r)
+        {
+            var (tone, icon) = r.Status switch
+            {
+                DeviceRestartStatus.Waiting => ("is-waiting", "clock"),
+                DeviceRestartStatus.Failed => ("is-failed", "warning"),
+                _ => ("is-scheduled", "clock"),
+            };
+            <span class="device-restart-badge @tone"><AppIcon Name="@icon" /></span>
+        }
+    };
+}
