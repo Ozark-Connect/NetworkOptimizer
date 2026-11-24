@@ -14,22 +14,6 @@ public class LanHealthAlertTests
 {
     private static readonly DateTime T0 = new(2026, 11, 23, 12, 0, 0, DateTimeKind.Utc);
 
-    private sealed class CapturingBus : IAlertEventBus
-    {
-        public List<AlertEvent> Published { get; } = [];
-
-        public ValueTask PublishAsync(AlertEvent alertEvent, CancellationToken ct = default)
-        {
-            Published.Add(alertEvent);
-            return ValueTask.CompletedTask;
-        }
-
-        public async IAsyncEnumerable<AlertEvent> ConsumeAsync([EnumeratorCancellation] CancellationToken ct)
-        {
-            await Task.CompletedTask;
-            yield break;
-        }
-    }
 
     private static LinkHealth Link(string id, bool fabric = true, ExclusionLevel? exclusion = null, params string[] classes)
     {

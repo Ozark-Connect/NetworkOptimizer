@@ -76,7 +76,7 @@ public class WanOutageEvaluatorTests
     private static readonly MonitoringTarget[] WanPath = [WanAccess, WanTransit];
     private static readonly MonitoringTarget[] NoTargets = [];
 
-    private readonly CapturingAlertEventBus _bus = new();
+    private readonly CapturingBus _bus = new();
     private readonly FakeTimeProvider _time = new(Start);
     // Reassigned by the restart tests, which start from stored alerts.
     private MonitoringAlertEvaluator _evaluator;
@@ -753,23 +753,6 @@ public class WanOutageEvaluatorTests
         public void Advance(TimeSpan by) => _utcNow = _utcNow.Add(by);
     }
 
-    private sealed class CapturingAlertEventBus : IAlertEventBus
-    {
-        public List<AlertEvent> Published { get; } = new();
-
-        public ValueTask PublishAsync(AlertEvent alertEvent, CancellationToken ct = default)
-        {
-            Published.Add(alertEvent);
-            return ValueTask.CompletedTask;
-        }
-
-        public async IAsyncEnumerable<AlertEvent> ConsumeAsync(
-            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
-        {
-            await Task.CompletedTask;
-            yield break;
-        }
-    }
 
     #endregion
 }
