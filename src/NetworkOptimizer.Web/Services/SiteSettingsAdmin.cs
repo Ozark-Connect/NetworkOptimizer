@@ -14,6 +14,7 @@ public interface ISiteSettingsAdmin
     /// <summary>
     /// Saves the Security Audit options in the current site's database as one change. Only
     /// <c>audit:</c> keys are accepted: on the main site that database also holds instance-wide settings.
+    /// A value <see cref="AuditSettingsValidation"/> rejects throws <see cref="ArgumentException"/> and saves nothing.
     /// </summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "audit_settings")]
@@ -43,6 +44,12 @@ public sealed class SiteSettingsAdmin(ISystemSettingsService settings, SiteConte
     {
         if (values.Keys.FirstOrDefault(k => !k.StartsWith(AuditKeyPrefix, StringComparison.Ordinal)) is { } bad)
             throw new ArgumentException($"Not a Security Audit option: {bad}", nameof(values));
+        // Checked before any write, so an invalid value saves nothing rather than half the form.
+        foreach (var (key, value) in values)
+        {
+            if (AuditSettingsValidation.ErrorFor(key, value) is { } error)
+                throw new ArgumentException(error, nameof(values));
+        }
         foreach (var (key, value) in values)
             await settings.SetAsync(site.Slug, key, value);
     }
