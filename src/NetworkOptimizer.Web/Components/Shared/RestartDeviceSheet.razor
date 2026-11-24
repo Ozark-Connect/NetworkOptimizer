@@ -331,7 +331,7 @@
         var parts = new List<string>();
         var clients = _state.ClientsAffected is int n ? TimeFormatHelper.Pluralize(n, "client") : null;
         if (_state.Type == DeviceType.Gateway)
-            parts.Add(clients != null ? $"Takes the internet down for {clients} while it restarts." : "Takes the internet down while it restarts.");
+            parts.Add(clients != null ? $"Takes WAN down for {clients} while it restarts." : "Takes WAN down while it restarts.");
         else if (_state.ClientsAffected > 0)
             parts.Add($"Disconnects {clients} while it restarts.");
 
