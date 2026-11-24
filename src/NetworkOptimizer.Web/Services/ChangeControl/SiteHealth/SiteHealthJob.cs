@@ -172,6 +172,7 @@ public sealed class SiteHealthJob
         // A day past the batch, so a recovery just after it still ends an outage that began inside it.
         var alerts = await _repos.UseAsync((r, c) => r.GetAlertsActiveAsync(from, to.AddDays(1), AlertTypes, c), ct);
         var rollout = await _repos.UseAsync((r, c) => r.GetRolloutDowntimeAsync(from, to, c), ct);
+        var rolloutPlans = await _repos.UseAsync((r, c) => r.GetRolloutPlansRunningAsync(from, to, c), ct);
         var fabricDevices = await _repos.UseAsync((r, c) => r.GetFabricTargetDevicesAsync(c), ct);
         List<DiscoveredDevice> devices;
         try { devices = await _connection().GetDiscoveredDevicesAsync(ct); }
@@ -183,6 +184,7 @@ public sealed class SiteHealthJob
         var topology = new Topology(devices);
         var gatewayMacs = UniFiDiscovery.SiteGateways(devices)
             .Select(d => Mac(d.Mac)).Append(gatewayMac is { } g ? Mac(g) : "").Where(m => m.Length > 0).ToHashSet();
+        var gatewayUpdates = GatewayUpdates(rollout, rolloutPlans, gatewayMacs, DateTime.UtcNow);
 
         // The gateway's own Fabric series at ISP Health's outage bucket, so a short outage's darkness
         // survives the mean. Read only when the batch has a WAN outage to judge.
@@ -199,7 +201,7 @@ public sealed class SiteHealthJob
         {
             var end = hour.AddHours(1);
             var inputs = BuildInputs(hour, end, lossPool, firstHopFine, load, windowLoad, satisfactionTask.Result, wirelessTask.Result,
-                wiredTask.Result, fabricTask.Result, portsTask.Result, cpu, alerts, rollout, fabricDevices, topology, gatewayMacs, primaryKey,
+                wiredTask.Result, fabricTask.Result, portsTask.Result, cpu, alerts, rollout, gatewayUpdates, fabricDevices, topology, gatewayMacs, primaryKey,
                 Baseline(history.Concat(result), hour), gatewaySeries, gatewayBucket, isp.Options);
             result.Add(SiteHealthScorer.Score(inputs, profile, DateTime.UtcNow));
         }
@@ -217,7 +219,8 @@ public sealed class SiteHealthJob
         IReadOnlyList<MonitoringInfluxClient.TargetLatencyMean> fabric,
         IReadOnlyList<(DateTime Hour, string DeviceMac, string IfName, double Errors, double Packets)> ports,
         IReadOnlyList<(DateTime Time, double Value)> cpu,
-        List<AlertHistoryEntry> alerts, List<FirmwareRolloutStep> rollout, Dictionary<string, string> fabricDevices,
+        List<AlertHistoryEntry> alerts, List<FirmwareRolloutStep> rollout, IReadOnlyList<GatewayUpdate> gatewayUpdates,
+        Dictionary<string, string> fabricDevices,
         Topology topology, HashSet<string> gatewayMacs, string primaryKey, double? baseline,
         IReadOnlyList<LatencySample> gatewaySeries, TimeSpan gatewayBucket, IspHealthOptions options)
     {
@@ -283,8 +286,11 @@ public sealed class SiteHealthJob
                 ? $"partial WAN outage{(partialShare is { } share ? $", {share}" : "")}, {partialMinutes:0} min"
                 : null;
 
+        // Firmware Rollout suppresses the gateway's offline and reboot alerts, so its update is read from the plan.
         string? localCause = null;
-        if (alerts.Any(a => a.EventType == "device.rebooted" && gatewayMacs.Contains(Mac(a.DeviceId)) && In(a.TriggeredAt)))
+        if (gatewayUpdates.Any(u => u.Down < end && u.Back > hour))
+            localCause = "gateway updating";
+        else if (alerts.Any(a => a.EventType == "device.rebooted" && gatewayMacs.Contains(Mac(a.DeviceId)) && In(a.TriggeredAt)))
             localCause = "gateway rebooted";
         else if (gatewayOutage || alerts.Any(a => a.EventType == "device.offline" && gatewayMacs.Contains(Mac(a.DeviceId)) && Overlap(a, alerts, hour, end) > TimeSpan.Zero))
             localCause = "gateway offline";
@@ -345,8 +351,10 @@ public sealed class SiteHealthJob
                 var loss = Median(g.Select(p => p.LossPercent!.Value));
                 var lan = fabricWindows.TryGetValue(g.Key, out var f) && f >= SiteHealthScorer.NoticeableLossPct && f >= loss / 2;
                 var w = windowLoad.GetValueOrDefault(g.Key);
+                var windowEnd = g.Key.AddMinutes(SiteHealthScorer.WindowMinutes);
+                var down = gatewayUpdates.Any(u => u.InAvailability && u.Down < windowEnd && u.Back > g.Key);
                 return new LossWindow(loss, w.Saturation, lan,
-                    cpuByWindow.TryGetValue(g.Key, out var c) ? c : null, w.Total > 0 ? w.WanMbps : null);
+                    cpuByWindow.TryGetValue(g.Key, out var c) ? c : null, w.Total > 0 ? w.WanMbps : null, down);
             })
             .ToList();
         var hourPorts = ports.Where(p => In(p.Hour) && !gatewayMacs.Contains(Mac(p.DeviceMac)) && topology.IsWiredPort(p.DeviceMac, p.IfName)).ToList();
@@ -511,6 +519,32 @@ public sealed class SiteHealthJob
         return AccessFloor.Build(hops, lowest)
             .Select(s => new MonitoringInfluxClient.TargetLatencyMean(s.Time, "access-floor", "accessisp", s.RttAvgMs, s.LossPercent))
             .ToList();
+    }
+
+    /// <summary>A stretch in which Firmware Rollout had the gateway updating. <paramref name="InAvailability"/> when Availability already scores it as down.</summary>
+    internal readonly record struct GatewayUpdate(DateTime Down, DateTime Back, bool InAvailability);
+
+    /// <summary>
+    /// The gateway's Firmware Rollout downtime: its own device steps, and a UniFi OS update. The plan keeps a
+    /// UniFi OS update only where the console is the gateway. That one is timed by the console's API, which is
+    /// down longer than routing is, so it is not counted as Availability.
+    /// </summary>
+    internal static List<GatewayUpdate> GatewayUpdates(IEnumerable<FirmwareRolloutStep> steps, IEnumerable<FirmwareRolloutPlan> plans,
+        IReadOnlySet<string> gatewayMacs, DateTime nowUtc)
+    {
+        var result = new List<GatewayUpdate>();
+        foreach (var s in steps)
+            if (s.WentDownAt is { } down && gatewayMacs.Contains(Mac(s.DeviceMac)))
+                result.Add(new(down, s.BackAt ?? nowUtc, true));
+        foreach (var p in plans)
+        {
+            Firmware.RolloutPlanDocument? doc;
+            try { doc = JsonSerializer.Deserialize<Firmware.RolloutPlanDocument>(p.PlanJson); }
+            catch (JsonException) { continue; }
+            if (doc is not { IncludesUniFiOsUpdate: true, UniFiOsUpdate.WentDownAt: { } osDown }) continue;
+            result.Add(new(osDown, doc.UniFiOsUpdate.BackAt ?? p.CompletedAt ?? nowUtc, false));
+        }
+        return result;
     }
 
     internal static DateTime FloorHour(DateTime t) => new(t.Year, t.Month, t.Day, t.Hour, 0, 0, DateTimeKind.Utc);
