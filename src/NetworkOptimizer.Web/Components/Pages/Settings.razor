@@ -4530,7 +4530,11 @@
         // opened from a #card link has no tab param, so a later ?tab= link must still switch from null.
         if (TabParam != _lastTabParam)
         {
-            var newTab = ResolveTab(TabParam);
+            // Back to a #card link names no tab, only the card: its tab comes from the anchor, and
+            // scroll restoration returns to the card.
+            var newTab = TabParam == null && TryAnchorTab(new Uri(NavigationManager.Uri).Fragment, out _, out var anchorTab)
+                ? ResolveTab(anchorTab)
+                : ResolveTab(TabParam);
             if (newTab != _activeTab)
             {
                 _activeTab = newTab;
@@ -4551,17 +4555,28 @@
 
     private string? _lastConfigureSiteParam;
 
+    /// <summary>
+    /// Maps a URL fragment (with or without the #) to its card anchor and the tab that card lives on.
+    /// </summary>
+    private static bool TryAnchorTab(string? fragment, out string anchor, out string tab)
+    {
+        anchor = (fragment ?? "").TrimStart('#');
+        if (anchor.Equals("unifi-ssh", StringComparison.OrdinalIgnoreCase))
+            anchor = "device-ssh";
+        if (anchor.Length > 0 && AnchorTabMap.TryGetValue(anchor, out var mapped))
+        {
+            tab = mapped;
+            return true;
+        }
+        tab = "";
+        return false;
+    }
+
     private async Task HandleFragmentNavigationAsync()
     {
         // The fragment is not part of the HTTP request, so it is only readable client-side.
         var hash = await JS.InvokeAsync<string>("eval", "window.location.hash");
-        if (string.IsNullOrEmpty(hash))
-            return;
-
-        var anchor = hash.TrimStart('#');
-        if (anchor.Equals("unifi-ssh", StringComparison.OrdinalIgnoreCase))
-            anchor = "device-ssh";
-        if (!AnchorTabMap.TryGetValue(anchor, out var tab))
+        if (!TryAnchorTab(hash, out var anchor, out var tab))
             return;
 
         if (_activeTab != tab)
