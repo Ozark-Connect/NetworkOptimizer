@@ -85,7 +85,9 @@
                 DeviceRestartStatus.Failed => ("is-failed", "warning"),
                 _ => ("is-scheduled", "clock"),
             };
-            <span class="device-restart-badge @tone"><AppIcon Name="@icon" /></span>
+            @* One SVG for ring, disc, and glyph: a CSS disc and a separate icon snap to device pixels apart
+               at fractional zoom (125%), and the glyph sits off-center. *@
+            <span class="device-restart-badge @tone"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="12" class="device-restart-badge-ring" /><circle cx="12" cy="12" r="9" fill="currentColor" /><svg x="3" y="3" width="18" height="18" viewBox="0 0 24 24" fill="none" class="device-restart-badge-glyph" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">@((MarkupString)AppIcon.Paths(icon))</svg></svg></span>
         }
     };
 }

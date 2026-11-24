@@ -2364,36 +2364,40 @@ a.stat-card-link:active {
     border-color: transparent;
 }
 
+/* Ring, tone disc, and glyph are one SVG (DeviceRestartButton), so they stay concentric at any zoom. */
 .device-restart-badge {
     position: absolute;
     top: -3px;
     right: -3px;
     width: 12px;
     height: 12px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 50%;
-    border: 1.5px solid var(--bg-inset);
-    color: var(--bg-inset);
+    display: block;
 }
 
-.device-restart-btn .device-restart-badge .line-icon {
-    width: 9px;
-    height: 9px;
-    stroke-width: 2.6;
+.device-restart-badge > svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.device-restart-badge-ring {
+    fill: var(--bg-inset);
+}
+
+.device-restart-badge-glyph {
+    stroke: var(--bg-inset);
 }
 
 .device-restart-badge.is-scheduled {
-    background: var(--info-color);
+    color: var(--info-color);
 }
 
 .device-restart-badge.is-waiting {
-    background: var(--warning-color);
+    color: var(--warning-color);
 }
 
 .device-restart-badge.is-failed {
-    background: var(--danger-color);
+    color: var(--danger-color);
 }
 
 .device-header,
