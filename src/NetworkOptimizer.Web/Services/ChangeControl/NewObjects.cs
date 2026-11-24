@@ -111,11 +111,13 @@ public static partial class NewObjects
     // Defaults UniFi rewrites on create (scratch site, 2026-10-29): ap_group_mode follows All APs only (a custom
     // group gets none, so PlanBuilder.SetApGroupModes sets it); optimize_iot_wifi_connectivity is dropped on a site without the APs for it;
     // the LAN defaults' IPv6 prefix-delegation interface is dropped and the RA lifetime comes back a number.
-    // Left out, UniFi sets each itself.
+    // Network 11.1's LAN defaults (main, 2026-11-23): dhcpdv6_enabled false is dropped, and mdns_enabled true is stored
+    // false. Left out, UniFi sets each itself.
     private static readonly HashSet<string> Omitted = new(StringComparer.Ordinal)
     {
         "wlanconf.ap_group_mode", "wlanconf.optimize_iot_wifi_connectivity",
         "networkconf.ipv6_pd_interface", "networkconf.ipv6_ra_preferred_lifetime",
+        "networkconf.dhcpdv6_enabled", "networkconf.mdns_enabled",
     };
 
     /// <summary>Whether the Edit tab offers Add for a collection: a proven create, and never clients or devices.</summary>
