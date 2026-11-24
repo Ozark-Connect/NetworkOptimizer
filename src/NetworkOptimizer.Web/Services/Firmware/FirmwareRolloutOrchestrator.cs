@@ -174,6 +174,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     // In-memory only. Losing any of it across a restart costs at most a repeated escalation or a
     // re-queued mesh re-pair; none of it changes whether a step succeeds.
     private readonly ConcurrentDictionary<int, DateTime> _escalatedAt = new();
+    // Pasted-build steps whose SSH session closed mid-command, by step: no other command until the device shows it or SshDropHold passes.
+    private readonly ConcurrentDictionary<int, DateTime> _sshUnconfirmedAt = new();
     private readonly ConcurrentDictionary<int, DateTime> _commandWaitSince = new();
     private readonly ConcurrentDictionary<int, DateTime> _offlineAtTurnSince = new();
     private readonly HashSet<string> _meshRepairsQueued = new(StringComparer.OrdinalIgnoreCase);
@@ -2325,6 +2327,15 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             return;
         }
 
+        // A dropped SSH install not yet confirmed: the checks above confirm it; past the hold, the Console gets the link.
+        if (_sshUnconfirmedAt.TryGetValue(step.Id, out var droppedAt))
+        {
+            if (ElapsedObserved(droppedAt) < SshDropHold) return;
+            _sshUnconfirmedAt.TryRemove(step.Id, out _);
+            await CommandAfterUnconfirmedSshAsync(document, steps, step, cancellationToken);
+            return;
+        }
+
         var commandedAt = step.CommandedAt ?? Now;
         if (_escalatedAt.TryGetValue(step.Id, out var escalatedAt))
         {
@@ -2370,7 +2381,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             "{Device} on site {Site} did not act on its upgrade command; retrying over SSH",
             step.DeviceName, _siteSlug);
 
-        var result = await SshUpgradeAsync(step, observation.IpAddress, url, cancellationToken);
+        // A session the device closed is judged by the watch: it fails there after the grace window if nothing happens.
+        var (result, _) = await SshUpgradeDeferringDropAsync(step, observation.IpAddress, url, cancellationToken);
         if (!result.IsOk)
         {
             await FailStepAsync(document, steps, step,
@@ -2417,7 +2429,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // A second flash is still a flash, so the AP Agent hold applies to the retry too.
         await HoldApAgentAsync(step, cancellationToken);
 
-        var result = await SshUpgradeAsync(step, observation.IpAddress, url, cancellationToken);
+        var (result, _) = await SshUpgradeDeferringDropAsync(step, observation.IpAddress, url, cancellationToken);
         if (!result.IsOk)
         {
             await FailStepAsync(document, steps, step,
@@ -2560,6 +2572,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     {
         step.State = FirmwareRolloutStepState.Down;
         step.WentDownAt ??= Now;
+        _sshUnconfirmedAt.TryRemove(step.Id, out _);
         await PersistStepAsync(step, cancellationToken);
     }
 
@@ -2571,6 +2584,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         CancellationToken cancellationToken,
         DateTime? backAt = null)
     {
+        _sshUnconfirmedAt.TryRemove(step.Id, out _);
         // backAt is supplied when a recorded boot, not a console observation, is the evidence: the
         // device was back before we noticed, and charging it the difference would teach the timing
         // store a downtime it never had.
@@ -3129,8 +3143,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             step.CommandedAt = Now;
             await PersistStepAsync(step, cancellationToken);
 
-            sshFirst = await SshUpgradeAsync(step, observation.IpAddress, planned, cancellationToken);
-            if (sshFirst.IsOk)
+            var (first, dropped) = await SshUpgradeDeferringDropAsync(step, observation.IpAddress, planned, cancellationToken);
+            sshFirst = first;
+            if (dropped)
+                // Held, not sent: the watch confirms the flash, or sends the Console the same link once the hold runs out.
+                _sshUnconfirmedAt[step.Id] = Now;
+            else if (sshFirst.IsOk)
                 _escalatedAt[step.Id] = Now;
             else
                 _logger.LogWarning(
@@ -3138,30 +3156,17 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                     step.DeviceName, _siteSlug, sshFirst.Message);
         }
 
-        var result = sshFirst is { IsOk: true }
-            ? sshFirst
-            : string.IsNullOrWhiteSpace(planned) || preferConsoleCached
-                ? await _commands.TriggerUpgradeAsync(step.DeviceMac, cancellationToken)
-                : await _commands.TriggerExternalUpgradeAsync(step.DeviceMac, planned, cancellationToken);
+        var (result, url) = sshFirst is { IsOk: true }
+            ? (sshFirst, null)
+            : await CommandOverConsoleAsync(document, step, planned, image, preferConsoleCached, cancellationToken);
 
-        // A build Ubiquiti has since pulled 404s, so the console's own catalog is still the fallback.
-        // Not for a build chosen by hand: the console would install its newest one instead.
-        if (!result.IsOk && !string.IsNullOrWhiteSpace(planned) && !preferConsoleCached && image?.Pinned != true)
-            result = await _commands.TriggerUpgradeAsync(step.DeviceMac, cancellationToken);
-
-        if (!result.IsOk)
+        // A pasted build already tried SSH with this link first; a second try only adds a timeout.
+        if (!result.IsOk && url != null && sshFirst == null && !string.IsNullOrWhiteSpace(observation.IpAddress))
         {
-            var url = planned ?? await StepImageUrlAsync(document, step, cancellationToken);
-            if (url != null)
-                result = await _commands.TriggerExternalUpgradeAsync(step.DeviceMac, url, cancellationToken);
-
-            // A pasted build already tried SSH with this link first; a second try only adds a timeout.
-            if (!result.IsOk && url != null && sshFirst == null && !string.IsNullOrWhiteSpace(observation.IpAddress))
-            {
-                result = await SshUpgradeAsync(step, observation.IpAddress, url, cancellationToken);
-                if (result.IsOk)
-                    _escalatedAt[step.Id] = Now;
-            }
+            var (retry, _) = await SshUpgradeDeferringDropAsync(step, observation.IpAddress, url, cancellationToken);
+            result = retry;
+            if (result.IsOk)
+                _escalatedAt[step.Id] = Now;
         }
 
         if (!result.IsOk)
@@ -3896,6 +3901,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         _reconciledPlanId = plan.Id;
 
         _escalatedAt.Clear();
+        _sshUnconfirmedAt.Clear();
         _commandWaitSince.Clear();
         _offlineAtTurnSince.Clear();
 
@@ -3921,6 +3927,91 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     internal TimeSpan SshDropSettleWindow { get; set; } = TimeSpan.FromSeconds(45);
 
     /// <summary>
+    /// How long a pasted build whose SSH session dropped waits for the device to show the upgrade before
+    /// the Console is sent the same link. A flashing device shows within seconds (UniFi Provisioning, then
+    /// Upgrading or offline); the hold only delays a Console command for one that never does.
+    /// </summary>
+    internal TimeSpan SshDropHold { get; set; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// <see cref="SshUpgradeAsync"/>, except that a session the device closed mid-command
+    /// (<see cref="Ssh.SshFailureSummary.IsSessionDropped"/>) is not judged here: it returns accepted with
+    /// <c>Dropped</c> set, and the step watch decides from what the device does next. Used where a later
+    /// fallback or failure already covers a command that never took; a rollback keeps the immediate check.
+    /// </summary>
+    private async Task<(FirmwareCommandResult Result, bool Dropped)> SshUpgradeDeferringDropAsync(
+        FirmwareRolloutStep step, string host, string url, CancellationToken cancellationToken)
+    {
+        var result = await _commands.TriggerSshUpgradeAsync(
+            step.DeviceMac, host, url, StepRole(step), SshUpgradesAsGateway(step), cancellationToken);
+        if (!result.IsOk && !string.IsNullOrWhiteSpace(host) && Ssh.SshFailureSummary.IsSessionDropped(result.Message))
+        {
+            _logger.LogInformation(
+                "The SSH session to {Device} on site {Site} closed mid-command ({Message}); watching it for the upgrade",
+                step.DeviceName, _siteSlug, result.Message);
+            return (FirmwareCommandResult.Ok(result.Message), true);
+        }
+        return (result.IsOk ? result : await SettleSshFailureAsync(step, host, result, cancellationToken), false);
+    }
+
+    /// <summary>
+    /// The Console command for a step: the plan's image first, then the Console's own build (never for a
+    /// build chosen by hand), then the step's image URL. Url is that last link when it was needed, for a
+    /// caller that may still try it over SSH.
+    /// </summary>
+    private async Task<(FirmwareCommandResult Result, string? Url)> CommandOverConsoleAsync(
+        RolloutPlanDocument document, FirmwareRolloutStep step, string? planned, PlanTargetImage? image,
+        bool preferConsoleCached, CancellationToken cancellationToken)
+    {
+        var result = string.IsNullOrWhiteSpace(planned) || preferConsoleCached
+            ? await _commands.TriggerUpgradeAsync(step.DeviceMac, cancellationToken)
+            : await _commands.TriggerExternalUpgradeAsync(step.DeviceMac, planned, cancellationToken);
+
+        // A build Ubiquiti has since pulled 404s, so the console's own catalog is still the fallback.
+        // Not for a build chosen by hand: the console would install its newest one instead.
+        if (!result.IsOk && !string.IsNullOrWhiteSpace(planned) && !preferConsoleCached && image?.Pinned != true)
+            result = await _commands.TriggerUpgradeAsync(step.DeviceMac, cancellationToken);
+
+        if (result.IsOk) return (result, null);
+        var url = planned ?? await StepImageUrlAsync(document, step, cancellationToken);
+        if (url != null)
+            result = await _commands.TriggerExternalUpgradeAsync(step.DeviceMac, url, cancellationToken);
+        return (result, url);
+    }
+
+    /// <summary>
+    /// A pasted build's SSH session dropped and the device showed no upgrade within <see cref="SshDropHold"/>:
+    /// the Console gets the same command a failed SSH install sends it at once, and the step carries on from it.
+    /// </summary>
+    private async Task CommandAfterUnconfirmedSshAsync(
+        RolloutPlanDocument document, List<FirmwareRolloutStep> steps, FirmwareRolloutStep step, CancellationToken cancellationToken)
+    {
+        var image = document.TargetImages
+            .FirstOrDefault(i => string.Equals(i.Mac, step.DeviceMac, StringComparison.OrdinalIgnoreCase));
+        var planned = image != null && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(image.Version, step.ToVersion)
+            ? image.Url
+            : null;
+        var preferConsoleCached = string.Equals(step.DeviceType, "cellularmodem", StringComparison.OrdinalIgnoreCase);
+
+        _logger.LogWarning(
+            "{Device} on site {Site} showed no upgrade {Hold} after its SSH session closed; trying the Console with the same link",
+            step.DeviceName, _siteSlug, SshDropHold);
+        var (result, _) = await CommandOverConsoleAsync(document, step, planned, image, preferConsoleCached, cancellationToken);
+        if (!result.IsOk)
+        {
+            CloseStepWindows(step);
+            await FailStepAsync(document, steps, step,
+                $"The upgrade could not be started: {result.Message ?? "no path accepted the command"}", cancellationToken);
+            return;
+        }
+
+        step.CommandedAt = Now;
+        await PersistStepAsync(step, cancellationToken);
+        _logger.LogInformation("Commanded {Device} ({Model}) on site {Site} to upgrade to {Version} over the Console",
+            step.DeviceName, step.Model, _siteSlug, step.ToVersion);
+    }
+
+    /// <summary>
     /// Runs the SSH upgrade, reading a dropped session as accepted when UniFi then reports the
     /// device Upgrading or offline: an AP or switch closes the session itself once it starts to
     /// flash, and UniFi can take some seconds to say so.
@@ -3930,7 +4021,17 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     {
         var result = await _commands.TriggerSshUpgradeAsync(
             step.DeviceMac, host, url, StepRole(step), SshUpgradesAsGateway(step), cancellationToken);
-        if (result.IsOk || string.IsNullOrWhiteSpace(host))
+        return result.IsOk ? result : await SettleSshFailureAsync(step, host, result, cancellationToken);
+    }
+
+    /// <summary>
+    /// A failed SSH upgrade read as accepted when UniFi reports the device Upgrading or offline within
+    /// <see cref="SshDropSettleWindow"/>; otherwise the failure stands.
+    /// </summary>
+    private async Task<FirmwareCommandResult> SettleSshFailureAsync(
+        FirmwareRolloutStep step, string host, FirmwareCommandResult result, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(host))
             return result;
 
         // Wall-clock: this waits on UniFi inside one tick, not across ticks.

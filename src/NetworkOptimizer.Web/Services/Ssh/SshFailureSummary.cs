@@ -52,6 +52,14 @@ public static class SshFailureSummary
     }
 
     /// <summary>
+    /// Whether the SSH session was up and the far end then closed it: SSH.NET's text for an established
+    /// connection aborted by the server. A device that starts to flash does exactly this to the session
+    /// that told it to, so the command may well have taken. Connect, login, and timeout failures are not.
+    /// </summary>
+    public static bool IsSessionDropped(string? sshOutput) =>
+        sshOutput?.Contains("established connection was aborted", StringComparison.OrdinalIgnoreCase) == true;
+
+    /// <summary>
     /// The first line of a message, capped. Command output can run to pages, and the UI shows
     /// this inline.
     /// </summary>
