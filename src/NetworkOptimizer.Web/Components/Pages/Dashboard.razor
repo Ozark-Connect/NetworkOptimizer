@@ -258,13 +258,25 @@
     private NetworkOptimizer.Core.Enums.DeviceType? EffectiveTypeFilter =>
         _deviceTypeFilter is { } t && devices.Any(d => d.Type == t) ? t : null;
 
-    /// <summary>The devices the card's search and type tab leave.</summary>
+    /// <summary>The Device Status card's Needs Attention toggle.</summary>
+    private bool _attentionOnly;
+
+    private bool NeedsAttention(Services.DeviceInfo d) =>
+        DeviceStatusFilter.NeedsAttention(d,
+            RestartBadgeFor(d)?.Status == NetworkOptimizer.Storage.Models.DeviceRestartStatus.Failed);
+
+    private int AttentionCount => devices.Count(NeedsAttention);
+
+    /// <summary>The devices the card's search, type tab, and Needs Attention leave.</summary>
     private List<Services.DeviceInfo> VisibleDevices
     {
         get
         {
             var type = EffectiveTypeFilter;
-            return devices.Where(d => DeviceStatusFilter.Matches(d, type, _deviceSearch)).ToList();
+            // Off once nothing needs attention: the toggle is gone, so it must not keep filtering.
+            var attention = _attentionOnly && AttentionCount > 0;
+            return devices.Where(d => DeviceStatusFilter.Matches(d, type, _deviceSearch)
+                && (!attention || NeedsAttention(d))).ToList();
         }
     }
 
@@ -848,9 +860,24 @@
     private RenderFragment RenderDeviceStatus => __builder =>
     {
         var shown = VisibleDevices;
+        var attentionCount = _loading ? 0 : AttentionCount;
         <div class="card" id="device-status">
             <div class="card-header device-status-header">
-                <h2 class="card-title">Device Status</h2>
+                <div class="device-status-title">
+                    <h2 class="card-title">Device Status</h2>
+                    @* Only while something needs a look: a healthy network shows no button. *@
+                    @if (attentionCount > 0)
+                    {
+                        <div class="time-range-selector device-attention-toggle">
+                            <button type="button" class="time-btn @(_attentionOnly ? "active" : "")" aria-pressed="@(_attentionOnly ? "true" : "false")"
+                                    @onclick="() => _attentionOnly = !_attentionOnly">Needs Attention<span class="device-attention-count">@attentionCount</span></button>
+                            @if (_attentionOnly)
+                            {
+                                <NetworkOptimizer.Web.Components.Shared.Monitoring.WanFilterResetButton Label="Clear the filter" OnReset="() => _attentionOnly = false" />
+                            }
+                        </div>
+                    }
+                </div>
                 @if (!_loading && devices.Count > 0)
                 {
                     var types = DeviceStatusFilter.PresentTypes(devices);
@@ -873,7 +900,7 @@
                                 @foreach (var (type, count) in types)
                                 {
                                     <button class="time-btn @(EffectiveTypeFilter == type ? "active" : "")"
-                                            @onclick="() => _deviceTypeFilter = type">@NetworkOptimizer.Core.Enums.DeviceTypeExtensions.ToDisplayName(type)<span class="device-type-count">@count</span></button>
+                                            @onclick="() => _deviceTypeFilter = type">@NetworkOptimizer.Core.Enums.DeviceTypeExtensions.ToDisplayName(type)<span class="wan-pill-token">@count</span></button>
                                 }
                                 <button class="time-btn @(EffectiveTypeFilter == null ? "active" : "")"
                                         @onclick="() => _deviceTypeFilter = null">All</button>

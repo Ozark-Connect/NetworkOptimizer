@@ -1,5 +1,6 @@
 using FluentAssertions;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.Web.Services;
 using Xunit;
 
@@ -90,6 +91,36 @@ public class DeviceStatusFilterTests
     public void EmptyQuery_MatchesEverything(string? query)
     {
         DeviceStatusFilter.Matches(Device(DeviceType.Unknown), null, query).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(DeviceStatusKind.Online, false)]
+    [InlineData(DeviceStatusKind.Transitional, false)]
+    [InlineData(DeviceStatusKind.Offline, true)]
+    [InlineData(DeviceStatusKind.Error, true)]
+    public void NeedsAttention_FollowsStatusKind(DeviceStatusKind kind, bool expected)
+    {
+        var d = Device(DeviceType.Switch);
+        d.StatusInfo = new DeviceStatus(kind, kind.ToString());
+        DeviceStatusFilter.NeedsAttention(d, restartFailed: false).Should().Be(expected);
+    }
+
+    [Fact]
+    public void NeedsAttention_AFailedRestartCounts()
+    {
+        DeviceStatusFilter.NeedsAttention(Device(DeviceType.Switch), restartFailed: true).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(true, 3_600, true)]
+    [InlineData(true, 2 * 86_400, false)]
+    [InlineData(false, 3_600, false)]
+    public void NeedsAttention_AnUnexpectedRebootCountsForADay(bool unexpected, long uptimeSeconds, bool expected)
+    {
+        var d = Device(DeviceType.AccessPoint);
+        d.RebootWasUnexpected = unexpected;
+        d.UptimeSeconds = uptimeSeconds;
+        DeviceStatusFilter.NeedsAttention(d, restartFailed: false).Should().Be(expected);
     }
 
     [Fact]

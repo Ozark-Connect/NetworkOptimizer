@@ -300,6 +300,12 @@ public class DeviceInfo
     /// <summary>True when the device did not stop on purpose (power loss, hang, panic, watchdog).</summary>
     public bool RebootWasUnexpected { get; set; }
 
+    /// <summary>A reboot stops being news after a day.</summary>
+    public const long RecentRebootSeconds = 24 * 60 * 60;
+
+    /// <summary>True while the current boot is under a day old.</summary>
+    public bool RebootedRecently => UptimeSeconds is > 0 and < RecentRebootSeconds;
+
     public int? ClientCount { get; set; }
 
     // Live monitoring data (populated from MonitoringLiveStats when available).

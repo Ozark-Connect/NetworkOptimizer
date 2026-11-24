@@ -1,4 +1,5 @@
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Models;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -33,6 +34,15 @@ public static class DeviceStatusFilter
         [DeviceType.Accessory] = ["sfp"],
         [DeviceType.TravelRouter] = ["router", "utr"],
     };
+
+    /// <summary>
+    /// True when the device wants a look: offline or in error, its last restart from here failed, or it
+    /// rebooted unexpectedly in the last day. In-progress states (provisioning, updating) do not count.
+    /// </summary>
+    public static bool NeedsAttention(DeviceInfo device, bool restartFailed) =>
+        device.StatusInfo.Kind is DeviceStatusKind.Offline or DeviceStatusKind.Error
+        || restartFailed
+        || (device.RebootWasUnexpected && device.RebootedRecently);
 
     /// <summary>The types present in <paramref name="devices"/>, in tab order, each with its count.</summary>
     public static IReadOnlyList<(DeviceType Type, int Count)> PresentTypes(IEnumerable<DeviceInfo> devices) =>

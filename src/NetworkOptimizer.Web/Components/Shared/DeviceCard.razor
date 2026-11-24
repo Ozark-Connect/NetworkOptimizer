@@ -269,11 +269,9 @@
             || Device.LiveCpuPercent.HasValue);
 
     /// <summary>A reboot stops being news after a day, so the icon retires and only the hover stays.</summary>
-    private const long RecentRebootSeconds = 24 * 60 * 60;
-
     private bool ShowRebootIcon => Device != null
         && !string.IsNullOrEmpty(Device.RebootReason)
-        && Device.UptimeSeconds is > 0 and < RecentRebootSeconds;
+        && Device.RebootedRecently;
 
     /// <summary>
     /// Hover text for the uptime value: the reason the device is on this boot, with the evidence
