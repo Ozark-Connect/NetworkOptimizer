@@ -3,7 +3,7 @@
 
 param(
     [string]$OutputDir = "$PSScriptRoot\nginx",
-    [string]$Version = "1.30.6"  # The build passes NginxVersion from the wixproj
+    [string]$Version = "1.30.7"  # The build passes NginxVersion from the wixproj
 )
 
 $ErrorActionPreference = "Stop"
