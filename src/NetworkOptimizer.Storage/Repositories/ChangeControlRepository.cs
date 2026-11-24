@@ -351,6 +351,11 @@ public class ChangeControlRepository : RepositoryBase, IChangeControlRepository
             return rows.Select(r => r.Step).Where(s => s.BackAt == null || s.BackAt >= fromUtc).ToList();
         }, nameof(GetRolloutDowntimeAsync));
 
+    public Task<List<FirmwareRolloutPlan>> GetRolloutPlansRunningAsync(DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default) =>
+        ExecuteAsync(() => _context.FirmwareRolloutPlans.AsNoTracking()
+            .Where(p => p.StartedAt != null && p.StartedAt < toUtc && (p.CompletedAt == null || p.CompletedAt >= fromUtc))
+            .OrderBy(p => p.StartedAt).Take(500).ToListAsync(cancellationToken), nameof(GetRolloutPlansRunningAsync));
+
     public Task<Dictionary<string, string>> GetFabricTargetDevicesAsync(CancellationToken cancellationToken = default) =>
         ExecuteAsync(async () => (await _context.MonitoringTargets.AsNoTracking()
                 .Where(t => t.TargetType == MonitoringTargetType.Fabric && t.DeviceMac != null)

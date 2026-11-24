@@ -281,6 +281,51 @@ public class SiteHealthTests
     }
 
     [Fact]
+    public void Loss_WhileARolloutHadTheGatewayDownIsLeftToAvailability()
+    {
+        var h = Score(new HealthHourInputs { Hour = T, IdleRttMs = 2, LossWindows = QuietHour(new LossWindow(28, 0, false, GatewayDown: true)) });
+
+        h.Health.Should().Be(100);
+        h.InternetIsp.Should().Be(0);
+    }
+
+    [Fact]
+    public void Loss_InAnHourTheGatewayWasUpdatingIsNotTheIsps()
+    {
+        var h = Score(new HealthHourInputs { Hour = T, IdleRttMs = 2, LossWindows = QuietHour(new LossWindow(28, 0, false)), LocalCause = "gateway updating" });
+
+        h.InternetIsp.Should().Be(0);
+        h.Worst.Should().Be("Internet: loss 28% for 5 min (gateway updating)");
+    }
+
+    [Fact]
+    public void GatewayUpdates_TakeTheGatewaysStepsAndAUniFiOsUpdate()
+    {
+        var gateway = "aa:bb:cc:dd:ee:01";
+        var steps = new List<FirmwareRolloutStep>
+        {
+            new() { DeviceMac = gateway, WentDownAt = T, BackAt = T.AddMinutes(4) },
+            new() { DeviceMac = "aa:bb:cc:dd:ee:02", WentDownAt = T, BackAt = T.AddMinutes(2) },
+            new() { DeviceMac = gateway },
+        };
+        var os = new NetworkOptimizer.Web.Services.Firmware.RolloutPlanDocument { IncludesUniFiOsUpdate = true };
+        os.UniFiOsUpdate.WentDownAt = T.AddMinutes(30);
+        var noOs = new NetworkOptimizer.Web.Services.Firmware.RolloutPlanDocument { IncludesUniFiOsUpdate = false };
+        noOs.UniFiOsUpdate.WentDownAt = T;
+        var plans = new List<FirmwareRolloutPlan>
+        {
+            new() { PlanJson = System.Text.Json.JsonSerializer.Serialize(os), CompletedAt = T.AddMinutes(40) },
+            new() { PlanJson = System.Text.Json.JsonSerializer.Serialize(noOs) },
+        };
+
+        var updates = SiteHealthJob.GatewayUpdates(steps, plans, new HashSet<string> { gateway }, T.AddHours(1));
+
+        updates.Should().Equal(
+            new SiteHealthJob.GatewayUpdate(T, T.AddMinutes(4), true),
+            new SiteHealthJob.GatewayUpdate(T.AddMinutes(30), T.AddMinutes(40), false));
+    }
+
+    [Fact]
     public void Loss_AlongsideLanLossStaysTheLansEvenWithABusyGateway()
     {
         var h = Score(new HealthHourInputs { Hour = T, IdleRttMs = 2, LossWindows = QuietHour(new LossWindow(8, 0, true, 95, 100)) });

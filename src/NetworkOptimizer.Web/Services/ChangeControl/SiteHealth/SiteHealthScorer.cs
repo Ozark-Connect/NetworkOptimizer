@@ -9,9 +9,11 @@ namespace NetworkOptimizer.Web.Services.ChangeControl.SiteHealth;
 /// saturation (0 idle, 1 at or past <c>LossSaturationLoadFraction</c> of plan), and whether the LAN lost
 /// packets alongside it, which makes the loss the LAN's rather than the ISP's. <paramref name="GatewayCpuPct"/>
 /// is the gateway's mean CPU in the window and <paramref name="WanMbps"/> the busier direction's mean rate,
-/// both for naming a gateway at its limit.
+/// both for naming a gateway at its limit. <paramref name="GatewayDown"/> marks a window in which a Firmware
+/// Rollout had the gateway down: Availability scores that time, so the loss is not scored again.
 /// </summary>
-public sealed record LossWindow(double LossPct, double Saturation, bool LanLoss, double? GatewayCpuPct = null, double? WanMbps = null)
+public sealed record LossWindow(double LossPct, double Saturation, bool LanLoss, double? GatewayCpuPct = null, double? WanMbps = null,
+    bool GatewayDown = false)
 {
     /// <summary>The gateway was busy enough in this window that its loss is the gateway's, not the ISP's.</summary>
     public bool GatewayBusy => GatewayCpuPct >= SiteHealthScorer.GatewayBusyCpuPct;
@@ -233,7 +235,7 @@ public static class SiteHealthScorer
         var gateway = new List<(LossWindow W, double Impairment)>();
         foreach (var w in x.LossWindows)
         {
-            if (w.LanLoss) continue;
+            if (w.LanLoss || w.GatewayDown) continue;
             var ceiling = LossCeiling(profile, w.Saturation);
             var impairment = Ramp(w.LossPct, ceiling, ceiling + LossRampPct);
             if (impairment <= 0) continue;
