@@ -212,11 +212,11 @@ public class LanHealthTests
     /// <paramref name="relinks"/> relinks in an hour, seen by link_down_count, ifLastChange and ifOperStatus; the port was down for
     /// <paramref name="downShare"/> of it.
     /// </summary>
-    private static LanHealthEvidenceBuilder.LinkHour OneRelinkHour(double downShare, int relinks = 1)
+    private static LanHealthEvidenceBuilder.LinkHour OneRelinkHour(double downShare, int relinks = 1, bool alwaysOn = false)
     {
         var link = new LinkRecord
         {
-            Id = $"{SwitchMac}|7-access", Kind = LinkKind.Access,
+            Id = $"{SwitchMac}|7-access", Kind = LinkKind.Access, AlwaysOnClient = alwaysOn,
             Upstream = new LinkEnd { DeviceMac = SwitchMac, DeviceName = "Switch A", DeviceType = DeviceType.Switch, PortIdx = 7 },
             Downstream = new LinkEnd { DeviceMac = "", DeviceName = "PC", IsUniFi = false },
         };
@@ -281,6 +281,65 @@ public class LanHealthTests
         built.Row.Relinks.Should().Be(0);
         built.Row.DropsExplained.Should().Be(1);
     }
+
+    [Fact]
+    public void AlwaysOnClient_DownForMinutes_IsNotSleep()
+    {
+        // A server down 16 minutes is a fault, not a nap.
+        var built = OneRelinkHour(16.0 / 60, alwaysOn: true);
+        built.Incidents.Should().ContainSingle(i => i.Kind == IncidentKind.Relink && i.Explained == null);
+        built.Row.Relinks.Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void AlwaysOnClient_IdleOrTenHundredRelink_IsNotSleep(bool alwaysOn, bool explained)
+    {
+        var link = new LinkRecord
+        {
+            Id = $"{SwitchMac}|7-access", Kind = LinkKind.Access, AlwaysOnClient = alwaysOn,
+            Upstream = new LinkEnd { DeviceMac = SwitchMac, DeviceName = "Switch A", DeviceType = DeviceType.Switch, PortIdx = 7 },
+            Downstream = new LinkEnd { DeviceMac = "", DeviceName = "NAS", IsUniFi = false },
+        };
+        var hour = new DateTime(2026, 1, 1, 3, 0, 0, DateTimeKind.Utc);
+        var idle = new[]
+        {
+            new PortFieldStats(hour, SwitchMac, "Port 7", "pt:7", "link_down_count", 50, 52, 50, 52, null),
+            new PortFieldStats(hour, SwitchMac, "Port 7", "7", "rate_in_bps", 0, 0, 0, 100, 50),
+            new PortFieldStats(hour, SwitchMac, "Port 7", "7", "rate_out_bps", 0, 0, 0, 100, 50),
+        };
+        var downshift = new[]
+        {
+            new PortFieldStats(hour, SwitchMac, "Port 7", "pt:7", "link_down_count", 50, 51, 50, 51, null),
+            new PortFieldStats(hour, SwitchMac, "Port 7", "pt:7", NetworkOptimizer.Storage.Services.InfluxFieldNames.LinkSpeedMbps, 1000, 1000, 100, 1000, null),
+            new PortFieldStats(hour, SwitchMac, "Port 7", "7", "rate_in_bps", 0, 0, 0, 50_000_000, 5_000_000),
+            new PortFieldStats(hour, SwitchMac, "Port 7", "7", "rate_out_bps", 0, 0, 0, 50_000_000, 5_000_000),
+        };
+        foreach (var ports in new[] { idle, downshift })
+        {
+            var built = LanHealthEvidenceBuilder.BuildHour(link, new LanHealthEvidenceBuilder.HourInputs { Hour = hour, Ports = ports },
+                new Dictionary<string, LinkRecord>(), new Dictionary<string, HashSet<string>>(), 1);
+            built.Incidents.Where(i => i.Kind is IncidentKind.Relink or IncidentKind.Drop)
+                .Should().NotBeEmpty().And.OnlyContain(i => (i.Explained == ExplainReason.DeviceAsleep) == explained);
+        }
+    }
+
+    [Fact]
+    public void NeverSleeps_CoversServersCamerasAndHubs_NotPcs()
+    {
+        LanHealthEvidenceBuilder.NeverSleeps(NetworkOptimizer.Core.Enums.ClientDeviceCategory.Server).Should().BeTrue();
+        LanHealthEvidenceBuilder.NeverSleeps(NetworkOptimizer.Core.Enums.ClientDeviceCategory.NAS).Should().BeTrue();
+        LanHealthEvidenceBuilder.NeverSleeps(NetworkOptimizer.Core.Enums.ClientDeviceCategory.Camera).Should().BeTrue();
+        LanHealthEvidenceBuilder.NeverSleeps(NetworkOptimizer.Core.Enums.ClientDeviceCategory.Unknown).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("Ubiquiti Inc", true)]
+    [InlineData("Ubiquiti Networks Inc.", true)]
+    [InlineData("Intel Corporate", false)]
+    [InlineData(null, false)]
+    public void UbiquitiOui_IsAlwaysOn(string? oui, bool expected) => LanHealthEvidenceBuilder.IsUbiquitiOui(oui).Should().Be(expected);
 
     [Fact]
     public void AccessPort_ManyShortFlapsAddingUpToMinutes_AreNotSleep()

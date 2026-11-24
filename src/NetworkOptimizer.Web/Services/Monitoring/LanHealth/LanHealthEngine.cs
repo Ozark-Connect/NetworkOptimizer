@@ -17,7 +17,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 public sealed class LanHealthEngine
 {
     /// <summary>Bump when the roll-up changes; older rows are recomputed on the next backfill pass.</summary>
-    public const int Version = 19;
+    public const int Version = 20;
 
     internal static readonly TimeSpan RunEvery = TimeSpan.FromMinutes(15);
     internal static readonly TimeSpan Settle = TimeSpan.FromMinutes(5);
@@ -232,9 +232,17 @@ public sealed class LanHealthEngine
         bool IsServer(NetworkOptimizer.Core.Enums.ClientDeviceCategory c) => c is NetworkOptimizer.Core.Enums.ClientDeviceCategory.Server or NetworkOptimizer.Core.Enums.ClientDeviceCategory.NAS;
         foreach (var l in links.Where(l => l.Kind == LinkKind.Access))
         {
-            var onPort = clients.Where(c => c.IsWired && c.SwPort == l.Upstream.PortIdx && LanLinkBuilder.Mac(c.SwMac) == l.Upstream.DeviceMac);
-            l.ServerOnPort = onPort.Any(c => IsServer(detection.DetectDeviceType(c).Category))
-                || (l.ClientMac is { } cm && historyByMac.TryGetValue(cm, out var h) && IsServer(detection.DetectDeviceType(h).Category));
+            var onPort = clients.Where(c => c.IsWired && c.SwPort == l.Upstream.PortIdx && LanLinkBuilder.Mac(c.SwMac) == l.Upstream.DeviceMac).ToList();
+            var categories = onPort.Select(c => detection.DetectDeviceType(c).Category).ToList();
+            var ouis = onPort.Select(c => (string?)c.Oui).ToList();
+            if (l.ClientMac is { } cm && historyByMac.TryGetValue(cm, out var h))
+            {
+                categories.Add(detection.DetectDeviceType(h).Category);
+                ouis.Add(h.Oui);
+            }
+            l.ServerOnPort = categories.Any(IsServer);
+            l.AlwaysOnClient = categories.Any(LanHealthEvidenceBuilder.NeverSleeps) || ouis.Any(LanHealthEvidenceBuilder.IsUbiquitiOui)
+                || l.UpstreamPort.PoePowerW is > 0.5;
         }
 
         await using var db = await _db(ct);

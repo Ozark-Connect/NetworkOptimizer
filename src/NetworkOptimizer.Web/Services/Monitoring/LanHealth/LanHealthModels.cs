@@ -295,6 +295,11 @@ public sealed class LinkRecord
     public string? SwapNeighbor { get; set; }
     /// <summary>An access port whose client the audit's classification calls a server or NAS (VMs share its port).</summary>
     public bool ServerOnPort { get; set; }
+    /// <summary>
+    /// An access port whose client never sleeps: a server, NAS, camera, security system or hub by the audit's
+    /// classification, or one the port powers over PoE. Its link drops are never explained as sleep.
+    /// </summary>
+    public bool AlwaysOnClient { get; set; }
     /// <summary>The end-device client MAC on an access port, when known.</summary>
     public string? ClientMac { get; init; }
 

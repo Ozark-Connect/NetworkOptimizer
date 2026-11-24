@@ -32,6 +32,19 @@ public static class LanHealthEvidenceBuilder
     /// <summary>An access port down at least this long in an hour is a client asleep or off, not a flap.</summary>
     internal static readonly TimeSpan AsleepAfter = TimeSpan.FromMinutes(2);
 
+    /// <summary>Client classes that stay up around the clock: a link drop on one is never sleep.</summary>
+    internal static bool NeverSleeps(NetworkOptimizer.Core.Enums.ClientDeviceCategory c) => c is
+        NetworkOptimizer.Core.Enums.ClientDeviceCategory.Server or NetworkOptimizer.Core.Enums.ClientDeviceCategory.NAS
+        or NetworkOptimizer.Core.Enums.ClientDeviceCategory.Camera or NetworkOptimizer.Core.Enums.ClientDeviceCategory.CloudCamera
+        or NetworkOptimizer.Core.Enums.ClientDeviceCategory.SecuritySystem or NetworkOptimizer.Core.Enums.ClientDeviceCategory.CloudSecuritySystem
+        or NetworkOptimizer.Core.Enums.ClientDeviceCategory.SmartHub;
+
+    /// <summary>
+    /// A Ubiquiti product seen as a client (UNVR, UNAS, Cloud Key, UniFi Power, a Protect camera): all run around the
+    /// clock. The OUI covers the ones the Network app does not list as devices, without Protect's own lookup.
+    /// </summary>
+    internal static bool IsUbiquitiOui(string? oui) => oui?.Contains("Ubiquiti", StringComparison.OrdinalIgnoreCase) == true;
+
     /// <summary>interface_counters fields the hourly roll-up reads. Numeric only: min/max reject booleans.</summary>
     public static readonly string[] PortFields =
     [
@@ -300,25 +313,26 @@ public static class LanHealthEvidenceBuilder
         if (speedMin is double smin && speedMax is double smax && smin > 0 && smin != smax)
             events.Add(new LinkEvent(from, to, LinkEventType.SpeedChange, LinkSource.PortTableState, LinkSide.Upstream, SpeedMbps: (int)smin));
 
-        // Explanations: everything that touches either end, plus sleep on an access port with no traffic.
+        // Explanations: everything that touches either end, plus sleep on an access port whose client can sleep.
         var explain = x.Explain.ToList();
         var macs = new HashSet<string> { link.Upstream.DeviceMac, link.Downstream.DeviceMac };
         // A mesh backhaul has no port: the parent's live rates for the child stand in (in = child to parent).
         var meanIn = up.Mean("rate_in_bps") ?? down.Mean("rate_out_bps") ?? MeshMean(link, x, InfluxFieldNames.UplinkRxBps);
         var meanOut = up.Mean("rate_out_bps") ?? down.Mean("rate_in_bps") ?? MeshMean(link, x, InfluxFieldNames.UplinkTxBps);
-        if (link.Kind == LinkKind.Access && (meanIn ?? 0) < 2_000 && (meanOut ?? 0) < 20_000)
+        var canSleep = link.Kind == LinkKind.Access && !link.AlwaysOnClient;
+        if (canSleep && (meanIn ?? 0) < 2_000 && (meanOut ?? 0) < 20_000)
             explain.Add(new ExplainWindow(from, to, link.Upstream.DeviceMac, ExplainReason.DeviceAsleep));
         // Down for minutes is a client asleep or powered off; a flap is down for seconds. ifOperStatus is
         // 1 up / 2 down, so the hour's mean less 1 is the share of it spent down. Per relink, so many short
         // flaps that add up to minutes still read as flapping.
         var downSeconds = ((up.Mean("oper_status") ?? 1) - 1) * 3600;
         var relinks = Math.Max(1, up.Rise(InfluxFieldNames.LinkDownCount) ?? 1);
-        if (link.Kind == LinkKind.Access && up.Has("oper_status")
+        if (canSleep && up.Has("oper_status")
             && (downSeconds / relinks >= AsleepAfter.TotalSeconds
                 || (up.First("oper_status") ?? 1) >= 2 || (up.Last("oper_status") ?? 1) >= 2))
             explain.Add(new ExplainWindow(from, to, link.Upstream.DeviceMac, ExplainReason.DeviceAsleep));
-        // A 10/100 relink on an access port is the sleep signature too.
-        if (link.Kind == LinkKind.Access && speedMin is <= 100 && speedMax is > 100)
+        // A 10/100 relink on an access port is the sleep signature too (Wake-on-LAN's low-power link).
+        if (canSleep && speedMin is <= 100 && speedMax is > 100)
             explain.Add(new ExplainWindow(from, to, link.Upstream.DeviceMac, ExplainReason.DeviceAsleep));
 
         // Port Anomalies: an anomaly on the upstream port in the hour counts as having seen that hour's drops.
