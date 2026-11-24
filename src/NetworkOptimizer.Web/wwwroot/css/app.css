@@ -27351,6 +27351,13 @@ body:has(.top-bar-hidden) .btn-fit {
     height: 18px;
 }
 
+/* A phone's bottom sheet closes by swipe or the backdrop. */
+@media (max-width: 768px) {
+    .device-restart-close {
+        display: none;
+    }
+}
+
 .device-restart-name {
     flex: 1 1 auto;
     min-width: 0;
