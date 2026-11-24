@@ -251,8 +251,7 @@ else
             }
             var changes = l.Incidents.Where(i => i.Explained == ExplainReason.PortProfileChanged)
                 .Select(i => new DateTimeOffset(DateTime.SpecifyKind(i.Start, DateTimeKind.Utc)).ToUnixTimeMilliseconds()).Distinct().ToList();
-            await _charts.InvokeVoidAsync("renderTimeline", "lan-health-timeline", buckets, changes, (long)bucket.TotalMilliseconds,
-                DisplayTime.Format.Clock == ClockStyle.TwentyFourHour);
+            await _charts.InvokeVoidAsync("renderTimeline", "lan-health-timeline", buckets, changes);
         }
         catch (JSDisconnectedException) { }
         catch (Exception ex) { Logger.LogDebug(ex, "LAN Health timeline chart failed"); }
@@ -347,7 +346,7 @@ else
             long? cutover = _report.CutoverAt is DateTime c ? new DateTimeOffset(DateTime.SpecifyKind(c, DateTimeKind.Utc)).ToUnixTimeMilliseconds() : null;
             // Only marked when the history reaches back past it; before that every hour is LAN Health's.
             if (points.Count > 0 && cutover <= points[0].t) cutover = null;
-            await _charts.InvokeVoidAsync("renderHistory", "lan-health-history", points, cutover, DisplayTime.Format.Clock == ClockStyle.TwentyFourHour);
+            await _charts.InvokeVoidAsync("renderHistory", "lan-health-history", points, cutover);
         }
         catch (JSDisconnectedException) { }
         catch (Exception ex) { Logger.LogDebug(ex, "LAN Health history chart failed"); }
