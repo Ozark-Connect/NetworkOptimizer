@@ -16,5 +16,5 @@
     [CascadingParameter(Name = "CanGoBack")]
     public bool CanGoBack { get; set; }
 
-    private async Task GoBack() => await JS.InvokeVoidAsync("history.back");
+    private async Task GoBack() => await JS.InvokeVoidAsync("__goBack");
 }
