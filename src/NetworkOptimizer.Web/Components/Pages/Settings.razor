@@ -793,7 +793,8 @@
 
                 @if (_showSshKeyUpload)
                 {
-                    <div class="ssh-key-upload">
+                    @* data-autosave: Upload key commits these fields, not a card Save. *@
+                    <div class="ssh-key-upload" data-autosave>
                         <div class="form-group">
                             <label class="form-label">Private key</label>
                             @* No accept filter: the usual names are id_rsa and id_ed25519, with no
