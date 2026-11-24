@@ -858,6 +858,14 @@ public static partial class YamlConverter
                     result.Problems.Add(new YamlProblem("Error", fileName, 1, $"{name} is built into UniFi and cannot be deleted."));
                     continue;
                 }
+                // A Fabric pushes it back at the next sync, whatever its lock state (UniFi's wording, as PlanBuilder's note).
+                if (ConfigCollections.FabricTemplate(removed) != null)
+                {
+                    result.Problems.Add(new YamlProblem("Error", fileName, 1, ConfigCollections.FabricLocked(removed)
+                        ? $"{name}: created through Site Manager. Remove it from Site Manager, or it reappears after the next sync."
+                        : $"{name}: created through Site Manager. To permanently delete it, remove it from Site Manager."));
+                    continue;
+                }
                 var id = ConfigState.IdOf(removed);
                 var cascaded = new List<string>();
                 var blocking = new List<string>();

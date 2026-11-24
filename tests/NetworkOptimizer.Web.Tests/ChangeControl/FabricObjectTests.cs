@@ -37,6 +37,40 @@ public class FabricObjectTests
             ("firewall_zone", """{"_id":"z-int","name":"Internal","zone_key":"internal","network_ids":["n-lan","n-fab"]}"""));
     }
 
+    [Theory]
+    [InlineData(Locked, true)]
+    [InlineData(Overridable, true)]
+    [InlineData(Detached, false)]
+    [InlineData("null", false)]
+    [InlineData(null, false)]
+    public void Editor_OffersNoRemove_OnAFabricObject(string? cloudTemplate, bool fabric)
+    {
+        var schema = YamlConverter.EditSchema(AfterPush(cloudTemplate), [ConfigCollections.Get("networkconf")!]);
+
+        var undeletable = schema["collections"]!["networks"]!["undeletable"]?.AsArray().Select(i => i!.ToString()).ToList() ?? [];
+        undeletable.Contains("n-fab").Should().Be(fabric);
+    }
+
+    [Theory]
+    [InlineData(Locked, "Remove it from Site Manager, or it reappears after the next sync.")]
+    [InlineData(Overridable, "To permanently delete it, remove it from Site Manager.")]
+    [InlineData(null, null)]
+    public void Editor_RemovingAFabricObject_IsAnError_InUniFisWording(string? cloudTemplate, string? expected)
+    {
+        var site = AfterPush(cloudTemplate);
+        var def = ConfigCollections.Get("networkconf")!;
+        var file = YamlConverter.Export(site, ["networkconf"], SecretMode.Clear, ids: true);
+        var start = file.IndexOf("- id: n-fab", StringComparison.Ordinal);
+        var end = file.IndexOf("\n- ", start + 1, StringComparison.Ordinal);
+        var edited = file.Remove(start, (end < 0 ? file.Length : end + 1) - start);
+
+        var problems = YamlConverter.Parse(edited, site, YamlConverter.FileName(def)).Problems;
+
+        var fabricErrors = problems.Where(p => p.Message.Contains("Site Manager")).ToList();
+        if (expected == null) fabricErrors.Should().BeEmpty();
+        else fabricErrors.Should().ContainSingle(p => p.Level == "Error" && p.Message.Contains(expected));
+    }
+
     [Fact]
     public void RestoreBeforeThePush_LeavesTheFabricNetworkAndItsReferences()
     {
