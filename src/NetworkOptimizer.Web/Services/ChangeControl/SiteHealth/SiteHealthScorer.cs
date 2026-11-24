@@ -73,13 +73,33 @@ public sealed class HealthHourInputs
 
     public HealthHourInputs WithLanHealth(double impairment, string? worst, string? worstHref = null) => new()
     {
-        Hour = Hour, LossPct = LossPct, LossWindows = LossWindows, IdleRttMs = IdleRttMs, LoadedRttMs = LoadedRttMs,
-        LoadedShare = LoadedShare, OutageMinutes = OutageMinutes, OutageText = OutageText, LocalCause = LocalCause,
-        BaselineRttMs = BaselineRttMs, WifiSamples = WifiSamples, WifiBelow80 = WifiBelow80, WifiBelow60 = WifiBelow60,
-        WorstRadio = WorstRadio, WorstRadioShare = WorstRadioShare, WirelessClients = WirelessClients, WiredClients = WiredClients,
-        Availability = Availability, AvailabilityText = AvailabilityText, FabricLossPct = FabricLossPct, FabricWindows = FabricWindows,
-        HasLinkData = HasLinkData, LinkImpairment = LinkImpairment, LinkText = LinkText,
-        LanHealthImpairment = impairment, LanHealthWorst = worst, LanHealthWorstHref = worstHref,
+        Hour = Hour,
+        LossPct = LossPct,
+        LossWindows = LossWindows,
+        IdleRttMs = IdleRttMs,
+        LoadedRttMs = LoadedRttMs,
+        LoadedShare = LoadedShare,
+        OutageMinutes = OutageMinutes,
+        OutageText = OutageText,
+        LocalCause = LocalCause,
+        BaselineRttMs = BaselineRttMs,
+        WifiSamples = WifiSamples,
+        WifiBelow80 = WifiBelow80,
+        WifiBelow60 = WifiBelow60,
+        WorstRadio = WorstRadio,
+        WorstRadioShare = WorstRadioShare,
+        WirelessClients = WirelessClients,
+        WiredClients = WiredClients,
+        Availability = Availability,
+        AvailabilityText = AvailabilityText,
+        FabricLossPct = FabricLossPct,
+        FabricWindows = FabricWindows,
+        HasLinkData = HasLinkData,
+        LinkImpairment = LinkImpairment,
+        LinkText = LinkText,
+        LanHealthImpairment = impairment,
+        LanHealthWorst = worst,
+        LanHealthWorstHref = worstHref,
     };
 }
 
@@ -95,7 +115,7 @@ public sealed record HealthContributor(string Area, double Impairment, string Te
 public static class SiteHealthScorer
 {
     /// <summary>Bump when the scoring changes; stored hours at an older version are recomputed.</summary>
-    public const int Version = 12;
+    public const int Version = 13;
 
     /// <summary>Gateway CPU at or above this, averaged over a window or an hour, makes that time's Internet impairment local.</summary>
     public const double GatewayBusyCpuPct = 90;
