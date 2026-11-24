@@ -355,7 +355,7 @@ public static class PlanBuilder
             // UniFi's own warning, per lock state: a locked Site Manager object deleted here reappears at the next sync.
             if (ConfigCollections.FabricTemplate(live!) != null)
             {
-                AddNoteOnce(doc, ConfigCollections.FabricLocked(live!)
+                AddUnwritable(doc, ConfigCollections.FabricLocked(live!)
                     ? $"{def.Noun} {name}: created through Site Manager. Remove it from Site Manager, or it reappears after the next sync. Not deleted."
                     : $"{def.Noun} {name}: created through Site Manager. To permanently delete it, remove it from Site Manager. Not deleted.");
                 return null;
@@ -547,7 +547,7 @@ public static class PlanBuilder
         // The console refuses a local edit to a locked Fabric object, whatever the source; Site Manager is where it changes.
         if (ConfigCollections.FabricLocked(live))
         {
-            AddNoteOnce(doc, $"{def.Noun} {name}: centrally managed by the Fabric and cannot be edited locally. Change it in Site Manager.");
+            AddUnwritable(doc, $"{def.Noun} {name}: centrally managed by the Fabric and cannot be edited locally. Change it in Site Manager.");
             return null;
         }
 
@@ -1483,9 +1483,12 @@ public static class PlanBuilder
             AddBack(p.Left!, p.Right!, kept, fillAbsent: true);
     }
 
-    private static void AddNoteOnce(PlanDocument doc, string note)
+    /// <summary>A change the console will not take (a Fabric's object): noted once, and kept as a reason the plan may be empty.</summary>
+    private static void AddUnwritable(PlanDocument doc, string note)
     {
-        if (!doc.Notes.Contains(note)) doc.Notes.Add(note);
+        if (doc.Notes.Contains(note)) return;
+        doc.Notes.Add(note);
+        doc.Unwritable.Add(note);
     }
 
     /// <summary>

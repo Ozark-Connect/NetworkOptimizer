@@ -79,6 +79,7 @@ public class FabricObjectTests
         doc.Errors.Should().BeEmpty();
         doc.Operations.Should().BeEmpty();
         doc.Notes.Should().Contain("Network Test Network: created through Site Manager. Remove it from Site Manager, or it reappears after the next sync. Not deleted.");
+        doc.Unwritable.Should().Equal(doc.Notes.Where(n => n.Contains("Site Manager")), "an empty plan says why, not that the console matches");
     }
 
     [Fact]
@@ -121,6 +122,7 @@ public class FabricObjectTests
         doc.Errors.Should().BeEmpty();
         doc.Operations.Should().Contain(o => o.Action == PlanAction.Delete && o.ObjectName == "Test Network");
         doc.Notes.Should().NotContain(n => n.Contains("Site Manager"));
+        doc.Unwritable.Should().BeEmpty();
     }
 
     [Fact]

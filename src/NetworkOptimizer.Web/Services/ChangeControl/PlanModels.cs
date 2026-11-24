@@ -158,6 +158,12 @@ public sealed class PlanDocument
     /// <summary>What the plan does not write and why (NO-owned, generated, read-only collections).</summary>
     public List<string> Notes { get; set; } = [];
 
+    /// <summary>
+    /// The notes (also in <see cref="Notes"/>) for changes the plan wanted and the console does not take: a Fabric's
+    /// objects. When nothing else is written, they are why the plan is empty.
+    /// </summary>
+    public List<string> Unwritable { get; set; } = [];
+
     /// <summary>Per-site generated values a plan onto another site kept from the target, in plain words.</summary>
     public List<string> KeptValues { get; set; } = [];
 

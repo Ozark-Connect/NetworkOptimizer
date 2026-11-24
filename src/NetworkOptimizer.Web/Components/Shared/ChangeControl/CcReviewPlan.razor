@@ -162,7 +162,15 @@ else
                 }
             }
         </div>
-        @if (doc.Operations.Count == 0)
+        @if (doc.Operations.Count == 0 && doc.Unwritable.Count > 0)
+        {
+            @* What the plan wanted is a change the console does not take (a Fabric's object), not a match. *@
+            <div class="empty-state empty-state-small">
+                <p>Nothing to write.</p>
+                @foreach (var n in doc.Unwritable) { <p>@n</p> }
+            </div>
+        }
+        else if (doc.Operations.Count == 0)
         {
             <div class="empty-state empty-state-small"><p>Nothing to write: the console already matches.</p></div>
         }
@@ -360,7 +368,8 @@ else
                 <span></span>
             </div>
         }
-        @foreach (var n in doc.Notes)
+        @* An empty plan already states its unwritable notes in the Changes card. *@
+        @foreach (var n in doc.Notes.Where(n => doc.Operations.Count > 0 || !doc.Unwritable.Contains(n)))
         {
             <div class="cc-item">
                 <div class="cc-badge-col"><span class="status-badge badge-muted">Note</span></div>
