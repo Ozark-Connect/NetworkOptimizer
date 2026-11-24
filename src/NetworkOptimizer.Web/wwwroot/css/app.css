@@ -20926,7 +20926,7 @@ tr.stats-row-filtered {
 .lan-health .lan-health-link-name { grid-area: name; min-width: 0; }
 .lan-health .lan-health-link-head-right { grid-area: right; align-self: start; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
 /* Each device's icon with its restart button, its name under it, and its port. */
-.lan-health .lan-health-ends { grid-area: ends; align-self: center; display: flex; align-items: flex-start; justify-content: center; gap: 0.75rem; min-width: 0; }
+.lan-health .lan-health-link-ends { grid-area: ends; align-self: center; display: flex; align-items: flex-start; justify-content: center; gap: 0.75rem; min-width: 0; }
 .lan-health .lan-health-end { flex: 0 1 auto; display: flex; flex-direction: column; align-items: center; gap: 0.25rem; max-width: 18rem; min-width: 0; text-align: center; }
 .lan-health .lan-health-end-icon { position: relative; display: flex; align-items: center; justify-content: center; width: 48px; height: 48px; color: var(--text-muted); }
 .lan-health .lan-health-end-icon > .line-icon { width: 36px; height: 36px; }

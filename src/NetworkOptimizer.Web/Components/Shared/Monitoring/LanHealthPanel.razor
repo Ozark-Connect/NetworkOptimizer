@@ -562,7 +562,7 @@ else
                 <h2 class="lan-health-link-title">@link.Name</h2>
                 <div class="lan-health-sub">@Subtitle(link, l)</div>
             </div>
-            <div class="lan-health-ends">
+            <div class="lan-health-link-ends">
                 @LinkEndView(link.Upstream)
                 <div class="lan-health-end-line @(link.Kind is LinkKind.FabricMesh or LinkKind.FabricMeshMlo ? "is-mesh" : null)"></div>
                 @LinkEndView(link.Downstream)
