@@ -417,7 +417,10 @@ public sealed class LinkHealth
     public double? UpLinkDownCount { get; set; }
     public double? DownLinkDownCount { get; set; }
     public double? DownCarrierChanges { get; set; }
+    /// <summary>The port's PoE draw now, as UniFi Network shows it; the latest hour's peak when the port table has none.</summary>
     public double? PoeWatts { get; set; }
+    /// <summary>The highest draw sampled in the latest hour with a reading (a boot draws more).</summary>
+    public double? PoePeakWatts { get; set; }
 }
 
 /// <summary>The site's LAN Health over a window: the score card, the findings, and every link.</summary>

@@ -332,7 +332,8 @@ public static class LanHealthReportBuilder
                 UpLinkDownCount = linkRows.LastOrDefault(r => r.UpLinkDownCount != null)?.UpLinkDownCount,
                 DownLinkDownCount = linkRows.LastOrDefault(r => r.DownLinkDownCount != null)?.DownLinkDownCount,
                 DownCarrierChanges = linkRows.LastOrDefault(r => r.DownCarrierChanges != null)?.DownCarrierChanges,
-                PoeWatts = linkRows.LastOrDefault(r => r.PoeWattsMax != null)?.PoeWattsMax ?? link.UpstreamPort.PoePowerW,
+                PoeWatts = link.UpstreamPort.PoePowerW ?? linkRows.LastOrDefault(r => r.PoeWattsMax != null)?.PoeWattsMax,
+                PoePeakWatts = linkRows.LastOrDefault(r => r.PoeWattsMax != null)?.PoeWattsMax,
             };
             health.Score = health.Exclusion == ExclusionLevel.ExcludeFromScore ? 100 : LanHealthScorer.LinkScore(findings);
             report.Links.Add(health);

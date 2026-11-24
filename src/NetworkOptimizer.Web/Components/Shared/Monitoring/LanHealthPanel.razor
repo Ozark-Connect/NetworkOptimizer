@@ -618,7 +618,7 @@ else
                                 <tr><td>Receive errors</td><td>@($"{l.ErrorsUpstreamRx:0}")</td><td>@(link.Downstream.IsUniFi ? $"{l.ErrorsDownstreamRx:0}" : "--")</td></tr>
                                 <tr><td>Transmit discards</td><td>@($"{l.DiscardsUpstreamTx:N0}")</td><td>@(link.Downstream.IsUniFi ? $"{l.DiscardsDownstreamTx:N0}" : "--")</td></tr>
                                 <tr><td>Speed / negotiation</td><td>@SpeedLabel(link), @(link.Forced ? "forced" : "auto")</td><td>@(link.DownstreamPort != null ? $"{SpeedLabel(link)}, {(link.DownstreamPort.Autoneg ? "auto" : "forced")}" : "--")</td></tr>
-                                <tr><td>Power</td><td>@(l.PoeWatts is double w && w > 0 ? $"{w:0.#} W PoE" : "No PoE")</td><td>--</td></tr>
+                                <tr><td>Power</td><td>@PowerText(l)</td><td>--</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -776,6 +776,13 @@ else
             </div>
         </SiteAdminOnly>
     };
+
+    /// <summary>The draw now, as UniFi Network shows it, and the hour's peak when it sits a watt or more above.</summary>
+    private static string PowerText(LinkHealth l)
+    {
+        if (l.PoeWatts is not double w || w <= 0) return l.PoePeakWatts is double p && p > 0 ? $"No PoE now (peak {p:0.#} W)" : "No PoE";
+        return l.PoePeakWatts is double peak && peak - w >= 1 ? $"{w:0.#} W PoE (peak {peak:0.#} W)" : $"{w:0.#} W PoE";
+    }
 
     private string Subtitle(LinkRecord link, LinkHealth l)
     {
