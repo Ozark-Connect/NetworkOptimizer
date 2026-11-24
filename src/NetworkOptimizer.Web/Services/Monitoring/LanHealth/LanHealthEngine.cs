@@ -76,6 +76,8 @@ public sealed class LanHealthEngine
         public List<LinkRecord> Links { get; init; } = [];
         public Dictionary<(string Mac, string IfName), int> NameMap { get; init; } = [];
         public Dictionary<string, string> TargetDevices { get; init; } = [];
+        /// <summary>The fabric targets that are probing: a disabled one has no series to link to.</summary>
+        public HashSet<string> EnabledTargets { get; init; } = [];
         public List<LanHealthExclusion> Exclusions { get; init; } = [];
         public bool ScoreFabricOnly { get; init; }
         public List<UniFiNetworkConfig> Networks { get; init; } = [];
@@ -240,10 +242,11 @@ public sealed class LanHealthEngine
                 .Select(m => new { m.DeviceMac, m.IfName, m.PortNumber }).ToListAsync(ct))
             .GroupBy(m => (LanLinkBuilder.Mac(m.DeviceMac), m.IfName))
             .ToDictionary(g => g.Key, g => g.First().PortNumber!.Value);
-        var targets = (await db.MonitoringTargets.AsNoTracking()
+        var fabricTargets = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.TargetType == MonitoringTargetType.Fabric && t.DeviceMac != null)
-                .Select(t => new { t.TargetId, t.DeviceMac }).ToListAsync(ct))
-            .GroupBy(t => t.TargetId).ToDictionary(g => g.Key, g => LanLinkBuilder.Mac(g.First().DeviceMac));
+                .Select(t => new { t.TargetId, t.DeviceMac, t.Enabled }).ToListAsync(ct);
+        var targets = fabricTargets.GroupBy(t => t.TargetId).ToDictionary(g => g.Key, g => LanLinkBuilder.Mac(g.First().DeviceMac));
+        var enabledTargets = fabricTargets.Where(t => t.Enabled).Select(t => t.TargetId).ToHashSet();
         var exclusions = await db.LanHealthExclusions.AsNoTracking().ToListAsync(ct);
 
         // Probed APs below each device: probes to switches never score, so a switch's link is judged by the APs under it.
@@ -275,6 +278,7 @@ public sealed class LanHealthEngine
             Links = links,
             NameMap = nameMap,
             TargetDevices = targets,
+            EnabledTargets = enabledTargets,
             Exclusions = exclusions,
             ScoreFabricOnly = exclusions.Any(e => e.Scope == "access-all" && e.Level == (int)ExclusionLevel.ExcludeFromScore),
             Networks = networks,
@@ -662,7 +666,8 @@ public sealed class LanHealthEngine
             report.Findings.Add(note);
         }
         foreach (var l in report.Links)
-            l.ProbeTargetId = topology.TargetDevices.FirstOrDefault(kv => string.Equals(kv.Value, l.Link.Downstream.DeviceMac, StringComparison.OrdinalIgnoreCase)).Key;
+            l.ProbeTargetId = topology.TargetDevices.FirstOrDefault(kv => topology.EnabledTargets.Contains(kv.Key)
+                && string.Equals(kv.Value, l.Link.Downstream.DeviceMac, StringComparison.OrdinalIgnoreCase)).Key;
         var history = await db.LanHealthSiteHours.AsNoTracking().Where(h => h.HourStart >= from && h.HourStart < to && h.Score != null)
             .OrderBy(h => h.HourStart).Select(h => new { h.HourStart, h.Score }).ToListAsync(ct);
         report.History.AddRange(history.Select(h => (DateTime.SpecifyKind(h.HourStart, DateTimeKind.Utc), h.Score!.Value)));

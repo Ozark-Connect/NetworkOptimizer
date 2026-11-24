@@ -107,10 +107,13 @@ public static class MonitoringLinks
     /// </summary>
     /// <summary>
     /// Latency and Packet Loss on one fabric target over a window ending at <paramref name="atMs"/>, on the LAN scope:
-    /// LAN Health's jump from a link's probe loss to the probe itself.
+    /// LAN Health's jump from a link's probe loss to the probe itself. No target opens every LAN probe: the loss
+    /// then comes from the probes below a device whose own one is disabled.
     /// </summary>
-    public static string FabricTargetWindow(string targetId, long atMs, long spanMs, string via) =>
-        $"/monitoring?tab=performance&category={FabricCategory}&target={Uri.EscapeDataString(targetId)}&at={atMs}&span={spanMs}&wan={LanScopeToken}&via={Uri.EscapeDataString(via)}";
+    public static string FabricTargetWindow(string? targetId, long atMs, long spanMs, string via) =>
+        $"/monitoring?tab=performance&category={FabricCategory}"
+        + (string.IsNullOrEmpty(targetId) ? "" : $"&target={Uri.EscapeDataString(targetId)}")
+        + $"&at={atMs}&span={spanMs}&wan={LanScopeToken}&via={Uri.EscapeDataString(via)}";
 
     public static string FabricTarget(string? targetId, string at, LiveWanScope wanScope) =>
         $"/monitoring?tab=performance&category={FabricCategory}&at={at}"

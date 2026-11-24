@@ -854,9 +854,9 @@ else
     }
 
     /// <summary>Network Performance on the link's fabric probe over a window ending at <paramref name="end"/>; null when nothing probes it.</summary>
+    // A link with no enabled probe of its own reads the probes below it, so it opens on all of them.
     private static string? ProbeHref(LinkHealth l, DateTime end, TimeSpan span) =>
-        string.IsNullOrEmpty(l.ProbeTargetId) ? null
-        : NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks.FabricTargetWindow(l.ProbeTargetId, new DateTimeOffset(DateTime.SpecifyKind(end, DateTimeKind.Utc)).ToUnixTimeMilliseconds(),
+        NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks.FabricTargetWindow(l.ProbeTargetId, new DateTimeOffset(DateTime.SpecifyKind(end, DateTimeKind.Utc)).ToUnixTimeMilliseconds(),
             (long)span.TotalMilliseconds, "lan-health");
 
     /// <summary>Why a greyed row is explained, short enough for the Event cell (the Note column hides on phones).</summary>
