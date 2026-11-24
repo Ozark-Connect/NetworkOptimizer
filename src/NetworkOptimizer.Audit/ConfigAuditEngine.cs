@@ -826,7 +826,8 @@ public class ConfigAuditEngine
             isRecent ? placement.Severity : Models.AuditSeverity.Informational,
             isRecent ? placement.ScoreImpact : 0,
             placement.IsLowRisk,
-            placement.IsAllowedBySettings));
+            placement.IsAllowedBySettings,
+            clientNamed: UniFi.ClientNames.For(historyClient) is not null));
     }
 
     private void CheckOfflineCameraPlacement(
@@ -862,7 +863,8 @@ public class ConfigAuditEngine
             Rules.VlanPlacementChecker.GetMoveRecommendation(placement, fallbackAction),
             isRecent ? (isCloudCamera ? placement.Severity : Models.AuditSeverity.Critical) : Models.AuditSeverity.Informational,
             isRecent ? placement.ScoreImpact : 0,
-            isCloudCamera ? placement.IsLowRisk : false));
+            isCloudCamera ? placement.IsLowRisk : false,
+            clientNamed: UniFi.ClientNames.For(historyClient) is not null));
     }
 
     private void CheckOfflinePrinterPlacement(
@@ -903,7 +905,8 @@ public class ConfigAuditEngine
             isRecent ? placement.Severity : Models.AuditSeverity.Informational,
             isRecent ? placement.ScoreImpact : 0,
             placement.IsLowRisk,
-            placement.IsAllowedBySettings));
+            placement.IsAllowedBySettings,
+            clientNamed: UniFi.ClientNames.For(historyClient) is not null));
     }
 
     private static AuditIssue CreateOfflineVlanIssue(
@@ -919,7 +922,8 @@ public class ConfigAuditEngine
         Models.AuditSeverity severity,
         int scoreImpact,
         bool? isLowRisk = null,
-        bool isAllowedBySettings = false)
+        bool isAllowedBySettings = false,
+        bool clientNamed = false)
     {
         var metadata = new Dictionary<string, object>
         {
@@ -942,6 +946,7 @@ public class ConfigAuditEngine
             Severity = severity,
             Message = message,
             DeviceName = $"{displayName} (offline)",
+            ClientNamed = clientNamed,
             CurrentNetwork = lastNetwork.Name,
             CurrentVlan = lastNetwork.VlanId,
             RecommendedNetwork = placement.RecommendedNetwork?.Name,
