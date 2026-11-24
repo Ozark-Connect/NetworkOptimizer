@@ -24,6 +24,7 @@
 @implements IDisposable
 @rendermode InteractiveServer
 @inject IDisplayTimeZone DisplayTime
+@inject NetworkOptimizer.Web.Services.DeviceRestart.IDeviceRestartService DeviceRestarts
 
 <PageTitle>Dashboard - Network Optimizer</PageTitle>
 <NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation" ConfirmExternalNavigation="_editMode" />
@@ -839,9 +840,12 @@
                 else
                 {
                     <div class="device-grid">
-                        @foreach (var device in devices)
+                        @for (var i = 0; i < devices.Count; i++)
                         {
-                            <DeviceCard Device="@device" FallbackImageUrl="@_clientIcons.DeviceCatalogUrlFor(device.Mac)" />
+                            var device = devices[i];
+                            <DeviceCard Device="@device" FallbackImageUrl="@_clientIcons.DeviceCatalogUrlFor(device.Mac)"
+                                        ShowRestart="@(!string.IsNullOrEmpty(device.Mac))" Restart="@RestartBadgeFor(device)"
+                                        TourAnchor="@(i == 0)" OnRestartChanged="LoadRestartBadgesAsync" />
                         }
                     </div>
                 }
@@ -1311,6 +1315,7 @@
             warningIssues = data.WarningIssues;
             lastAuditTime = data.LastAuditTime;
             devices = data.Devices;
+            await LoadRestartBadgesAsync();
         }
         finally
         {
@@ -1321,6 +1326,27 @@
             await LoadWiFiHealth(showLoading);
         }
     }
+
+    private IReadOnlyDictionary<string, NetworkOptimizer.Web.Services.DeviceRestart.DeviceRestartBadge> _restartBadges =
+        new Dictionary<string, NetworkOptimizer.Web.Services.DeviceRestart.DeviceRestartBadge>();
+
+    /// <summary>Each device's open or recently failed restart, for the badge on its card.</summary>
+    private async Task LoadRestartBadgesAsync()
+    {
+        try
+        {
+            _restartBadges = await DeviceRestarts.GetBadgesAsync();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The badges are a hint; the cards render without them.
+            _restartBadges = new Dictionary<string, NetworkOptimizer.Web.Services.DeviceRestart.DeviceRestartBadge>();
+        }
+    }
+
+    private NetworkOptimizer.Web.Services.DeviceRestart.DeviceRestartBadge? RestartBadgeFor(DeviceInfo device) =>
+        string.IsNullOrEmpty(device.Mac) ? null
+            : _restartBadges.GetValueOrDefault(NetworkOptimizer.Web.Services.Firmware.MacNormalizer.Normalize(device.Mac));
 
     private async Task LoadWiFiHealth(bool showLoading)
     {

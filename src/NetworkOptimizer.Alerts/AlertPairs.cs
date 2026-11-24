@@ -18,6 +18,12 @@ public static class AlertPairs
         ["monitoring.wan_outage_partial"] = "monitoring.wan_recovered",
         ["monitoring.health_check_failed"] = "monitoring.health_check_recovered",
         ["wan.link_speed_degraded"] = "wan.link_speed_recovered",
+        // LAN Health: one alert per link, keyed by the link id.
+        ["monitoring.link_flapping"] = "monitoring.link_stable",
+        ["monitoring.link_speed_degraded"] = "monitoring.link_speed_recovered",
+        ["monitoring.link_errors"] = "monitoring.link_errors_cleared",
+        ["monitoring.broadcast_storm"] = "monitoring.broadcast_storm_cleared",
+        ["monitoring.link_utilization_unusual"] = "monitoring.link_utilization_normal",
         ["agent.offline"] = "agent.reconnected",
         ["console.connection_failed"] = "console.connection_restored",
         // One Starlink recovery closes each of these, naming the type in its context.

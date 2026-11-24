@@ -140,6 +140,13 @@ public class AgentOnGatewayDetector : ISiteScopedRegistry
     /// when every connected agent sits on the gateway, or none is connected - a disabled or
     /// unreachable agent holds no connection, so it is never chosen.
     /// </summary>
+    /// <summary>
+    /// True when the gateway can only be probed from itself: an agent runs on it and no connected agent sits
+    /// off it. Gateway RTT and Gateway Loss hide then, since they would measure the gateway against itself.
+    /// </summary>
+    public async Task<bool> GatewayProbedOnlyFromItselfAsync(string siteSlug, CancellationToken ct = default) =>
+        await IsAgentOnGatewayAsync(siteSlug, ct) && await LanTestAgentAsync(siteSlug, ct) == null;
+
     public async Task<AgentTunnelConnection?> LanTestAgentAsync(string siteSlug, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(siteSlug)) return null;

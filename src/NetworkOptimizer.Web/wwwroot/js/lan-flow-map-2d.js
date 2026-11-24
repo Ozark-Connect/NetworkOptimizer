@@ -5,6 +5,8 @@
 // KEEP IN SYNC: lan-flow-map.js imports the same module. Both must use the same ?v= or they get separate instances.
 import * as flowData from './lan-flow-data.js?v=18';
 import { opaqueBounds, logoFit } from './image-bounds.js?v=1';
+// KEEP IN SYNC: lan-flow-map.js imports the same module with the same ?v=.
+import * as lanHealth from './lan-health-map.js?v=1';
 
 function demoMask(text) {
     const dm = window.DemoMask;
@@ -399,6 +401,7 @@ class LanFlowMap2D {
     }
 
     async start(){
+        this._healthUnsub=lanHealth.subscribe(m=>{this._linkHealth=m;this._needsStaticRedraw=true;this._placeHealthBadges();});
         // Standalone (dashboard) mounts have no 3D map to reset stale playback
         // state a previous Monitoring session left in the shared store, so do it
         // here. On the Monitoring page the 3D map (the playback authority) has
@@ -471,6 +474,8 @@ class LanFlowMap2D {
 
     dispose(){
         cancelAnimationFrame(this._animId);
+        if(this._healthUnsub){this._healthUnsub();this._healthUnsub=null;}
+        this._healthEls=null;
         if(this._unsub)this._unsub();
         if(this._resizeObs)this._resizeObs.disconnect();
         if(this._visObs)this._visObs.disconnect();
@@ -2665,6 +2670,7 @@ class LanFlowMap2D {
         this._labelTaken=this._labelObstacles();
         this._drawRateLabels(ctx);
         this._drawLinkSpeedLabels(ctx);
+        this._placeHealthBadges();
     }
 
     // What a link label must not cover: every placed device box and name, client dot, and globe.
@@ -2767,6 +2773,7 @@ class LanFlowMap2D {
 
         // Links (pipes only)
         this._pendingLinkLabels=[];
+        this._edgeMids=new Map();
         this._drawAllLinks(ctx);
         // Clouds (if overlay enabled)
         if(this._isCloudVisible())this._drawAllClouds(ctx);
@@ -2861,6 +2868,7 @@ class LanFlowMap2D {
 
                 // Suppress the speed/throughput label for a link to an offline device -
                 // a down port has no meaningful negotiated speed or throughput.
+                if(e.lk?.id&&!off)this._edgeMids?.set(e.lk.id,{x:mx,y:my});
                 if(txt&&!off&&!this._hideRates) this._pendingLinkLabels.push({mx,my,txt,txtColor,txtItalic,e});
             }
         }
@@ -2898,6 +2906,47 @@ class LanFlowMap2D {
                 ctx.fillText('↑'+parts[1],mx+4,my);
             }
         }
+    }
+
+    // LAN Health badges: DOM elements over the canvas, beside the link's label or at its midpoint,
+    // so they carry the app's tooltip and a click. Only links below healthy show on the 2D map.
+    _placeHealthBadges(){
+        if(!this._el||!this._linkHealth)return;
+        if(!this._healthLayer||!this._healthLayer.isConnected){
+            const layer=document.createElement('div');
+            layer.className='lan-health-map-layer';
+            if(getComputedStyle(this._el).position==='static')this._el.style.position='relative';
+            this._el.appendChild(layer);
+            this._healthLayer=layer;
+            this._healthEls=new Map();
+        }
+        const placed=new Set();
+        const rects=new Map((this._linkLabelRects||[]).filter(r=>r.owner?.lk?.id).map(r=>[r.owner.lk.id,r]));
+        for(const[id,h]of this._linkHealth){
+            if(h.healthy)continue;
+            const r=rects.get(id);
+            const mid=this._edgeMids?.get(id);
+            const wx=r?r.x+r.w+3:mid?.x, wy=r?r.y+r.h/2:mid?.y;
+            if(wx==null||wy==null)continue;
+            const sx=(wx-this._ox)*this._scale+this._cw/2, sy=(wy-this._oy)*this._scale+this._ch/2;
+            let el=this._healthEls.get(id);
+            if(!el||el._score!==h.score){
+                el?.remove();
+                el=lanHealth.createBadge(h);
+                el._score=h.score;
+                this._healthLayer.appendChild(el);
+                this._healthEls.set(id,el);
+            }
+            el.style.left=`${sx}px`;
+            el.style.top=`${sy}px`;
+            // Scales with the map like the canvas labels it sits beside, so zooming out never grows
+            // it over a device and zooming in never leaves it small.
+            el.style.transformOrigin='left center';
+            el.style.transform=`translateY(-50%) scale(${this._scale})`;
+            el.style.display='';
+            placed.add(id);
+        }
+        for(const[id,el]of this._healthEls)if(!placed.has(id))el.style.display='none';
     }
 
     // ---- Cloud drawing ----

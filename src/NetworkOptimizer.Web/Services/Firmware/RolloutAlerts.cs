@@ -62,6 +62,9 @@ public static class RolloutAlerts
     /// <summary>A device's CPU or memory use moved appreciably up after the upgrade.</summary>
     public const string ResourceRegression = "rollout.resource_regression";
 
+    /// <summary>A link on an upgraded device, clean before, started dropping or erroring after the upgrade (LAN Health).</summary>
+    public const string LinkRegression = "rollout.link_regression";
+
     /// <summary>A device's CPU or memory use moved appreciably down after the upgrade.</summary>
     public const string ResourceImprovement = "rollout.resource_improvement";
 

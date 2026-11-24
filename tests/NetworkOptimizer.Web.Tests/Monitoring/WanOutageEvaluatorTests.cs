@@ -339,6 +339,26 @@ public class WanOutageEvaluatorTests
     }
 
     /// <summary>
+    /// A Device Restart marks the device and everything below it: its fabric target stays silent while
+    /// the window is open, and alerts on the next failure once it closes.
+    /// </summary>
+    [Fact]
+    public async Task FabricTargetInsideAPlannedRestartWindow_IsNotDeclaredOffline_UntilTheWindowCloses()
+    {
+        var windows = new RolloutSuppressionRegistry();
+        _evaluator = BuildEvaluator(BuildContext(), windows);
+        var target = Target("lan-ap", "AP 1", "192.0.2.20", MonitoringTargetType.Fabric, deviceMac: "aa:bb:cc:dd:ee:01");
+        windows.Refresh(null!, "aa:bb:cc:dd:ee:01", DateTime.UtcNow);
+
+        await RoundsAsync(3, failing: [target], passing: NoTargets);
+        _bus.Published.Should().BeEmpty();
+
+        windows.Clear(null!, "aa:bb:cc:dd:ee:01");
+        await RoundsAsync(1, failing: [target], passing: NoTargets);
+        _bus.Published.Should().ContainSingle().Which.EventType.Should().Be("monitoring.target_offline");
+    }
+
+    /// <summary>
     /// Under load balancing every WAN carries live sessions, so a backup going dark is a real
     /// service loss rather than lost redundancy - it grades the same as the primary would.
     /// </summary>

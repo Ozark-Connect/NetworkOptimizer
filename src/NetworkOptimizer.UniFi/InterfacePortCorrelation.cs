@@ -73,13 +73,7 @@ public static class InterfacePortCorrelation
 
         int? snmpSpeedMbps = snmpSpeedBps > 0 ? (int)(snmpSpeedBps / 1_000_000) : (int?)null;
         int? unifiSpeedMbps = portMatch is { Speed: > 0 } ? portMatch.Speed : (int?)null;
-        int? linkSpeedMbps = (snmpSpeedMbps, unifiSpeedMbps) switch
-        {
-            (null, null) => null,
-            (null, var u) => u,
-            (var s, null) => s,
-            var (s, u) => Math.Min(s.Value, u.Value),
-        };
+        var linkSpeedMbps = LinkSpeedResolver.LowerOf(snmpSpeedMbps, unifiSpeedMbps);
 
         return new Result(friendlyName, portNumber, linkSpeedMbps, isSfp);
     }

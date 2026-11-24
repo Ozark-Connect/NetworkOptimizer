@@ -262,6 +262,99 @@ public static class DefaultAlertRules
             CooldownSeconds = 0 // 5 minute sustain to close, paired with the degraded alert
         },
 
+        // --- LAN Health (enabled - needs only the console connection) ---
+        // No cooldown: each opens once per episode behind a 5 minute sustain and closes on its recovery.
+        new AlertRule
+        {
+            Name = "LAN Health: Link Flapping",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.link_flapping",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "LAN Health: Link Stable",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.link_stable",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "LAN Health: Link Speed Degraded",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.link_speed_degraded",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "LAN Health: Link Speed Recovered",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.link_speed_recovered",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "LAN Health: Link Errors",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.link_errors",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "LAN Health: Link Errors Cleared",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.link_errors_cleared",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "LAN Health: Broadcast Storm",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.broadcast_storm",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "LAN Health: Broadcast Storm Cleared",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.broadcast_storm_cleared",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "LAN Health: Unusual Link Utilization",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.link_utilization_unusual",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "LAN Health: Link Utilization Normal",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.link_utilization_normal",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+
         // --- LAN Speed Test (disabled - needs device SSH configured) ---
         new AlertRule
         {
@@ -521,6 +614,15 @@ public static class DefaultAlertRules
             Source = "monitoring",
             MinSeverity = AlertSeverity.Info,
             CooldownSeconds = 300
+        },
+        new AlertRule
+        {
+            Name = "Device: Restart Failed",
+            IsEnabled = true,
+            EventTypePattern = "device.restart_failed",
+            Source = "device",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0 // one alert per failed request
         },
 
         // --- Gateway health (enabled - always available when monitoring is active) ---
@@ -998,6 +1100,15 @@ public static class DefaultAlertRules
             Name = "Firmware Rollout: Heavier After Upgrade",
             IsEnabled = true,
             EventTypePattern = "rollout.resource_regression",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Firmware Rollout: Link Problems After Upgrade",
+            IsEnabled = true,
+            EventTypePattern = "rollout.link_regression",
             Source = "rollout",
             MinSeverity = AlertSeverity.Warning,
             CooldownSeconds = 0

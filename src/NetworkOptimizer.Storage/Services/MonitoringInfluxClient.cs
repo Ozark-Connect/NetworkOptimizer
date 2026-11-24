@@ -27,7 +27,7 @@ namespace NetworkOptimizer.Storage.Services;
 /// buffered and flushed on a 5 s timer or when the buffer hits the size cap, matching the
 /// STM batching pattern.
 /// </summary>
-public class MonitoringInfluxClient : IAsyncDisposable
+public partial class MonitoringInfluxClient : IAsyncDisposable
 {
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly ICredentialProtectionService _credentialProtection;
@@ -905,10 +905,10 @@ public class MonitoringInfluxClient : IAsyncDisposable
         double? rateOutBps,
         long? speedBps,
         int operStatus,
-        long errorsIn,
-        long errorsOut,
-        long discardsIn,
-        long discardsOut,
+        long? errorsIn,
+        long? errorsOut,
+        long? discardsIn,
+        long? discardsOut,
         bool hcCounters,
         long? ucastPktsIn,
         long? ucastPktsOut,
@@ -916,7 +916,8 @@ public class MonitoringInfluxClient : IAsyncDisposable
         long? mcastPktsOut,
         long? bcastPktsIn,
         long? bcastPktsOut,
-        DateTime timestamp)
+        DateTime timestamp,
+        long? lastChange = null)
     {
         if (!IsConfigured) return Task.CompletedTask;
         var point = PointData.Measurement("interface_counters")
@@ -927,22 +928,25 @@ public class MonitoringInfluxClient : IAsyncDisposable
             .Field("bytes_in", bytesIn)
             .Field("bytes_out", bytesOut)
             .Field("oper_status", operStatus)
-            .Field("errors_in", errorsIn)
-            .Field("errors_out", errorsOut)
-            .Field("discards_in", discardsIn)
-            .Field("discards_out", discardsOut)
             .Field("hc_counters", hcCounters)
             .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
 
         if (rateInBps.HasValue) point = point.Field("rate_in_bps", rateInBps.Value);
         if (rateOutBps.HasValue) point = point.Field("rate_out_bps", rateOutBps.Value);
         if (speedBps.HasValue) point = point.Field("speed_bps", speedBps.Value);
+        // A counter the device does not keep stays absent, so LAN Health reads "not reported", never 0 errors.
+        if (errorsIn.HasValue) point = point.Field("errors_in", errorsIn.Value);
+        if (errorsOut.HasValue) point = point.Field("errors_out", errorsOut.Value);
+        if (discardsIn.HasValue) point = point.Field("discards_in", discardsIn.Value);
+        if (discardsOut.HasValue) point = point.Field("discards_out", discardsOut.Value);
         if (ucastPktsIn is > 0) point = point.Field("ucast_pkts_in", ucastPktsIn.Value);
         if (ucastPktsOut is > 0) point = point.Field("ucast_pkts_out", ucastPktsOut.Value);
         if (mcastPktsIn is > 0) point = point.Field("mcast_pkts_in", mcastPktsIn.Value);
         if (mcastPktsOut is > 0) point = point.Field("mcast_pkts_out", mcastPktsOut.Value);
         if (bcastPktsIn is > 0) point = point.Field("bcast_pkts_in", bcastPktsIn.Value);
         if (bcastPktsOut is > 0) point = point.Field("bcast_pkts_out", bcastPktsOut.Value);
+        // ifLastChange (hundredths since boot): a change between two polls is a relink in that window.
+        if (lastChange is > 0) point = point.Field(InfluxFieldNames.LastChange, lastChange.Value);
 
         Enqueue(point, longterm: false);
         return Task.CompletedTask;
@@ -977,6 +981,62 @@ public class MonitoringInfluxClient : IAsyncDisposable
 
         Enqueue(point, longterm: false);
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Writes a console port_table snapshot for one port as additive fields on
+    /// <c>interface_counters</c>. The series is the port's console series (<paramref name="portId"/>
+    /// distinct from the SNMP one), so no field here ever shares a series with an SNMP counter.
+    /// </summary>
+    public Task WritePortSnapshotAsync(
+        string deviceMac, string ifName, string portId,
+        IReadOnlyList<KeyValuePair<string, object>> fields, DateTime timestamp)
+    {
+        if (!IsConfigured || fields.Count == 0) return Task.CompletedTask;
+        var point = PointData.Measurement("interface_counters")
+            .Tag("device_mac", NormalizeMac(deviceMac))
+            .Tag("if_name", ifName)
+            .Tag("port_id", portId)
+            .Tag("direction", "unknown")
+            .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
+        point = AddFields(point, fields);
+        Enqueue(point, longterm: false);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Writes additive device-level fields on <c>device_health</c>. <paramref name="deviceType"/> must be
+    /// the same spelling the health writer uses, or the fields land on a second series.
+    /// </summary>
+    public Task WriteDeviceFieldsAsync(
+        string deviceMac, string deviceType,
+        IReadOnlyList<KeyValuePair<string, object>> fields, DateTime timestamp)
+    {
+        if (!IsConfigured || fields.Count == 0) return Task.CompletedTask;
+        var point = PointData.Measurement("device_health")
+            .Tag("device_mac", NormalizeMac(deviceMac))
+            .Tag("device_type", deviceType.ToLowerInvariant())
+            .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
+        point = AddFields(point, fields);
+        Enqueue(point, longterm: false);
+        return Task.CompletedTask;
+    }
+
+    private static PointData AddFields(PointData point, IReadOnlyList<KeyValuePair<string, object>> fields)
+    {
+        foreach (var (name, value) in fields)
+        {
+            point = value switch
+            {
+                long l => point.Field(name, l),
+                int i => point.Field(name, (long)i),
+                double d when double.IsFinite(d) => point.Field(name, d),
+                bool b => point.Field(name, b),
+                string s => point.Field(name, s),
+                _ => point,
+            };
+        }
+        return point;
     }
 
     public Task WriteDeviceHealthAsync(
@@ -2856,15 +2916,8 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
     /// was recorded. Negotiated speed cannot read higher than the link really reached, so the
     /// maximum is what the port is capable of with its current partner.
     /// </summary>
-    public async Task<int?> QueryMaxLinkSpeedAsync(
-        string deviceMac,
-        string ifName,
-        DateTime from,
-        DateTime to,
-        CancellationToken ct = default)
-    {
-        if (!IsConfigured) return null;
-        var flux = $@"
+    internal static string MaxLinkSpeedFlux(string? _bucket, string deviceMac, string ifName, DateTime from, DateTime to) =>
+        $@"
 from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
@@ -2873,6 +2926,16 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
   |> filter(fn: (r) => r._field == {FluxLiteral.Quote(InfluxFieldNames.LinkSpeedMbps)})
   |> max()
 ";
+
+    public async Task<int?> QueryMaxLinkSpeedAsync(
+        string deviceMac,
+        string ifName,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return null;
+        var flux = MaxLinkSpeedFlux(_bucket, deviceMac, ifName, from, to);
         int? max = null;
         await foreach (var record in QueryFluxAsync(flux, ct))
         {
@@ -2880,6 +2943,17 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
         }
         return max;
     }
+
+    internal static string LinkSpeedWindowsFlux(string? _bucket, string deviceMac, string ifName, DateTime from, DateTime to, TimeSpan window) =>
+        $@"
+from(bucket: {FluxLiteral.Quote(_bucket)})
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(NormalizeMac(deviceMac))})
+  |> filter(fn: (r) => r.if_name == {FluxLiteral.Quote(ifName)})
+  |> filter(fn: (r) => r._field == {FluxLiteral.Quote(InfluxFieldNames.LinkSpeedMbps)})
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: min, createEmpty: false)
+";
 
     /// <summary>
     /// One port's console-reported link speed over a window, as the slowest speed in each
@@ -2895,15 +2969,7 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
         CancellationToken ct = default)
     {
         if (!IsConfigured) return Array.Empty<(DateTime, int)>();
-        var flux = $@"
-from(bucket: {FluxLiteral.Quote(_bucket)})
-  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(NormalizeMac(deviceMac))})
-  |> filter(fn: (r) => r.if_name == {FluxLiteral.Quote(ifName)})
-  |> filter(fn: (r) => r._field == {FluxLiteral.Quote(InfluxFieldNames.LinkSpeedMbps)})
-  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: min, createEmpty: false)
-";
+        var flux = LinkSpeedWindowsFlux(_bucket, deviceMac, ifName, from, to, window);
         var results = new List<(DateTime Time, int MinMbps)>();
         await foreach (var record in QueryFluxAsync(flux, ct))
         {
@@ -2913,6 +2979,15 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
         results.Sort((a, b) => a.Time.CompareTo(b.Time));
         return results;
     }
+
+    internal static string InterfaceRatesRawFlux(string? _bucket, string mac, DateTime from, DateTime to) =>
+        $@"
+from(bucket: {FluxLiteral.Quote(_bucket)})
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(mac)})
+  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"" or r._field == ""speed_bps"" or r._field == {FluxLiteral.Quote(InfluxFieldNames.LinkSpeedMbps)})
+";
 
     /// <summary>
     /// Raw interface rate query for a single device - no aggregateWindow, no pivot.
@@ -2928,13 +3003,7 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
     {
         if (!IsConfigured) return Array.Empty<InterfaceRatePoint>();
         var mac = NormalizeMac(deviceMac);
-        var flux = $@"
-from(bucket: {FluxLiteral.Quote(_bucket)})
-  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(mac)})
-  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"" or r._field == ""speed_bps"" or r._field == {FluxLiteral.Quote(InfluxFieldNames.LinkSpeedMbps)})
-";
+        var flux = InterfaceRatesRawFlux(_bucket, mac, from, to);
         var rateIn = new Dictionary<(string ifName, long ticks), double>();
         var rateOut = new Dictionary<(string ifName, long ticks), double>();
         var speeds = new Dictionary<(string ifName, long ticks), long>();

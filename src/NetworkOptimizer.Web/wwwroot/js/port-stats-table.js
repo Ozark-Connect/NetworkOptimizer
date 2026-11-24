@@ -181,6 +181,11 @@ function clientCell(p) {
     return escapeHtml(label);
 }
 
+// A PoE port's draw now, as UniFi Network shows it; '-' on a port that cannot source PoE.
+const fmtWatts = v => v == null ? '-' : `${Number(v).toFixed(1)} W`;
+
+const POE_COLUMN = { header: 'PoE', format: fmtWatts };
+
 const COLUMNS = [
     { header: 'Port', format: v => v.html, sortable: false },
     { header: 'Client', format: v => v.html, sortable: false },
@@ -238,7 +243,16 @@ function renderTabs() {
 // hide them. Named or up ones (e.g. gre1 = a WAN, ifbeth0 = SQM) still show.
 const NOISE_IF = /^(gre|ifb|ip6gre)\d+$/i;
 
-function buildRows() {
+// The PoE column shows only where a device in the tab can source PoE.
+function tabHasPoe() {
+    return tabDevices().some(d => (d.ports || []).some(p => p.poeWatts != null));
+}
+
+function tableColumns(poe) {
+    return poe ? [COLUMNS[0], COLUMNS[1], POE_COLUMN, ...COLUMNS.slice(2)] : COLUMNS;
+}
+
+function buildRows(poe) {
     const rows = [];
     for (const d of tabDevices()) {
         const vis = visibility[d.mac] !== false;
@@ -255,6 +269,7 @@ function buildRows() {
                 values: [
                     { html: portCell(p) },
                     { html: clientCell(p) },
+                    ...(poe ? [p.poeWatts] : []),
                     p.rateInBps, p.rateOutBps,
                     p.bytesIn, p.bytesOut,
                     p.ucastPktsIn, p.ucastPktsOut,
@@ -328,7 +343,8 @@ function renderBadges() {
 
 function renderTableNow(showAll) {
     if (!tableEl) return;
-    const rows = buildRows();
+    const poe = tabHasPoe();
+    const rows = buildRows(poe);
     // When a single device is in view, the Device column is redundant - drop it on
     // mobile (the CSS does the hiding; all other columns stay). The flag goes on the
     // container, not the table element, so the table's class stays exactly
@@ -337,7 +353,7 @@ function renderTableNow(showAll) {
     if (container) container.classList.toggle('port-stats-1dev', visibleDevices <= 1);
     if (rows.length === 0) { tableEl.innerHTML = ''; syncTopScrollbar(); return; }
     renderTable(tableEl, container, {
-        nameHeader: 'Device', title: '', rows, columns: COLUMNS, showAllRows: showAll,
+        nameHeader: 'Device', title: '', rows, columns: tableColumns(poe), showAllRows: showAll,
         // Clicking a device name in the table filters that device, mirroring the pills.
         filter: {
             meta: () => deviceMeta,

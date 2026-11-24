@@ -34,6 +34,7 @@ message AgentMessage {
     WanFloodIncident wan_flood_incident = 18;
     ConfigRevertReport config_revert_report = 19;
     LiveTrafficBatch live_traffic = 20;
+    SwitchPortLinkBatch switch_port_links = 21;
   }
   // Monotonic per-agent sequence for store-and-forward acking. Set on
   // probe_results / snmp_results / aggregated conntrack_samples / wan_flood_incident frames only
@@ -515,6 +516,8 @@ message SnmpInterfaceSample {
   // Raw SNMP ifIndex - the server correlates switch ports by PortIdx == ifIndex,
   // matching the directly-monitored path's iface.Index. 0 when unknown (older agents).
   int32 if_index = 21;
+  // ifLastChange in hundredths of a second since the agent's SNMP target booted; 0 when unknown.
+  int64 last_change = 22;
 }
 
 message SnmpDeviceHealthSample {
@@ -848,4 +851,40 @@ message WanFloodIncident {
   repeated WanFloodDrop actions = 12;
   bool table_full = 13;
   string mode = 14;
+}
+
+// ---- LAN Health: gateway switch ports (on-gateway agents) ----
+// A UniFi gateway's built-in switch ports sit behind one conduit netdev, so neither SNMP nor the
+// kernel log sees them. The agent reads the switch chip (swconfig) instead and reports each link
+// change with its time, plus the chip's own per-port error counters. Store-and-forward, acked.
+
+message SwitchPortLinkBatch {
+  repeated SwitchPortLinkEvent events = 1;
+  repeated SwitchPortCounters counters = 2;
+  // swconfig's switch description, e.g. "realtek,rtl8372", so the server can tell which chips are verified.
+  string switch_model = 3;
+}
+
+message SwitchPortLinkEvent {
+  // The port's Linux name as UniFi's port_table carries it (swconfig port N is ethN).
+  string if_name = 1;
+  bool up = 2;
+  int32 speed_mbps = 3;
+  bool full_duplex = 4;
+  int64 timestamp_unix_ms = 5;
+}
+
+message SwitchPortCounters {
+  string if_name = 1;
+  int64 rx_crc_errors = 2;
+  int64 tx_crc_errors = 3;
+  int64 in_discards = 4;
+  int64 out_discards = 5;
+  int64 late_collisions = 6;
+  int64 symbol_errors = 7;
+  int64 rx_pause_frames = 8;
+  int64 tx_pause_frames = 9;
+  bool up = 10;
+  int32 speed_mbps = 11;
+  int64 timestamp_unix_ms = 12;
 }

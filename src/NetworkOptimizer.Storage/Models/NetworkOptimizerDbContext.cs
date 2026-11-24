@@ -87,6 +87,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<MonitoringInterface> MonitoringInterfaces { get; set; }
     public DbSet<CustomOidConfiguration> CustomOidConfigurations { get; set; }
     public DbSet<HealthCheckDefinition> HealthCheckDefinitions { get; set; }
+    public DbSet<DeviceRestartRequest> DeviceRestartRequests { get; set; }
     public DbSet<ApAgentDeployment> ApAgentDeployments { get; set; }
     public DbSet<ApAgentEventCursor> ApAgentEventCursors { get; set; }
     public DbSet<DeviceSshRoute> DeviceSshRoutes { get; set; }
@@ -142,6 +143,9 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<ConsoleBackupRecord> ConsoleBackups { get; set; }
     public DbSet<AttentionDismissal> AttentionDismissals { get; set; }
     public DbSet<SiteHealthHour> SiteHealthHours { get; set; }
+    public DbSet<LanHealthLinkHour> LanHealthLinkHours { get; set; }
+    public DbSet<LanHealthSiteHour> LanHealthSiteHours { get; set; }
+    public DbSet<LanHealthExclusion> LanHealthExclusions { get; set; }
 
     /// <summary>Instance-wide config templates. Meaningful only in the MAIN database.</summary>
     public DbSet<ConfigTemplate> ConfigTemplates { get; set; }
@@ -763,6 +767,16 @@ public class NetworkOptimizerDbContext : DbContext
             entity.HasIndex(e => new { e.DeviceMac, e.FieldName }).IsUnique();
         });
 
+        modelBuilder.Entity<DeviceRestartRequest>(entity =>
+        {
+            entity.ToTable("DeviceRestartRequests");
+            entity.HasIndex(e => e.DeviceMac);
+            entity.HasIndex(e => new { e.Status, e.DueAtUtc });
+            // The executor and a user's cancel can write the same row; the later write must not win blind.
+            entity.Property(e => e.Status).IsConcurrencyToken();
+            entity.Ignore(e => e.IsOpen);
+        });
+
         // ApChannelOutcome configuration (channel recommendation outcome memory)
         modelBuilder.Entity<ApChannelOutcome>(entity =>
         {
@@ -913,6 +927,25 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("SiteHealthHours");
             entity.HasIndex(e => e.HourStart).IsUnique();
+        });
+
+        modelBuilder.Entity<LanHealthLinkHour>(entity =>
+        {
+            entity.ToTable("LanHealthLinkHours");
+            entity.HasIndex(e => new { e.HourStart, e.LinkId }).IsUnique();
+            entity.HasIndex(e => e.LinkId);
+        });
+
+        modelBuilder.Entity<LanHealthSiteHour>(entity =>
+        {
+            entity.ToTable("LanHealthSiteHours");
+            entity.HasIndex(e => e.HourStart).IsUnique();
+        });
+
+        modelBuilder.Entity<LanHealthExclusion>(entity =>
+        {
+            entity.ToTable("LanHealthExclusions");
+            entity.HasIndex(e => new { e.Scope, e.Key }).IsUnique();
         });
 
         modelBuilder.Entity<ConfigPlan>(entity =>

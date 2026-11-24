@@ -1,0 +1,29 @@
+{
+  "id": "2.12.0",
+  "kind": "whats-new",
+  "title": "What's new in v2.12.0",
+  "summary": "Find the flaky links UniFi doesn't show you",
+  "steps": [
+    {
+      "id": "lan-health",
+      "level": "major",
+      "url": "/monitoring?tab=lan-health",
+      "selector": "[data-tour=\"lan-health-score\"]",
+      "title": "LAN Health",
+      "listLabel": "Find the flaky links UniFi doesn't show you",
+      "body": "**LAN Health** scores every link between your UniFi devices and every wired port, and catches what UniFi Network never surfaces: links that drop for a few seconds, errors on one end, storms, and backhauls going soft.\n\nClick **View Link** on a finding to see both ends, every source, and when it started.",
+      "placement": "bottom"
+    },
+    {
+      "id": "device-restart",
+      "level": "minor",
+      "url": "/",
+      "selector": "[data-tour=\"device-restart\"]",
+      "title": "Device Restart",
+      "listLabel": "Restart a device now, at a set time, or when your network is quiet",
+      "body": "The **Restart** button in the corner of a **Device Status** card restarts that device now, at a time you choose, or at its next quiet hour, measured from its own traffic and everything below it.\n\nRestarts close together run once each, top of the network first, and wait out firmware upgrades. A device powered from a switch port can be power-cycled instead.",
+      "placement": "top",
+      "optional": true
+    }
+  ]
+}

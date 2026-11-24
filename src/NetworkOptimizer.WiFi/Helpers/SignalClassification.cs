@@ -66,6 +66,14 @@ public static class SignalClassification
     /// Returns true if the signal is considered "weak" or "poor" for the given band.
     /// Used by health rules and scoring to determine if a client has problematic signal.
     /// </summary>
+    /// <summary>The dBm below which <see cref="IsWeakSignal"/> calls a signal weak on this band.</summary>
+    public static int WeakBelowDbm(RadioBand band) => band switch
+    {
+        RadioBand.Band2_4GHz => -73,
+        RadioBand.Band6GHz => -87,
+        _ => -78,
+    };
+
     public static bool IsWeakSignal(int dbm, RadioBand band) => band switch
     {
         RadioBand.Band2_4GHz => dbm < -73,

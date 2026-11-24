@@ -1,0 +1,921 @@
+@using NetworkOptimizer.Core.Helpers
+@using NetworkOptimizer.Web.Services.Monitoring.LanHealth
+@using NetworkOptimizer.Web.Services.Monitoring.IspHealth
+@implements IAsyncDisposable
+@inject ILanHealthService LanHealth
+@inject IDisplayTimeZone DisplayTime
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+@inject ILogger<LanHealthPanel> Logger
+@inject UniFiConnectionService ConnectionService
+@inject NetworkOptimizer.Web.Services.DeviceRestart.IDeviceRestartService DeviceRestarts
+@using NetworkOptimizer.Web.Services.DeviceRestart
+
+<div class="lan-health">
+@if (_report == null)
+{
+    <div class="loading-container"><div class="spinner"></div></div>
+}
+else if (!string.IsNullOrEmpty(LinkId))
+{
+    @LinkPage
+}
+else
+{
+    var r = _report;
+    <div class="lan-health-toolbar">
+        @* Counts only from a connected console: a disconnected one reads as zero links. *@
+        <span class="lan-health-site-line">@string.Join(" · ", new[] { SiteName,
+            ConnectionService.IsConnected ? Pluralize(r.FabricLinks, "fabric link") : "",
+            ConnectionService.IsConnected ? Pluralize(r.AccessPorts, "access port") : "" }.Where(s => !string.IsNullOrEmpty(s)))</span>
+        @RangeSelector
+    </div>
+
+    <div class="lan-health-top">
+        <div class="card lan-health-score-card" data-tour="lan-health-score">
+            <div class="card-header"><h2 class="card-title">LAN Health Score</h2></div>
+            <div class="card-body lan-health-score-body">
+                <IspHealthScoreGauge Score="@Round(r.Score)" Label="LAN Health" />
+                <div class="lan-health-score-rows">
+                    <div class="lan-health-score-row"><span class="detail-label">Fabric links</span><span class="detail-value @ScoreClass(FabricScore(r))">@FormatScore(FabricScore(r))</span></div>
+                    <div class="lan-health-score-row"><span class="detail-label">Access ports</span><span class="detail-value @ScoreClass(AccessScore(r))">@FormatScore(AccessScore(r))</span></div>
+                    <div class="lan-health-score-row"><span class="detail-label">Incidents (@RangeLabel)</span><span class="detail-value">@r.Incidents</span></div>
+                    <div class="lan-health-score-row"><span class="detail-label">Explained</span>
+                        @if (r.Explained > 0)
+                        {
+                            <button class="detail-value lan-health-explained-toggle" @onclick="ShowExplainedTab">@r.Explained</button>
+                        }
+                        else
+                        {
+                            <span class="detail-value">0</span>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="card chart-card lan-health-history-card">
+            <div class="card-header"><h2 class="card-title">Score History</h2></div>
+            <div class="card-body"><div id="lan-health-history"></div></div>
+        </div>
+    </div>
+
+    var findings = r.Findings.Take(30).ToList();
+    @if (findings.Count > 0 || r.Explained > 0)
+    {
+        <div class="card isp-health-card lan-health-findings">
+            <div class="card-header">
+                @* Two halves of one answer: what is wrong, and what looked wrong but is explained. *@
+                <div class="filter-tabs">
+                    <button class="tab @(_showExplained ? "" : "active")" @onclick="() => _showExplained = false">Findings</button>
+                    <button class="tab @(_showExplained ? "active" : "")" @onclick="() => _showExplained = true">Explained (@r.Explained)</button>
+                </div>
+            </div>
+            <div class="card-body">
+                @if (!_showExplained)
+                {
+                    @if (findings.Count == 0)
+                    {
+                        <div class="empty-state"><p>No findings in this window.</p></div>
+                    }
+                @foreach (var f in findings)
+                {
+                    <div class="issue-item @IssueClass(f.Severity)">
+                        <div class="issue-content">
+                            <span class="issue-severity">@f.Severity</span>
+                            <div class="issue-title">@f.Title</div>
+                            <div class="issue-description">@f.Body</div>
+                            <div class="lan-health-chips">
+                                @foreach (var chip in f.Chips)
+                                {
+                                    <span class="lan-health-chip">@chip</span>
+                                }
+                                <span class="lan-health-pts">@(f.ScoreImpact >= 0.05 ? $"-{(f.ScoreImpact < 1 ? f.ScoreImpact.ToString("0.#") : Math.Round(f.ScoreImpact).ToString("0"))} pts" : "0 pts")</span>
+                                @if (!string.IsNullOrEmpty(f.LinkId))
+                                {
+                                    <button class="btn btn-secondary btn-sm lan-health-view" @onclick="() => OpenLink(f.LinkId)">View Link</button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+                }
+                else
+                {
+                    var explained = r.Links.SelectMany(l => l.Incidents.Where(i => i.IsExplained).Select(i => (Link: l.Link, Incident: i)))
+                        .OrderByDescending(x => x.Incident.Start).ToList();
+                    var shownExplained = explained.Take(_explainedShown).ToList();
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead><tr><th>Time</th><th>Link</th><th>Event</th><th>Why</th></tr></thead>
+                            <tbody>
+                                @foreach (var x in shownExplained)
+                                {
+                                    <tr class="lan-health-row-link" @onclick="() => OpenLink(x.Link.Id)">
+                                        <td class="col-time">@TimeFormatHelper.FormatLocalDateTime(x.Incident.Start, DisplayTime.Zone, DisplayTime.Format)</td>
+                                        <td>@x.Link.Name</td>
+                                        <td>@EventLabel(x.Incident)</td>
+                                        <td>@(x.Incident.Explained is ExplainReason er ? Reason(er, x.Incident.ExplainedDetail) : "")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    @if (explained.Count > shownExplained.Count)
+                    {
+                        <div class="lan-health-more">
+                            <button class="btn btn-secondary btn-sm" @onclick="() => _explainedShown += LinksPage">Show more</button>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    }
+    <div class="card lan-health-links" data-tour="lan-health-links">
+        <div class="card-header">
+            <h2 class="card-title">Links</h2>
+            <div class="filter-tabs">
+                <button class="tab @(_filter == "all" ? "active" : "")" @onclick='() => _filter = "all"'>All</button>
+                <button class="tab @(_filter == "fabric" ? "active" : "")" @onclick='() => _filter = "fabric"'>Fabric</button>
+                <button class="tab @(_filter == "access" ? "active" : "")" @onclick='() => _filter = "access"'>Access</button>
+            </div>
+        </div>
+        <div class="card-body">
+            @{ var links = FilteredLinks(r).ToList(); var shown = links.Take(_linksShown).ToList(); }
+            @if (links.Count == 0)
+            {
+                <div class="empty-state"><p>@(r.Ready ? "No links." : "LAN Health is collecting its first hour of data.")</p></div>
+            }
+            else
+            {
+                <div class="table-responsive hide-mobile">
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Link</th><th>Kind</th><th>Speed</th><th>Score</th><th>Drops (@RangeLabel)</th><th>Errors</th><th>Probe Loss</th><th>Status</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var l in shown)
+                            {
+                                <tr class="lan-health-row @(l.Exclusion == ExclusionLevel.ExcludeFromScore ? "lan-health-excluded" : "")" @onclick="() => OpenLink(l.Link.Id)">
+                                    <td><div>@l.Link.UpstreamName</div><div class="lan-health-sub">to @l.Link.Downstream.DeviceName</div></td>
+                                    <td>@KindLabel(l.Link.Kind)</td>
+                                    <td><div>@SpeedLabel(l.Link)</div>@if (l.Link.Forced) {<div class="lan-health-sub">Forced</div>}</td>
+                                    <td class="@ScoreClass(l.Score)">@FormatScore(l.Score)</td>
+                                    <td><div>@l.Drops</div>@if (l.DropsExplained > 0) {<div class="lan-health-sub">+@l.DropsExplained explained</div>}</td>
+                                    <td>@ErrorsCell(l)</td>
+                                    <td>@if (l.ProbeLossPct is double p && ProbeHref(l, _report!.To, _report.To - _report.From) is { } ph)
+                                        {
+                                            <a href="@ph" @onclick:stopPropagation="true" data-tooltip="Open this probe on Monitoring - Network Performance">@($"{p:0.##}%")</a>
+                                        }
+                                        else
+                                        {
+                                            @(l.ProbeLossPct is double p2 ? $"{p2:0.##}%" : "·")
+                                        }</td>
+                                    <td><span class="status-badge @StatusClass(l.Status)">@StatusLabel(l.Status)</span></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <div class="lan-health-cards">
+                    @foreach (var l in shown)
+                    {
+                        <div class="lan-health-link-card" @onclick="() => OpenLink(l.Link.Id)">
+                            <div class="lan-health-link-card-head">
+                                <span class="lan-health-link-name">@l.Link.Name</span>
+                                <span class="status-badge @StatusClass(l.Status)">@StatusLabel(l.Status)</span>
+                            </div>
+                            <div class="lan-health-sub">@KindLabel(l.Link.Kind) · @SpeedLabel(l.Link)@(l.Link.Forced ? ", forced" : "")</div>
+                            <div class="lan-health-link-grid">
+                                <div><span class="detail-label">Score</span><span class="detail-value @ScoreClass(l.Score)">@FormatScore(l.Score)</span></div>
+                                <div><span class="detail-label">Drops (@RangeLabel)</span><span class="detail-value">@l.Drops</span></div>
+                                <div><span class="detail-label">Errors</span><span class="detail-value">@ErrorsCell(l)</span></div>
+                            </div>
+                        </div>
+                    }
+                </div>
+                @if (links.Count > shown.Count)
+                {
+                    <div class="lan-health-more">
+                        <button class="btn btn-secondary btn-sm" @onclick="() => _linksShown += LinksPage">Show more</button>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+}
+</div>
+
+@code {
+    /// <summary>The link to open, from ?link=; null shows the tab.</summary>
+    [Parameter] public string? LinkId { get; set; }
+
+    /// <summary>The site's name for the toolbar line.</summary>
+    [Parameter] public string SiteName { get; set; } = "";
+
+    private LanHealthReport? _report;
+    private LinkHealth? _link;
+    private int _hours = 48;
+    private string _filter = "all";
+    // Worst first: ten at a time, Show more adds the next ten.
+    private const int LinksPage = 10;
+    private int _linksShown = LinksPage;
+    private bool _showExplained;
+    private int _explainedShown = LinksPage;
+    private System.Threading.Timer? _timer;
+    private IJSObjectReference? _charts;
+    private bool _historyDirty = true;
+    private bool _timelineDirty = true;
+
+    /// <summary>The link's events per bucket (sized to the range) and its Change Control changes, for the Timeline chart.</summary>
+    private async Task RenderTimelineAsync(LinkHealth l)
+    {
+        if (_report == null) return;
+        try
+        {
+            _charts ??= await JS.InvokeAsync<IJSObjectReference>("import", FileVersionProvider.AddFileVersionToPath("/", "/js/lan-health-charts.js"));
+            var bucket = TimeSpan.FromHours(_hours <= 24 ? 1 : _hours <= 48 ? 2 : _hours <= 168 ? 6 : 24);
+            var from = DateTime.SpecifyKind(_report.From, DateTimeKind.Utc);
+            var to = DateTime.SpecifyKind(_report.To, DateTimeKind.Utc);
+            var events = l.Incidents.Where(i => i.Kind is IncidentKind.Drop or IncidentKind.Relink or IncidentKind.Outage or IncidentKind.LossBurst).ToList();
+            var buckets = new List<object>();
+            for (var t = from; t < to; t += bucket)
+            {
+                var inBucket = events.Where(i => i.Start >= t && i.Start < t + bucket).ToList();
+                buckets.Add(new
+                {
+                    t = new DateTimeOffset(t).ToUnixTimeMilliseconds(),
+                    drops = (int)inBucket.Where(i => !i.IsExplained).Sum(i => i.Count),
+                    explained = (int)inBucket.Where(i => i.IsExplained).Sum(i => i.Count),
+                });
+            }
+            var changes = l.Incidents.Where(i => i.Explained == ExplainReason.PortProfileChanged)
+                .Select(i => new DateTimeOffset(DateTime.SpecifyKind(i.Start, DateTimeKind.Utc)).ToUnixTimeMilliseconds()).Distinct().ToList();
+            await _charts.InvokeVoidAsync("renderTimeline", "lan-health-timeline", buckets, changes);
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex) { Logger.LogDebug(ex, "LAN Health timeline chart failed"); }
+    }
+    private bool _scrollToLink;
+    private bool _restoreTab;
+    private string? _loadedLink;
+
+    private string RangeLabel => LanHealthEngine.RangeLabel(_hours);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_report != null && string.IsNullOrEmpty(_loadedLink) && !string.IsNullOrEmpty(LinkId))
+        {
+            // Still showing the tab: remember where it was before the link page replaces it.
+            try { await JS.InvokeVoidAsync("noTabScroll.save", "lan-health"); } catch (JSDisconnectedException) { }
+            _scrollToLink = true;
+        }
+        else if (!string.IsNullOrEmpty(_loadedLink) && string.IsNullOrEmpty(LinkId)) _restoreTab = true;
+        if (_report == null || _loadedLink != LinkId) await LoadAsync();
+    }
+
+    protected override void OnInitialized()
+    {
+        // Live while watched: the report is cached a minute across viewers, so this costs one read a minute.
+        _timer = new System.Threading.Timer(async _ =>
+        {
+            try { await InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }); }
+            catch { /* the circuit is gone */ }
+        }, null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
+        ConnectionService.OnConnectionChanged += OnConnectionChanged;
+    }
+
+    // Fires off the dispatcher. Reload on reconnect so a page opened while the console was down fills in.
+    private async void OnConnectionChanged()
+    {
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                if (ConnectionService.IsConnected) await LoadAsync();
+                StateHasChanged();
+            });
+        }
+        catch { /* the circuit is gone */ }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _report = await LanHealth.GetReportAsync(_hours, DisplayTime.Zone, DisplayTime.Format);
+            _loadedLink = LinkId;
+            _link = string.IsNullOrEmpty(LinkId) ? null : _report.Links.FirstOrDefault(l => l.Link.Id == LinkId);
+            if (_link != null) await LoadRestartBadgesAsync();
+            _historyDirty = true;
+            _timelineDirty = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "LAN Health report failed");
+            _report ??= new LanHealthReport();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // A link opens at its title; the way back returns the tab to where it was, as Back does.
+        // A query-only navigation keeps the scroll on purpose (scrollRestoration.js), so both are done here.
+        if (_scrollToLink)
+        {
+            _scrollToLink = false;
+            try { await JS.InvokeVoidAsync("eval", "document.getElementById('lan-health-link-top')?.scrollIntoView({ behavior: 'instant', block: 'start' })"); }
+            catch (JSDisconnectedException) { }
+        }
+        if (_restoreTab)
+        {
+            _restoreTab = false;
+            try { await JS.InvokeVoidAsync("noTabScroll.restore", "lan-health"); } catch (JSDisconnectedException) { }
+        }
+        if (_timelineDirty && _link != null && !string.IsNullOrEmpty(LinkId))
+        {
+            _timelineDirty = false;
+            await RenderTimelineAsync(_link);
+        }
+        if (!_historyDirty || _report == null || !string.IsNullOrEmpty(LinkId)) return;
+        _historyDirty = false;
+        try
+        {
+            _charts ??= await JS.InvokeAsync<IJSObjectReference>("import", FileVersionProvider.AddFileVersionToPath("/", "/js/lan-health-charts.js"));
+            var points = _report.History.Select(h => new { t = new DateTimeOffset(h.Hour).ToUnixTimeMilliseconds(), s = h.Score }).ToList();
+            long? cutover = _report.CutoverAt is DateTime c ? new DateTimeOffset(DateTime.SpecifyKind(c, DateTimeKind.Utc)).ToUnixTimeMilliseconds() : null;
+            // Only marked when the history reaches back past it; before that every hour is LAN Health's.
+            if (points.Count > 0 && cutover <= points[0].t) cutover = null;
+            await _charts.InvokeVoidAsync("renderHistory", "lan-health-history", points, cutover);
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex) { Logger.LogDebug(ex, "LAN Health history chart failed"); }
+    }
+
+    private async Task SetRangeAsync(int hours)
+    {
+        _hours = hours;
+        await LoadAsync();
+    }
+
+    private void OpenLink(string linkId) => NavigationManager.NavigateTo(LanHealthLinks.Link(linkId));
+
+    private async Task ShowExplainedTab()
+    {
+        _showExplained = true;
+        try { await JS.InvokeVoidAsync("eval", "document.querySelector('.lan-health-findings')?.scrollIntoView({behavior:'smooth',block:'start'})"); }
+        catch (JSDisconnectedException) { }
+    }
+
+    private RenderFragment RangeSelector => __builder =>
+    {
+        <div class="time-range-selector">
+            @foreach (var (label, hours) in Ranges)
+            {
+                <button class="time-btn @(_hours == hours ? "active" : "")" @onclick="() => SetRangeAsync(hours)">@label</button>
+            }
+        </div>
+    };
+
+    private static readonly (string Label, int Hours)[] Ranges = [("24h", 24), ("48h", 48), ("7d", 168), ("30d", 720)];
+
+    private IEnumerable<LinkHealth> FilteredLinks(LanHealthReport r) => (_filter switch
+    {
+        "fabric" => r.Links.Where(l => l.Link.IsFabric),
+        "access" => r.Links.Where(l => !l.Link.IsFabric),
+        _ => r.Links,
+    }).OrderBy(l => l.Exclusion == ExclusionLevel.ExcludeFromScore).ThenBy(l => l.Score).ThenBy(l => l.Link.IsFabric ? 0 : 1).ThenBy(l => l.Link.Name);
+
+    private static double? FabricScore(LanHealthReport r) => LanHealthScorer.SiteScore(r.Links.Where(l => l.Link.IsFabric).ToList());
+
+    private static double? AccessScore(LanHealthReport r) => LanHealthScorer.SiteScore(r.Links.Where(l => !l.Link.IsFabric).ToList());
+
+    private static int? Round(double? v) => v is double d ? (int)Math.Round(d) : null;
+
+    private static string FormatScore(double? v) => v is double d ? Math.Round(d).ToString("0") : "--";
+
+    internal static string ScoreClass(double? score) => score switch
+    {
+        null => "isp-score-none",
+        >= 90 => "isp-score-excellent",
+        >= 75 => "isp-score-good",
+        >= 60 => "isp-score-fair",
+        _ => "isp-score-poor",
+    };
+
+    private static string IssueClass(FindingSeverity s) => s switch
+    {
+        FindingSeverity.Critical => "issue-critical",
+        FindingSeverity.Warning => "issue-warning",
+        _ => "issue-info",
+    };
+
+    private static string Pluralize(int n, string unit) => TimeFormatHelper.Pluralize(n, unit);
+
+    /// <summary>lanh-47.</summary>
+    internal static string KindLabel(LinkKind kind) => kind switch
+    {
+        LinkKind.FabricWired => "Fabric · Wired",
+        LinkKind.FabricMesh => "Fabric · Mesh",
+        LinkKind.FabricMeshMlo => "Fabric · Mesh MLO",
+        _ => "Access",
+    };
+
+    internal static string SpeedLabel(LinkRecord link) => link.SpeedMbps is int s && s > 0 ? DisplayFormatters.FormatLinkSpeed(s) : "--";
+
+    /// <summary>lanh-21.</summary>
+    internal static string StatusLabel(LinkStatus s) => s switch
+    {
+        LinkStatus.SpeedDegraded => "Speed Degraded",
+        _ => s.ToString(),
+    };
+
+    internal static string StatusClass(LinkStatus s) => s switch
+    {
+        LinkStatus.Healthy => "status-active",
+        LinkStatus.Flapping or LinkStatus.Storm => "status-error",
+        LinkStatus.Errors or LinkStatus.SpeedDegraded => "status-warning",
+        LinkStatus.Busy => "status-info",
+        _ => "badge-muted",
+    };
+
+    /// <summary>What an end is, in a word, for "AP side" and "0 at gateway".</summary>
+    internal static string EndWord(LinkEnd end) => end.IsAccessPoint ? "AP" : end.IsSwitch ? "switch" : end.IsGateway ? "gateway" : "client";
+
+    /// <summary>lanh-19: "{count} in ({end} side) / 0 at {other end}".</summary>
+    private static RenderFragment ErrorsCell(LinkHealth l) => __builder =>
+    {
+        var up = l.ErrorsUpstreamRx;
+        var down = l.ErrorsDownstreamRx;
+        if (up <= 0 && down <= 0)
+        {
+            <span>0</span>
+        }
+        else if (down > 0 && up <= 0)
+        {
+            <div>@($"{down:0} at {l.Link.Downstream.DeviceName}")</div>
+            <div class="lan-health-sub">@($"0 at {l.Link.Upstream.DeviceName}")</div>
+        }
+        else if (up > 0 && down <= 0)
+        {
+            <div>@($"{up:0} at {l.Link.Upstream.DeviceName}")</div>
+            <div class="lan-health-sub">@($"0 at {l.Link.Downstream.DeviceName}")</div>
+        }
+        else
+        {
+            <span>@($"{up + down:0}")</span>
+        }
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        ConnectionService.OnConnectionChanged -= OnConnectionChanged;
+        _timer?.Dispose();
+        if (_charts != null)
+        {
+            try
+            {
+                await _charts.InvokeVoidAsync("dispose", "lan-health-history");
+                await _charts.DisposeAsync();
+            }
+            catch (JSDisconnectedException) { }
+        }
+    }
+}
+
+@code {
+    private string _exclusionScope = "port";
+    private string? _exclusionError;
+
+    private IReadOnlyDictionary<string, DeviceRestartBadge> _restartBadges = new Dictionary<string, DeviceRestartBadge>();
+
+    /// <summary>Each device's open or recently failed restart, for the badge on the link page's restart buttons.</summary>
+    private async Task LoadRestartBadgesAsync()
+    {
+        try
+        {
+            _restartBadges = await DeviceRestarts.GetBadgesAsync();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The badges are a hint; the buttons render without them.
+            _restartBadges = new Dictionary<string, DeviceRestartBadge>();
+        }
+    }
+
+    /// <summary>The drill-down back button, as Threat Intelligence's IP, port, and protocol details have it.</summary>
+    private RenderFragment BackButton => __builder =>
+    {
+        <div id="lan-health-link-top" class="lan-health-back">
+            <button class="btn btn-secondary btn-sm" @onclick="() => NavigationManager.NavigateTo(LanHealthLinks.Tab())"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> LAN Health</button>
+        </div>
+    };
+
+    /// <summary>One end of the link: the device's icon with its restart button, its name, and its port.</summary>
+    private RenderFragment LinkEndView(LinkEnd end) => __builder =>
+    {
+        <div class="lan-health-end">
+            <div class="lan-health-end-icon">
+                @if (end.IsUniFi)
+                {
+                    <DeviceIcon Model="@end.Model" Size="xl" />
+                    @if (!string.IsNullOrEmpty(end.DeviceMac))
+                    {
+                        <DeviceRestartButton Mac="@end.DeviceMac" Name="@end.DeviceName" OnChanged="LoadRestartBadgesAsync"
+                                             Restart="@_restartBadges.GetValueOrDefault(NetworkOptimizer.Web.Services.Firmware.MacNormalizer.Normalize(end.DeviceMac))" />
+                    }
+                }
+                else
+                {
+                    <AppIcon Name="computer" />
+                }
+            </div>
+            <div class="lan-health-end-name">@end.DeviceName</div>
+            @if (end.PortIdx is int p)
+            {
+                <div class="lan-health-sub">Port @p</div>
+            }
+        </div>
+    };
+
+    private RenderFragment LinkPage => __builder =>
+    {
+        var l = _link;
+        if (l == null)
+        {
+            @BackButton
+            @* With the console disconnected the link is unknown, not gone: Monitoring's ConsoleConnectionBanner says why. *@
+            @if (ConnectionService.IsConnected)
+            {
+                <div class="empty-state"><p>This link is no longer on the site.</p></div>
+            }
+            return;
+        }
+        var link = l.Link;
+        var drops = l.Incidents.Where(i => i.Kind is IncidentKind.Drop or IncidentKind.Relink && !i.IsExplained).ToList();
+        var secs = drops.Select(i => i.DownSeconds).OfType<double>().ToList();
+        @* A grid: the ends span the back button's row and the title's, beside both. *@
+        <div class="lan-health-link-head">
+            @BackButton
+            <div class="lan-health-link-name">
+                <h2 class="lan-health-link-title">@link.Name</h2>
+                <div class="lan-health-sub">@Subtitle(link, l)</div>
+            </div>
+            <div class="lan-health-link-ends">
+                @LinkEndView(link.Upstream)
+                <div class="lan-health-end-line @(link.Kind is LinkKind.FabricMesh or LinkKind.FabricMeshMlo ? "is-mesh" : null)"></div>
+                @LinkEndView(link.Downstream)
+            </div>
+            <div class="lan-health-link-head-right">
+                <span class="status-badge @StatusClass(l.Status)">@StatusLabel(l.Status)</span>
+                @RangeSelector
+            </div>
+        </div>
+
+        <div class="monitoring-stat-cards lan-health-tiles">
+            <div class="monitoring-stat-card"><div class="stat-value @ScoreClass(l.Score)">@FormatScore(l.Score)</div><div class="stat-label">Link Score</div></div>
+            <div class="monitoring-stat-card">
+                <div class="stat-value">@l.Drops</div><div class="stat-label">Drops (@RangeLabel)</div>
+                @if (l.DropsExplained > 0) {<div class="lan-health-sub">+@l.DropsExplained explained</div>}
+            </div>
+            @* Only with a real time to show: a clean link gets no tile rather than a "since" it never had. *@
+            @{ var lastIssue = l.Incidents.Where(i => !i.IsExplained && i.Kind != IncidentKind.DiscardBurst).Select(i => (DateTime?)i.End).Max(); }
+            @if (l.Onset is DateTime on)
+            {
+                <div class="monitoring-stat-card">
+                    <div class="stat-value lan-health-tile-text">@TimeFormatHelper.FormatLocalDateTime(on, DisplayTime.Zone, DisplayTime.Format)</div>
+                    <div class="stat-label">Unhealthy Since</div>
+                    @if (l.CleanDaysBefore is int days) {<div class="lan-health-sub">After @days clean days</div>}
+                </div>
+            }
+            else if (lastIssue is DateTime le)
+            {
+                <div class="monitoring-stat-card">
+                    <div class="stat-value lan-health-tile-text">@TimeFormatHelper.FormatLocalDateTime(le, DisplayTime.Zone, DisplayTime.Format)</div>
+                    <div class="stat-label">Last Issue</div>
+                </div>
+            }
+            @if (secs.Count > 0)
+            {
+                <div class="monitoring-stat-card">
+                    <div class="stat-value">@($"{Math.Max(1, Math.Round(secs.Average())):0} s")</div>
+                    <div class="stat-label">Avg. Drop Duration</div>
+                </div>
+            }
+        </div>
+
+        @if (link.Kind != LinkKind.FabricMesh && link.Kind != LinkKind.FabricMeshMlo)
+        {
+            <div class="card">
+                <div class="card-header"><h2 class="card-title">Both Ends</h2></div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="data-table lan-health-ends">
+                            <thead><tr><th></th><th>@link.UpstreamName</th><th>@link.Downstream.DeviceName</th></tr></thead>
+                            <tbody>
+                                <tr><td>Link drops recorded</td><td>@DropCount(link.Upstream, l.UpLinkDownCount, null)</td><td>@DropCount(link.Downstream, l.DownLinkDownCount, l.DownCarrierChanges)</td></tr>
+                                <tr><td>Receive errors</td><td>@($"{l.ErrorsUpstreamRx:0}")</td><td>@(link.Downstream.IsUniFi ? $"{l.ErrorsDownstreamRx:0}" : "--")</td></tr>
+                                <tr><td>Transmit discards</td><td>@($"{l.DiscardsUpstreamTx:N0}")</td><td>@(link.Downstream.IsUniFi ? $"{l.DiscardsDownstreamTx:N0}" : "--")</td></tr>
+                                <tr><td>Speed / negotiation</td><td>@SpeedLabel(link), @(link.Forced ? "forced" : "auto")</td><td>@(link.DownstreamPort != null ? $"{SpeedLabel(link)}, {(link.DownstreamPort.Autoneg ? "auto" : "forced")}" : "--")</td></tr>
+                                <tr><td>Power</td><td>@PowerText(l)</td><td>--</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    @if (Asymmetry(l) is { } a)
+                    {
+                        @* Only where the errors were counted: a CRC at one end fits the cable, that port, or the far transmitter alike. *@
+                        <p class="lan-health-footer">Receive errors only at @a.End: @($"{a.Count:0}") there, 0 at @a.Other.</p>
+                    }
+                </div>
+            </div>
+        }
+
+        @if (l.Coverage.Count > 0)
+        {
+            var since = l.Coverage.Where(c => c.Since != null).Select(c => c.Since!.Value).DefaultIfEmpty().Min();
+            var total = (int)l.Incidents.Where(i => i.Kind is IncidentKind.Drop or IncidentKind.Relink or IncidentKind.Outage).Sum(i => i.Count);
+            <div class="card">
+                <div class="card-header"><h2 class="card-title">What Each Source Saw</h2></div>
+                <div class="card-body">
+                    @if (since != default)
+                    {
+                        <p class="lan-health-sub">Since @TimeFormatHelper.FormatLocalDate(since, DisplayTime.Zone, DisplayTime.Format): @total drops</p>
+                    }
+                    <table class="data-table lan-health-coverage">
+                        <tbody>
+                            @foreach (var c in l.Coverage.OrderByDescending(c => c.Observing).ThenByDescending(c => c.Caught))
+                            {
+                                <tr><td>@if (c.Source == LinkSource.FabricProbe && ProbeHref(l, _report!.To, _report.To - _report.From) is { } sh)
+                                    {
+                                        <a href="@sh" data-tooltip="Open this probe on Monitoring - Network Performance">@SourceName(c.Source, link)</a>
+                                    }
+                                    else
+                                    {
+                                        @SourceName(c.Source, link)
+                                    }</td><td>@CoverageValue(c)@(c.Observing && c.Since is DateTime cs && cs > since.AddHours(1) ? $" since {TimeFormatHelper.FormatLocalDateTime(cs, DisplayTime.Zone, DisplayTime.Format)}" : "")</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        <div class="card">
+            <div class="card-header"><h2 class="card-title">Timeline (@RangeLabel)</h2></div>
+            <div class="card-body">
+                @{ var timeline = l.Incidents.Where(i => i.Kind != IncidentKind.DiscardBurst).OrderByDescending(i => i.Start).Take(200).ToList(); }
+                @if (timeline.Count > 0) {<div id="lan-health-timeline" class="lan-health-timeline-chart"></div>}
+                @if (timeline.Count == 0)
+                {
+                    <div class="empty-state"><p>Nothing happened on this link in this window.</p></div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead><tr><th>Time</th><th>Event</th><th>Seen By</th><th class="hide-mobile">Note</th></tr></thead>
+                            <tbody>
+                                @foreach (var i in timeline)
+                                {
+                                    <tr class="@(i.IsExplained ? "lan-health-explained" : "")">
+                                        <td>@if (i.SeenBy.Contains(LinkSource.FabricProbe) && _link is { } pl && ProbeHref(pl, i.At.AddMinutes(7.5), TimeSpan.FromMinutes(15)) is { } th)
+                                            {
+                                                <a href="@th" data-tooltip="Open the probe at this time on Monitoring - Network Performance">@TimeFormatHelper.FormatLocalDateTime(i.At, DisplayTime.Zone, DisplayTime.Format)</a>
+                                            }
+                                            else
+                                            {
+                                                @TimeFormatHelper.FormatLocalDateTime(i.At, DisplayTime.Zone, DisplayTime.Format)
+                                            }</td>
+                                        <td>@EventLabel(i)@(i.Explained is ExplainReason er ? $" ({ShortReason(er)})" : "")</td>
+                                        <td>@string.Join(" · ", i.SeenBy.Select(s => SourceName(s, link)))</td>
+                                        <td class="hide-mobile">@Note(i)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* Each step: a small label, the action, then how to read the result, so nothing runs on. *@
+        var swapPort = l.Findings.Any(f => f.Detector == Detectors.LinkDrops && f.NextSteps.Count > 0)
+            && link.Kind == LinkKind.FabricWired && link.Upstream.PortIdx is int ? link.Upstream.PortIdx : null;
+        var change = l.Incidents.Where(i => i.Explained == ExplainReason.PortProfileChanged && !string.IsNullOrEmpty(i.ExplainedDetail)).OrderByDescending(i => i.Start).FirstOrDefault();
+        var eee = l.Findings.FirstOrDefault(f => f.Detector == Detectors.LinkDrops && f.EeeTest);
+        @if (swapPort != null || change != null || eee != null)
+        {
+            <div class="card">
+                <div class="card-header"><h2 class="card-title">Next Steps</h2></div>
+                <div class="card-body lan-health-steps">
+                    @if (swapPort is int sp)
+                    {
+                        var other = sp > 1 ? sp - 1 : sp + 1;
+                        <div class="lan-health-step">
+                            <div class="detail-label">Swap test</div>
+                            <div class="lan-health-step-action">Swap the cables in Port @sp and Port @other on @link.Upstream.DeviceName.</div>
+                            @if (!string.IsNullOrEmpty(link.SwapNeighbor)) {<div class="lan-health-sub">@link.SwapNeighbor moves to Port @sp.</div>}
+                            <ul>
+                                <li>Drops stay on Port @sp: the @(link.Upstream.IsGateway ? "gateway" : "switch") port.</li>
+                                <li>Drops follow @link.Downstream.DeviceName: the @(link.Downstream.IsAccessPoint ? "AP" : link.Downstream.IsSwitch ? "switch" : "device") or its cable.</li>
+                            </ul>
+                        </div>
+                    }
+                    @if (eee != null)
+                    {
+                        <div class="lan-health-step">
+                            <div class="detail-label">EEE test</div>
+                            <div class="lan-health-step-action"><strong>Energy Efficient Ethernet (EEE)</strong> is on for this port. Turn it off and see if the drops stop.</div>
+                            @if (eee.IdleDrops) {<div class="lan-health-sub">Most of the drops came while the link was idle.</div>}
+                        </div>
+                    }
+                    @if (change != null)
+                    {
+                        var after = (int)l.Incidents.Where(i => i.Kind is IncidentKind.Drop or IncidentKind.Relink && !i.IsExplained && i.Start > change.Start).Sum(i => i.Count);
+                        // "Possibly fixed" only where there was something to fix: drops before the change.
+                        var before = (int)l.Incidents.Where(i => i.Kind is IncidentKind.Drop or IncidentKind.Relink && !i.IsExplained && i.Start < change.Start).Sum(i => i.Count);
+                        var (actor, what, fields) = ChangeDetail.Parts(change.ExplainedDetail);
+                        <div class="lan-health-step">
+                            <div class="detail-label">@(after == 0 && before > 0 ? "Possibly fixed" : "Recent change")</div>
+                            <div class="lan-health-step-action">@string.Join(" · ", new[] { what, string.IsNullOrEmpty(actor) ? null : $"Change by {actor}",
+                                TimeFormatHelper.FormatLocalDateTime(change.Start, DisplayTime.Zone, DisplayTime.Format) }.Where(x => !string.IsNullOrEmpty(x)))</div>
+                            @if (!string.IsNullOrEmpty(fields)) {<div class="lan-health-sub">@fields</div>}
+                            <div>@Pluralize(after, "drop") since.</div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        <SiteAdminOnly>
+            <div class="card">
+                <div class="card-header"><h2 class="card-title">Exclusion</h2></div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label class="form-label">Applies to</label>
+                        <select class="form-control" @bind="_exclusionScope">
+                            <option value="port">This port</option>
+                            @if (!string.IsNullOrEmpty(link.UpstreamPort.PortProfileId)) { <option value="profile">Its port profile</option> }
+                            <option value="device">The device</option>
+                            @if (!link.IsFabric) { <option value="access-all">All access ports</option> }
+                        </select>
+                    </div>
+                    <div class="action-buttons form-footer">
+                        @if (l.Exclusion != null)
+                        {
+                            <button class="btn btn-secondary" @onclick="() => RemoveExclusionAsync(link)">Remove</button>
+                        }
+                        <button class="btn btn-primary" @onclick="() => SaveExclusionAsync(link, ExclusionLevel.MuteAlerts)">Mute alerts</button>
+                        @if (!link.IsFabric)
+                        {
+                            <button class="btn btn-secondary" @onclick="() => SaveExclusionAsync(link, ExclusionLevel.ExcludeFromScore)">Exclude from score</button>
+                        }
+                    </div>
+                    @if (_exclusionError != null) { <div class="alert-danger">@_exclusionError</div> }
+                </div>
+            </div>
+        </SiteAdminOnly>
+    };
+
+    /// <summary>The draw now, as UniFi Network shows it, and the hour's peak when it sits a watt or more above.</summary>
+    private static string PowerText(LinkHealth l)
+    {
+        if (l.PoeWatts is not double w || w <= 0) return l.PoePeakWatts is double p && p > 0 ? $"No PoE now (peak {p:0.#} W)" : "No PoE";
+        return l.PoePeakWatts is double peak && peak - w >= 1 ? $"{w:0.#} W PoE (peak {peak:0.#} W)" : $"{w:0.#} W PoE";
+    }
+
+    private string Subtitle(LinkRecord link, LinkHealth l)
+    {
+        // lanh-23: "{kind} · {speed}, forced · {power} · {count} {device kind} behind it".
+        var parts = new List<string> { KindLabel(link.Kind), SpeedLabel(link) + (link.Forced ? ", forced" : "") };
+        if (l.PoeWatts is double w && w > 0) parts.Add($"{w:0.#} W PoE");
+        if (link.IsFabric) parts.Add($"{link.ClientsBehind} {LanHealthDetectors.DeviceKind(link, link.ClientsBehind)} behind it");
+        return string.Join(" · ", parts);
+    }
+
+    private static string DropCount(LinkEnd end, double? linkDownCount, double? carrier)
+    {
+        if (!end.IsUniFi) return "--";
+        if (carrier is double c) return $"{Math.Max(0, (c - 1) / 2):0} since boot (kernel log)";
+        if (linkDownCount is double n) return $"{n:0} since boot";
+        return $"None ({end.DeviceName} keeps no count)";
+    }
+
+    private static (string End, string Other, double Count)? Asymmetry(LinkHealth l)
+    {
+        if (l.ErrorsDownstreamRx > 0 && l.ErrorsUpstreamRx <= 0) return (l.Link.Downstream.DeviceName, l.Link.Upstream.DeviceName, l.ErrorsDownstreamRx);
+        if (l.ErrorsUpstreamRx > 0 && l.ErrorsDownstreamRx <= 0 && l.Link.Downstream.IsUniFi) return (l.Link.Upstream.DeviceName, l.Link.Downstream.DeviceName, l.ErrorsUpstreamRx);
+        return null;
+    }
+
+    /// <summary>lanh-33 names, and the sources beyond them.</summary>
+    internal static string SourceName(LinkSource s, LinkRecord link) => s switch
+    {
+        LinkSource.ApKernelLog => "AP kernel log",
+        LinkSource.FabricProbe => "Fabric probe",
+        LinkSource.MeshAssociation => "Mesh association",
+        LinkSource.ApCrcCounter => "AP CRC counter",
+        LinkSource.ApCarrierCounter => "AP carrier counter",
+        LinkSource.SnmpOperStatus => "SNMP link state",
+        LinkSource.SnmpLastChange => "SNMP last change",
+        LinkSource.SnmpCounters => "SNMP counters",
+        LinkSource.PortInsights => "UniFi Port Anomalies",
+        LinkSource.GatewayKernelLog => "Gateway kernel log",
+        LinkSource.GatewaySwitchChip => "Gateway switch chip",
+        LinkSource.SwitchLinkDownCount => "Switch link-down count",
+        LinkSource.PortTableCounters => "UniFi port counters",
+        LinkSource.PortTableState => "UniFi port state",
+        _ => "Context",
+    };
+
+    /// <summary>lanh-34: "{caught} of {total}", "0 seen", or not reported for a source this port does not keep.</summary>
+    private static string CoverageValue(SourceCoverage c) =>
+        !c.Observing ? "Not reported" : c.Total > 0 ? $"Saw {c.Caught} of {c.Total}" : "0 seen";
+
+    /// <summary>lanh-36.</summary>
+    private static string EventLabel(LinkIncident i) => i.Kind switch
+    {
+        IncidentKind.Drop when i.DownSeconds is double s => $"Drop, {Math.Max(1, Math.Round(s)):0} s",
+        IncidentKind.Drop => "Relink",
+        IncidentKind.Relink => i.Count > 1 ? $"Relink x{i.Count:0}" : "Relink",
+        IncidentKind.Outage when i.DownSeconds is double s => $"Outage, {TimeFormatHelper.FormatDurationCompact(TimeSpan.FromSeconds(s))}",
+        IncidentKind.Outage => "Outage",
+        IncidentKind.SpeedChange => "Speed change",
+        IncidentKind.ErrorBurst => "Error burst",
+        IncidentKind.LossBurst => "Loss burst",
+        _ => i.Kind.ToString(),
+    };
+
+    /// <summary>lanh-37 / lanh-38.</summary>
+    private static string Note(LinkIncident i)
+    {
+        if (i.Explained is ExplainReason r) return $"Explained: {Reason(r, i.ExplainedDetail)}";
+        if (i.MissedBy.Contains(LinkSource.FabricProbe)) return "Between probe bursts";
+        return "";
+    }
+
+    /// <summary>Network Performance on the link's fabric probe over a window ending at <paramref name="end"/>; null when nothing probes it.</summary>
+    private static string? ProbeHref(LinkHealth l, DateTime end, TimeSpan span) =>
+        string.IsNullOrEmpty(l.ProbeTargetId) ? null
+        : NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks.FabricTargetWindow(l.ProbeTargetId, new DateTimeOffset(DateTime.SpecifyKind(end, DateTimeKind.Utc)).ToUnixTimeMilliseconds(),
+            (long)span.TotalMilliseconds, "lan-health");
+
+    /// <summary>Why a greyed row is explained, short enough for the Event cell (the Note column hides on phones).</summary>
+    private static string ShortReason(ExplainReason r) => r switch
+    {
+        ExplainReason.PortProfileChanged => "config change",
+        ExplainReason.ManualLinkReset => "link reset",
+        ExplainReason.DeviceUpgrading => "upgrade",
+        ExplainReason.DeviceRebooted => "reboot",
+        ExplainReason.FirmwareRolloutWave => "Firmware Rollout",
+        ExplainReason.DeviceAsleep => "asleep",
+        ExplainReason.NetworkAppUpgrade => "UniFi Network upgrade",
+        ExplainReason.BackhaulChannelChange => "channel change",
+        _ => "provisioning",
+    };
+
+    private static string Reason(ExplainReason r, string? detail) => r switch
+    {
+        ExplainReason.PortProfileChanged => ChangeDetail.Describe(detail),
+        ExplainReason.ManualLinkReset => "Manual link reset",
+        ExplainReason.DeviceUpgrading => "Device upgrading",
+        ExplainReason.DeviceRebooted => "Device rebooted",
+        ExplainReason.FirmwareRolloutWave => "Firmware Rollout wave",
+        ExplainReason.DeviceAsleep => "Device asleep",
+        ExplainReason.NetworkAppUpgrade => "UniFi Network upgrading",
+        ExplainReason.BackhaulChannelChange => LanHealthDetectors.ChannelMoveText(detail),
+        _ => "Device provisioning",
+    };
+
+    private static double ChangeControlMedian(List<double> v) => NetworkOptimizer.Web.Services.ChangeControl.SiteHealth.SiteHealthJob.Median(v);
+
+    private string ExclusionKey(LinkRecord link) => _exclusionScope switch
+    {
+        "profile" => link.UpstreamPort.PortProfileId ?? "",
+        "device" => link.Upstream.DeviceMac,
+        _ => link.Id,
+    };
+
+    private async Task SaveExclusionAsync(LinkRecord link, ExclusionLevel level)
+    {
+        _exclusionError = null;
+        try
+        {
+            await LanHealth.SaveExclusionAsync(_exclusionScope, ExclusionKey(link), level, link.Name);
+            await LoadAsync();
+        }
+        catch (Exception ex) { _exclusionError = ex.Message; }
+    }
+
+    private async Task RemoveExclusionAsync(LinkRecord link)
+    {
+        _exclusionError = null;
+        try
+        {
+            // Every exclusion that covers this link, whatever scope it was set at: the selector resets to the port.
+            foreach (var x in (await LanHealth.GetExclusionsAsync()).Where(x => LanHealthReportBuilder.Applies(link, x)))
+                await LanHealth.RemoveExclusionAsync(x.Scope, x.Key);
+            await LoadAsync();
+        }
+        catch (Exception ex) { _exclusionError = ex.Message; }
+    }
+}

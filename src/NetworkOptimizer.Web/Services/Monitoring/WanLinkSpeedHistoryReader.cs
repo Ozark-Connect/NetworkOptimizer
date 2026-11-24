@@ -7,7 +7,8 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 
 /// <summary>
 /// Reads each gateway WAN port's recorded link speed history for the Config Optimizer, and
-/// condenses it to how often the port dropped below its usual speed.
+/// condenses it to how often the port dropped below its usual speed. <see cref="Summarize"/> is the one
+/// place that decides what counts as a drop: LAN Health runs it on LAN links' hourly speeds too.
 /// </summary>
 public static class WanLinkSpeedHistoryReader
 {
@@ -49,7 +50,8 @@ public static class WanLinkSpeedHistoryReader
     /// window minimum). Null when there is no history.
     /// </summary>
     internal static WanLinkSpeedHistory? Summarize(
-        string deviceMac, string ifName, IReadOnlyList<(DateTime Time, int MinMbps)> windows, TimeSpan window, TimeSpan lookback)
+        string deviceMac, string ifName, IReadOnlyList<(DateTime Time, int MinMbps)> windows, TimeSpan window, TimeSpan lookback,
+        int minWindowsPerEpisode = MinWindowsPerEpisode)
     {
         if (windows.Count == 0) return null;
         var usual = windows.Max(w => w.MinMbps);
@@ -61,7 +63,7 @@ public static class WanLinkSpeedHistoryReader
         // treated as recoveries. Splitting a run at every gap would count one long drop as many.
         void CloseRun()
         {
-            if (runLength >= MinWindowsPerEpisode)
+            if (runLength >= minWindowsPerEpisode)
             {
                 episodes++;
                 degradedWindows += runLength;

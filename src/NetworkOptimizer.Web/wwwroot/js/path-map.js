@@ -534,7 +534,7 @@ function placeTip(node) {
         row.appendChild(el('span', 'trace-tip-rtt', hop.rttMs != null ? `${hop.rttMs.toFixed(1)} ms` : ''));
         tip.appendChild(row);
         tip.appendChild(el('div', 'pm-tip-placed', hop.placedBy));
-        if (hop.seenAt) tip.appendChild(el('div', 'pm-tip-placed', `Did not answer this time; answered at ${new Date(hop.seenAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}.`));
+        if (hop.seenAt) tip.appendChild(el('div', 'pm-tip-placed', `Did not answer this time; answered at ${noTime.tooltipLabel(hop.seenAt, false)}.`));
     }
     if (node.absolved) tip.appendChild(el('div', 'pm-tip-note', 'Its own replies are slow or lossy, but the targets beyond it are clean: the router deprioritizes ICMP, the path is fine.'));
     if (node.lossPct != null && node.lossPct >= 3) tip.appendChild(el('div', 'pm-tip-note', `${node.lossPct.toFixed(0)}% of the traces' probes through here were lost, and the hops beyond lost as many.`));

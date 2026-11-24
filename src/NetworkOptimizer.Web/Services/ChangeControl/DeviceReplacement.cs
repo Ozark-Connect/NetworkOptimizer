@@ -243,7 +243,7 @@ public static class DeviceReplacement
         return bySpec > 0 ? bySpec : reported ?? 1000;
     }
 
-    private static string SpeedLabel(int mbps) => mbps >= 1000 ? $"{mbps / 1000.0:0.#}G" : $"{mbps}M";
+    private static string SpeedLabel(int mbps) => NetworkOptimizer.Core.Helpers.DisplayFormatters.FormatLinkSpeedShort(mbps);
 
     private static string PortLabel(Port p) => p.Sfp ? $"{p.Media} {p.Idx}" : $"Port {p.Idx}";
 

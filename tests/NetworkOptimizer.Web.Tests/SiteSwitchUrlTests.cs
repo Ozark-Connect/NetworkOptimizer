@@ -17,6 +17,7 @@ public class SiteSwitchUrlTests
         "/monitoring?tab=performance&category=Transit&at=1700000000000&span=3600000")]
     // An investigation is the old site's search: it does not re-run on the new one.
     [InlineData("/monitoring?tab=performance&investigate=packet-loss&wan=wan1", "/monitoring?tab=performance")]
+    [InlineData("/monitoring?tab=lan-health&link=aa:bb:cc:dd:ee:ff|3-11:22:33:44:55:66|1", "/monitoring?tab=lan-health")]
     // The LAN and All scopes are every site's: a LAN link keeps landing on LAN.
     [InlineData("/monitoring?tab=performance&category=Fabric&at=1700000000000&wan=lan",
         "/monitoring?tab=performance&category=Fabric&at=1700000000000&wan=lan")]

@@ -207,7 +207,7 @@ public class SiteHealthTests
             i == 8 ? ("Internet", 0.047, "partial WAN outage, 4 of 27 targets, 19 min (ISP)") : null,
             ("Wi-Fi", 0.0012, "AP1 5 GHz, 1% of client satisfaction under 80"))).ToList();
 
-        var (area, text, _, _) = SiteHealthSeriesBuilder.TopIssue(hours);
+        var (area, text, _, _, _) = SiteHealthSeriesBuilder.TopIssue(hours);
 
         area.Should().Be("Internet");
         text.Should().Be("partial WAN outage, 4 of 27 targets, 19 min (ISP)");
@@ -380,4 +380,43 @@ public class SiteHealthTests
     {
         SiteHealthJob.AccessFloorRows([Row(0, "t", "transit", 0.5)]).Should().BeEmpty();
     }
+
+    [Fact]
+    public void CurrentHours_RedoAnHourScoredBeforeItsLanHealthHour()
+    {
+        var h = new DateTime(2026, 11, 23, 18, 0, 0, DateTimeKind.Utc);
+        var stored = new[]
+        {
+            new NetworkOptimizer.Storage.Models.SiteHealthHour { HourStart = h, Version = SiteHealthScorer.Version, ComputedAt = h.AddMinutes(66) },
+            new NetworkOptimizer.Storage.Models.SiteHealthHour { HourStart = h.AddHours(-1), Version = SiteHealthScorer.Version, ComputedAt = h.AddMinutes(66) },
+            new NetworkOptimizer.Storage.Models.SiteHealthHour { HourStart = h.AddHours(-2), Version = SiteHealthScorer.Version - 1, ComputedAt = h },
+        };
+        // LAN Health stored 18:00 at 19:13, after Site Health scored it at 19:06; 17:00 was stored first.
+        var lan = new Dictionary<DateTime, DateTime> { [h] = h.AddMinutes(73), [h.AddHours(-1)] = h.AddMinutes(-50) };
+        SiteHealthJob.CurrentHours(stored, lan).Should().BeEquivalentTo([h.AddHours(-1)]);
+    }
+
+    [Fact]
+    public void TopIssue_OnALanHealthLink_OpensThatLink()
+    {
+        var h = new DateTime(2026, 11, 23, 18, 0, 0, DateTimeKind.Utc);
+        var contributors = new[] { new HealthContributor("LAN", 0.05, "[Gateway] Gateway A Port 3 to [AP] AP 1", "/monitoring?tab=lan-health&link=abc") };
+        var hour = new NetworkOptimizer.Storage.Models.SiteHealthHour
+        {
+            HourStart = h, Health = 95, Lan = 0.05, Version = SiteHealthScorer.Version,
+            DetailsJson = System.Text.Json.JsonSerializer.Serialize(contributors),
+        };
+        var series = SiteHealthSeriesBuilder.Build([hour], h, h.AddHours(1));
+        series.TopHref.Should().Be("/monitoring?tab=lan-health&link=abc");
+        series.TopHrefLabel.Should().Be("Monitoring - LAN Health");
+        // Without an item link the area's page stays the destination.
+        var plain = new NetworkOptimizer.Storage.Models.SiteHealthHour { HourStart = h, Health = 95, Lan = 0.05, Version = SiteHealthScorer.Version };
+        plain.DetailsJson = System.Text.Json.JsonSerializer.Serialize(new[] { new HealthContributor("LAN", 0.05, "port errors") });
+        SiteHealthSeriesBuilder.Build([plain], h, h.AddHours(1)).TopHref.Should().Be("/monitoring?tab=performance&wan=lan");
+    }
+
+    [Fact]
+    public void FabricTargetWindow_SelectsTheTargetTheWindowAndTheLanScope() =>
+        NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks.FabricTargetWindow("t 1", 1_000, 900_000, "lan-health")
+            .Should().Be("/monitoring?tab=performance&category=Fabric&target=t%201&at=1000&span=900000&wan=lan&via=lan-health");
 }

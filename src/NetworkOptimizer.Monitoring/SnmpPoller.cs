@@ -944,7 +944,7 @@ public class SnmpPoller : ISnmpPoller
         return tc >= 0x80;
     }
 
-    private static Dictionary<string, string> IndexByIfIndex(List<Variable> variables, string baseOid)
+    internal static Dictionary<string, string> IndexByIfIndex(List<Variable> variables, string baseOid)
     {
         var dict = new Dictionary<string, string>();
         var prefix = baseOid + ".";
@@ -955,7 +955,10 @@ public class SnmpPoller : ISnmpPoller
             if (oid.StartsWith(prefix))
             {
                 var idx = oid.Substring(prefix.Length);
-                dict[idx] = v.Data.ToString();
+                // TimeTicks (ifLastChange) print as a formatted duration; the raw hundredths parse.
+                dict[idx] = v.Data is TimeTicks ticks
+                    ? ticks.ToUInt32().ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    : v.Data.ToString();
             }
         }
 

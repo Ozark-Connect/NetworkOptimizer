@@ -2,7 +2,6 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
-using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web.Services.Ssh;
@@ -16,6 +15,12 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly SiteContextService _siteContext;
     private readonly ISqmDeploymentService _sqmDeployment;
+    /// <summary>The viewer's clock and format, for times in the health rows; null in tests, which read UTC.</summary>
+    private readonly IDisplayTimeZone? _displayTime;
+
+    /// <summary>A health row's time on the viewer's clock and in their format; null without a viewer.</summary>
+    private Func<DateTime, string>? FormatTime =>
+        _displayTime is { } dt ? at => TimeFormatHelper.FormatLocalDateTime(at, dt.Zone, dt.Format) : null;
 
     private const string OnBootDir = "/data/on_boot.d";
     private const string PerfTweaksDir = "/data/perf-tweaks";
@@ -167,8 +172,10 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
         SiteContextService siteContext,
         ISqmDeploymentService sqmDeployment,
         Licensing.LicenseStateService licenseState,
-        Firmware.RolloutSuppressionRegistry suppression)
+        Firmware.RolloutSuppressionRegistry suppression,
+        IDisplayTimeZone? displayTime = null)
     {
+        _displayTime = displayTime;
         _suppression = suppression;
         _logger = logger;
         _gatewaySsh = gatewaySsh;
@@ -299,7 +306,7 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                 return status;
             }
 
-            ParseStatusOutput(result.output, status, DateTime.UtcNow);
+            ParseStatusOutput(result.output, status, DateTime.UtcNow, FormatTime);
             await ApplyStoredSettingsAsync(status);
         }
         catch (Exception ex)
@@ -315,7 +322,7 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
     /// Fills <paramref name="status"/> from the combined probe output. Static so tests can feed
     /// captured gateway output without SSH or a database.
     /// </summary>
-    internal static void ParseStatusOutput(string output, PerfTweaksStatus status, DateTime nowUtc)
+    internal static void ParseStatusOutput(string output, PerfTweaksStatus status, DateTime nowUtc, Func<DateTime, string>? formatTime = null)
     {
         var sections = ParseDelimitedOutput(output);
 
@@ -466,7 +473,7 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
 
             var pgBackupDeployed = GetSection(sections, "PG_BACKUP_SCRIPT").Contains("exists");
             var pgBackupCron = GetSection(sections, "PG_BACKUP_CRON").Contains("exists");
-            pgStatus.HealthChecks.Add(BackupHealth(pgBackupDeployed && pgBackupCron, GetSection(sections, "PG_BACKUP_AT").Trim(), nowUtc));
+            pgStatus.HealthChecks.Add(BackupHealth(pgBackupDeployed && pgBackupCron, GetSection(sections, "PG_BACKUP_AT").Trim(), nowUtc, formatTime));
 
             // 08 never repairs these states on its own, so they need a person.
             if (pgBound && !markerPresent)
@@ -1232,14 +1239,17 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
 
     private static readonly TimeSpan BackupMaxAge = TimeSpan.FromHours(48);
 
-    private static HealthCheckResult BackupHealth(bool configured, string completedAt, DateTime nowUtc)
+    private static HealthCheckResult BackupHealth(bool configured, string completedAt, DateTime nowUtc, Func<DateTime, string>? formatTime)
     {
         if (!configured)
             return new("Backup", "Not configured", HealthCheckStatus.Warning);
         if (!DateTime.TryParse(completedAt, System.Globalization.CultureInfo.InvariantCulture,
                 System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var at))
             return new("Backup", "Active, no completed backup yet", HealthCheckStatus.Warning);
-        var value = $"Active, last backup {at:yyyy-MM-dd HH:mm} UTC";
+
+        var when = formatTime?.Invoke(at) ?? $"{at:yyyy-MM-dd HH:mm} UTC";
+
+        var value = $"Active, last backup {when}";
         return new("Backup", value, nowUtc - at > BackupMaxAge ? HealthCheckStatus.Warning : HealthCheckStatus.Ok);
     }
 

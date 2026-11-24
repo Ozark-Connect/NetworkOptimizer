@@ -101,13 +101,15 @@ public class QuietWindowService
     /// <param name="clientCount">Client count, for the home/business heuristic.</param>
     /// <param name="minLead">Least notice the window must leave.</param>
     /// <param name="ct">Cancellation token.</param>
+    /// <param name="withinDay">Only a start in the next 24 hours (a device restart); false searches the whole week.</param>
     public async Task<QuietWindowProposal> ProposeAsync(
         IReadOnlyList<PlannerDevice> devices,
         int rolloutDurationSeconds,
         FirmwareRolloutSettings settings,
         int clientCount,
         TimeSpan minLead,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool withinDay = false)
     {
         var nowLocal = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, _timeZone);
         var avoidMondayMorning = devices.Count >= QuietWindowCalculator.MondayGuardMinDevices;
@@ -148,13 +150,16 @@ public class QuietWindowService
 
         if (fingerprint != null)
         {
-            return Stamp(QuietWindowCalculator.FindBest(fingerprint, rolloutDurationSeconds, nowLocal, minLead, avoidMondayMorning));
+            return Stamp(QuietWindowCalculator.FindBest(fingerprint, rolloutDurationSeconds, nowLocal, minLead, avoidMondayMorning,
+                withinDay ? TimeSpan.FromHours(24) : null));
         }
 
         var apCount = devices.Count(d => d.Type == DeviceType.AccessPoint);
         var switchCount = devices.Count(d => d.Type == DeviceType.Switch);
         var profile = SiteProfileClassifier.Classify(devices.Count, apCount, switchCount, clientCount);
-        return Stamp(QuietWindowCalculator.Fallback(profile, nowLocal, minLead));
+        return Stamp(withinDay
+            ? QuietWindowCalculator.FallbackWithinDay(profile, nowLocal, minLead)
+            : QuietWindowCalculator.Fallback(profile, nowLocal, minLead));
     }
 
     /// <summary>

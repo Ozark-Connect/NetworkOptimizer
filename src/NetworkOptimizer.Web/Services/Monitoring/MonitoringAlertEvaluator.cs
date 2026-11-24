@@ -42,6 +42,7 @@ public class MonitoringAlertEvaluator
     private readonly WanOutageEvaluator _wanOutages;
     private readonly DeviceOfflineDeduplicator _dedup;
     private readonly Firmware.RolloutSuppressionRegistry? _rolloutWindows;
+    private readonly LanHealth.LanLinkFaults? _lanFaults;
     private readonly ConcurrentDictionary<string, TargetAlertState> _states = new();
     // Latest fabric probe per device, by normalized MAC, from either vantage (server or agent).
     private readonly ConcurrentDictionary<string, (DateTime At, bool Success)> _fabricByMac = new();
@@ -61,8 +62,10 @@ public class MonitoringAlertEvaluator
         DeviceOfflineDeduplicator dedup,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
         Firmware.RolloutSuppressionRegistry? rolloutWindows = null,
-        IServiceScopeFactory? scopeFactory = null)
+        IServiceScopeFactory? scopeFactory = null,
+        LanHealth.LanLinkFaults? lanFaults = null)
     {
+        _lanFaults = lanFaults;
         _openAtStart = new OpenAlertSeed(scopeFactory, siteSlug ?? SiteManagementService.DefaultSiteSlug,
             [OfflineEventType], a => OpenAlertSeed.Context(a, "target_id"), logger);
         _eventBus = eventBus;
@@ -141,10 +144,18 @@ public class MonitoringAlertEvaluator
             var avgLoss = state.LossWindow.Count > 0 ? state.LossWindow.Average() : 0;
             if (!state.IsOffline && state.LossWindow.Count >= LossWindowSize)
             {
-                if (!state.IsLossy && avgLoss >= SustainedLossThresholdPercent)
+                // Not marked lossy inside a planned window, so loss that outlasts the window still alerts.
+                if (!state.IsLossy && avgLoss >= SustainedLossThresholdPercent && InPlannedWindow(target))
+                {
+                    _logger.LogDebug("Not declaring {Target} lossy: its device is inside a planned restart window", target.Name);
+                }
+                else if (!state.IsLossy && avgLoss >= SustainedLossThresholdPercent)
                 {
                     state.IsLossy = true;
-                    if (publishPerTarget)
+                    // One alert per fault: LAN Health's link alert already names it when the device's uplink is flapping.
+                    if (target.TargetType == MonitoringTargetType.Fabric && _lanFaults?.Has(_siteSlug, target.DeviceMac) == true)
+                        _logger.LogInformation("Suppressing target_sustained_loss for {Target}: its uplink has an open LAN Health alert", target.Name);
+                    else if (publishPerTarget)
                         await _eventBus.PublishAsync(BuildSustainedLossEvent(target, avgLoss), ct);
                 }
                 else if (state.IsLossy && avgLoss < SustainedLossThresholdPercent / 2)
@@ -187,6 +198,14 @@ public class MonitoringAlertEvaluator
                     return;
                 }
 
+                // A planned outage on the device or above it (a Device Restart, a rollout step): the same
+                // silence as an upgrade, and the next failed probe alerts once the window closes.
+                if (InPlannedWindow(target))
+                {
+                    _logger.LogDebug("Not declaring {Target} offline: its device is inside a planned restart window", target.Name);
+                    return;
+                }
+
                 state.IsOffline = true;
                 state.IsLossy = false; // offline supersedes lossy
                 state.LossWindow.Clear();
@@ -208,6 +227,11 @@ public class MonitoringAlertEvaluator
             }
         }
     }
+
+    /// <summary>A fabric target whose device sits in a planned outage window (Device Restart marks it and everything below it).</summary>
+    private bool InPlannedWindow(MonitoringTarget target) =>
+        target.TargetType == MonitoringTargetType.Fabric
+        && _rolloutWindows?.IsInRolloutWindow(_siteSlug, target.DeviceMac, DateTime.UtcNow) == true;
 
     private AlertEvent BuildOfflineEvent(MonitoringTarget target) => new()
     {
