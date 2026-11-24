@@ -44,6 +44,25 @@ public static class DeviceStatusFilter
         || restartFailed
         || (device.RebootWasUnexpected && device.RebootedRecently);
 
+    /// <summary>
+    /// The type tab in force: <paramref name="picked"/> while the site still has that type, else All
+    /// (null), so a refresh never strands the card on an empty list with no tab lit.
+    /// </summary>
+    public static DeviceType? EffectiveType(IEnumerable<DeviceInfo> devices, DeviceType? picked) =>
+        picked is { } t && devices.Any(d => d.Type == t) ? t : null;
+
+    /// <summary>
+    /// The devices the card shows for its type tab, search, and Needs Attention toggle. The toggle
+    /// stops filtering once nothing needs attention, because its button is gone with it.
+    /// </summary>
+    public static List<DeviceInfo> Visible(IReadOnlyList<DeviceInfo> devices, DeviceType? pickedType, string? query,
+        bool attentionOnly, Func<DeviceInfo, bool> needsAttention)
+    {
+        var type = EffectiveType(devices, pickedType);
+        var attention = attentionOnly && devices.Any(needsAttention);
+        return devices.Where(d => Matches(d, type, query) && (!attention || needsAttention(d))).ToList();
+    }
+
     /// <summary>The types present in <paramref name="devices"/>, in tab order, each with its count.</summary>
     public static IReadOnlyList<(DeviceType Type, int Count)> PresentTypes(IEnumerable<DeviceInfo> devices) =>
         devices.GroupBy(d => d.Type)

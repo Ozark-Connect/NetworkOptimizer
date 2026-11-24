@@ -251,12 +251,9 @@
     private string _deviceSearch = "";
     private NetworkOptimizer.Core.Enums.DeviceType? _deviceTypeFilter;
 
-    /// <summary>
-    /// The type tab in force. A tab whose type has left the site reads as All, so a refresh never
-    /// strands the card on an empty list with no tab lit.
-    /// </summary>
+    /// <summary>The type tab in force (null is All).</summary>
     private NetworkOptimizer.Core.Enums.DeviceType? EffectiveTypeFilter =>
-        _deviceTypeFilter is { } t && devices.Any(d => d.Type == t) ? t : null;
+        DeviceStatusFilter.EffectiveType(devices, _deviceTypeFilter);
 
     /// <summary>The Device Status card's Needs Attention toggle.</summary>
     private bool _attentionOnly;
@@ -268,17 +265,8 @@
     private int AttentionCount => devices.Count(NeedsAttention);
 
     /// <summary>The devices the card's search, type tab, and Needs Attention leave.</summary>
-    private List<Services.DeviceInfo> VisibleDevices
-    {
-        get
-        {
-            var type = EffectiveTypeFilter;
-            // Off once nothing needs attention: the toggle is gone, so it must not keep filtering.
-            var attention = _attentionOnly && AttentionCount > 0;
-            return devices.Where(d => DeviceStatusFilter.Matches(d, type, _deviceSearch)
-                && (!attention || NeedsAttention(d))).ToList();
-        }
-    }
+    private List<Services.DeviceInfo> VisibleDevices =>
+        DeviceStatusFilter.Visible(devices, _deviceTypeFilter, _deviceSearch, _attentionOnly, NeedsAttention);
 
     private void OnDeviceSearchKey(KeyboardEventArgs e)
     {
