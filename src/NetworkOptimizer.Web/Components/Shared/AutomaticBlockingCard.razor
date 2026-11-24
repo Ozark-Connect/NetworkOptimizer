@@ -505,6 +505,9 @@
     {
         _busy = true;
         _message = null;
+        // Sends the busy render first, so a save that finishes in one render still shows the floating Save its result.
+        StateHasChanged();
+        await Task.Yield();
         try
         {
             _message = await action();
