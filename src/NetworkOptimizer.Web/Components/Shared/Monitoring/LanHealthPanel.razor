@@ -585,7 +585,7 @@ else
                 <div class="monitoring-stat-card">
                     <div class="stat-value lan-health-tile-text">@TimeFormatHelper.FormatLocalDateTime(on, DisplayTime.Zone, DisplayTime.Format)</div>
                     <div class="stat-label">Unhealthy Since</div>
-                    @if (l.CleanDaysBefore is int days) {<div class="lan-health-sub">After @days clean days</div>}
+                    @if (l.CleanDaysBefore is int days) {<div class="lan-health-sub">After @Pluralize(days, "clean day")</div>}
                 </div>
             }
             else if (lastIssue is DateTime le)
