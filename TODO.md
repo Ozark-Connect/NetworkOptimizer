@@ -416,6 +416,18 @@ InnerSpace models that the Signal Map does not yet. Each is its own change after
   - Import: derive tilt from the two quaternions; under 2 degrees imports as null.
   - Test: null tilt gives a bit-identical heatmap to today.
 
+### Signal Map: retire the toolbar buttons the map toolbox replaced
+The map toolbox (#1420, v2.11.6) duplicates the toolbar's Draw Layout, Undo Wall, Place/Edit APs, and
+Add/Edit Planned APs buttons. The toolbar keeps them until users learn the toolbox. When they go:
+- Remove them from `FloorPlanEditor.razor` (marked with TODO comments). Keep the wall material select:
+  the toolbox has no material picker yet, so give it a home first.
+- Ship a tour step in that release's tour JSON, spotlighting `data-tour="signal-map-toolbox"`, that
+  tells users the buttons moved there.
+- Show that step only to someone who has drawn a floor plan. No `requires` predicate covers that
+  today (`gateway-ssh`, `multi-site`, `has-agent`), so add one to `TourPredicateResolver`, such as
+  `has-floor-plan` (a floor with walls or placed APs).
+- Update `FEATURES.md` if it names the toolbar buttons.
+
 ## LAN Speed Test
 
 ### Path Analysis Enhancements

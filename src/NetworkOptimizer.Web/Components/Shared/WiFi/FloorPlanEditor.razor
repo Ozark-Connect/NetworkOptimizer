@@ -96,6 +96,11 @@
                 @if (_selectedFloor != null)
                 {
                     @* ── Walls group ── *@
+                    @* TODO: Draw Layout and Undo Wall duplicate the map toolbox (Draw Layout / Undo) and stay
+                       only until users learn the toolbox. When they are removed, ship a tour step at the
+                       toolbox (data-tour="signal-map-toolbox") for anyone who has drawn a floor plan; see
+                       TODO.md "Signal Map: retire the toolbar buttons the map toolbox replaced". The wall
+                       material select stays: the toolbox has no material picker. *@
                     <div class="fp-toolbar-group">
                         <button class="fp-btn @(_mode == "walls" ? "fp-btn-warning" : "fp-btn-primary")" @onclick="ToggleWallDrawMode">
                             @(_mode == "walls" ? "Done Drawing" : "Draw Layout")
@@ -121,6 +126,8 @@
                 }
 
                 @* ── APs group ── *@
+                @* TODO: Place/Edit APs and Add/Edit Planned APs duplicate the map toolbox (APs / Planned
+                   APs). Remove them together with the walls group above, with the same tour step. *@
                 <div class="fp-toolbar-group">
                     <button class="fp-btn @(_mode == "aps" ? "fp-btn-warning" : "")" @onclick="ToggleApEditMode">
                         @(_mode == "aps" ? "Done" : _apMarkers.Any(a => a.Latitude.HasValue) ? "Edit APs" : "Place APs")
