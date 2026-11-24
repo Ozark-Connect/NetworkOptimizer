@@ -167,7 +167,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
     {
         var running = _registry.RunningSites().ToHashSet(StringComparer.OrdinalIgnoreCase);
         await using var db = await _mainDb.CreateDbContextAsync(ct);
-        // The natural site order, as Settings - Multi-Site and the site selector list them.
+        // The natural site order, as Settings - Multi-Site / Agents and the site selector list them.
         var rows = await db.Sites.AsNoTracking().Where(s => s.Enabled)
             .OrderByDescending(s => s.IsDefault).ThenBy(s => s.SortOrder).ThenBy(s => s.Name)
             .Select(s => new { s.Slug, s.Name, s.IsDefault }).ToListAsync(ct);

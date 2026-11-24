@@ -4,7 +4,7 @@
 #
 # Pulls the agent image and compose template, writes the agent config, and
 # starts it. Generate the enrollment token in the central server's web UI under
-# Settings > Multi-Site > (site) > Agents > Set up agent.
+# Settings > Multi-Site / Agents > (site) > Agents > Set up agent.
 #
 #   curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install.sh | bash -s -- \
 #     --server "https://optimizer.example.com" \

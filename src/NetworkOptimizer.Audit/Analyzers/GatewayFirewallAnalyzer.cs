@@ -30,9 +30,9 @@ public partial class GatewayFirewallAnalyzer
     public const int BlocklistSetScoreImpact = 5;
 
     // A current agent repairs its hooks, chain, and sets on its own, so a finding that stays points at an older agent.
-    // Upgrade appears in Settings - Multi-Site only for an agent behind the latest release, hence the restart fallback.
+    // Upgrade appears in Settings - Multi-Site / Agents only for an agent behind the latest release, hence the restart fallback.
     private const string RestartAgentAction =
-        "Upgrade the On-Site Agent on the gateway from Settings - Multi-Site. If it is already current, restart it over SSH: systemctl restart netopt-agent.";
+        "Upgrade the On-Site Agent on the gateway from Settings - Multi-Site / Agents. If it is already current, restart it over SSH: systemctl restart netopt-agent.";
 
     /// <summary>Metadata key naming the page that fixes a finding; the Web layer turns it into a link.</summary>
     public const string ActionKey = "action";
@@ -339,7 +339,7 @@ public partial class GatewayFirewallAnalyzer
                 Severity = AuditSeverity.Informational,
                 DeviceName = gatewayName,
                 Message = $"Automatic Blocking's rules are hooked in more than once on the gateway ({Join(doubled)}). Blocking still works; each extra hook checks the same traffic again.",
-                RecommendedAction = "Upgrade the On-Site Agent on the gateway from Settings - Multi-Site. The current version removes the extra hooks.",
+                RecommendedAction = "Upgrade the On-Site Agent on the gateway from Settings - Multi-Site / Agents. The current version removes the extra hooks.",
                 RuleId = "GW-TI-002",
                 ScoreImpact = 0,
                 Metadata = new() { ["duplicate_hooks"] = doubled, [ActionKey] = UpgradeAgentAction },

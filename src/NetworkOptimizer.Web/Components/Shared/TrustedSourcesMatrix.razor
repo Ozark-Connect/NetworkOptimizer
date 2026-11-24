@@ -4,7 +4,7 @@
 @inject IAuthorizationService Authz
 @inject AuthenticationStateProvider AuthState
 
-@* Settings - Multi-Site: which sites each site trusts, one row per site the caller administers.
+@* Settings - Multi-Site / Agents: which sites each site trusts, one row per site the caller administers.
    Each change is one gated, audited call on that row's site. *@
 
 @if (_rows.Count > 0 && Sites.Count > 1)

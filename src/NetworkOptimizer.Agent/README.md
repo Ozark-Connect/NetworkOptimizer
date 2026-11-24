@@ -138,7 +138,7 @@ box" hardening described under Security and hardening.
 
 ## Install
 
-Start in **Settings > Multi-Site > (site) > Configuration**, with **Set up agent**
+Start in **Settings > Multi-Site / Agents > (site) > Configuration**, with **Set up agent**
 (or **Add Agent** if the site already has one). The app shows an install command
 for each deployment shape, with the server URL and enrollment token filled in.
 Copy one and run it on the agent box. For an agent on the UniFi gateway, **Run It
@@ -273,7 +273,7 @@ from `agent.json`, otherwise 24443. Two consequences worth knowing:
 
 ### Check that it connected
 
-Once the agent is connected, **Settings > Multi-Site** shows the site as
+Once the agent is connected, **Settings > Multi-Site / Agents** shows the site as
 **Online**, and **(site) > Configuration** shows the agent as **Online (tunnel)**.
 An agent that reaches the server's REST endpoints but not the tunnel leaves the
 site **Offline**, and its agent row shows a recent **Last seen** time instead:
@@ -359,7 +359,7 @@ warning, and the install continues.
 
 ### Upgrading
 
-**Settings > Multi-Site > (site) > Configuration** marks each agent **Agent needs
+**Settings > Multi-Site / Agents > (site) > Configuration** marks each agent **Agent needs
 update** (a release requires it) or **Update available** (optional). Either one
 has an **Upgrade** button that shows the upgrade command for each deployment
 shape, and **Run It for Me** for a gateway agent.
@@ -423,13 +423,13 @@ container from the Proxmox host. That deletes the agent and everything else in i
 pct stop <CT_ID> && pct destroy <CT_ID>
 ```
 
-As after any uninstall, then remove the agent from the site with **Settings > Multi-Site > (site) >
+As after any uninstall, then remove the agent from the site with **Settings > Multi-Site / Agents > (site) >
 Configuration > Remove**: an uninstall does not tell the server.
 
 ### Re-enrolling an existing agent
 
 If the agent's enrollment is invalidated server-side - removed in the UI
-(**Settings > Multi-Site > (site) > Configuration > Remove**) - the agent stops connecting
+(**Settings > Multi-Site / Agents > (site) > Configuration > Remove**) - the agent stops connecting
 and logs `Invalid agent key`. The agent only enrolls when its config has no
 `agentKey`, so a stale key must go before a new token is used. Re-running the
 installer with a fresh token does this for you. The installer first checks the
@@ -438,7 +438,7 @@ and the token is ignored, so re-running a saved install command (which carries
 its original, already-used token) is a safe in-place upgrade. Only a key the
 server rejects is replaced by the token:
 
-1. Generate a new enrollment token in the web UI: **Settings > Multi-Site >
+1. Generate a new enrollment token in the web UI: **Settings > Multi-Site / Agents >
    (site) > Configuration > Add Agent** (or **Set up agent** for a site with none).
    The install panel's **New token** button issues another if the first one
    lapses; tokens expire one hour after they are issued.
@@ -487,7 +487,7 @@ test on HTTPS.
 The LAN speed test listener serves self-signed HTTPS by default (a secure
 context, so browser geolocation works for GPS-tagged results). Two supported
 deviations, and **both require setting the site's Client speed test target
-override** (**Settings > Multi-Site > (site) > Configuration**), because
+override** (**Settings > Multi-Site / Agents > (site) > Configuration**), because
 the app builds agent speed-test links from the port the agent announces, defaulting to
 `https://<agent LAN IP>:24443`:
 
@@ -533,7 +533,7 @@ the LAN speed test is enabled (it serves the OpenSpeedTest page + transfer legs)
 
 ## Enroll and run
 
-1. In the central server's web UI: **Settings > Multi-Site > (site) >
+1. In the central server's web UI: **Settings > Multi-Site / Agents > (site) >
    Configuration > Set up agent**. Copy the enrollment token - it is shown once.
 2. On the agent box, create `agent.json` next to the binary:
 
@@ -566,7 +566,7 @@ chmod +x NetworkOptimizer.Agent && ./NetworkOptimizer.Agent
 On first run it exchanges the one-time token for an agent key via
 `POST /api/public/agents/enrollments`, writes the key and site slug back into
 `agent.json`, and discards the token. It then holds a persistent gRPC tunnel to
-the server, heartbeating every 30 seconds, and **Settings > Multi-Site > (site) >
+the server, heartbeating every 30 seconds, and **Settings > Multi-Site / Agents > (site) >
 Configuration** shows it as **Online (tunnel)**. If the tunnel is unreachable (the reverse-proxy gRPC route is
 missing, or the server could not bind its listener), it falls back to
 `POST /api/public/agents/heartbeats` and keeps retrying the tunnel.
@@ -825,7 +825,7 @@ addresses, not your sites'.
 
 ### After the proxy is up: the agent's server URL
 
-The install command in **Settings > Multi-Site > (site) > Configuration** carries the
+The install command in **Settings > Multi-Site / Agents > (site) > Configuration** carries the
 URL the agent dials, as `--server`. The app builds it from
 **`REVERSE_PROXIED_HOST_NAME`** (plus `REVERSE_PROXIED_PORT` if the proxy's
 front end is not on 443), so set that on the central server and restart it.
@@ -1077,7 +1077,7 @@ ssh user@sitebox 'cd /opt/netopt-agent && chmod +x NetworkOptimizer.Agent && ./N
 
 Run it in the foreground first to watch enrollment and the tunnel connect, then
 install the systemd unit above. To re-test enrollment from scratch, remove the
-agent in the UI (**Settings > Multi-Site > (site) > Configuration > Remove**), delete the
+agent in the UI (**Settings > Multi-Site / Agents > (site) > Configuration > Remove**), delete the
 `agentKey`/`siteSlug` from `agent.json` (or just delete the file and recreate it
 with a fresh token), and run again.
 
@@ -1124,7 +1124,7 @@ are measured over that WAN.
 
 **The easiest box to pair is an Agent on the UniFi Gateway itself.** It reaches each
 WAN by that WAN's own interface, so one Agent covers all of them with no routing
-to build. Set one up in **Settings > Multi-Site**.
+to build. Set one up in **Settings > Multi-Site / Agents**.
 
 Any other Agent has to be forced out the WAN you are measuring. Give the Vantage a
 Probe source IP, then add a Policy-Based Route in UniFi Network sending that

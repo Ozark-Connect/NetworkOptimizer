@@ -70,7 +70,7 @@
         if (!_enabled)
             return;
 
-        // Disabled sites are managed (re-enabled/removed) from Settings - Multi-Site;
+        // Disabled sites are managed (re-enabled/removed) from Settings - Multi-Site / Agents;
         // they don't belong in the switcher.
         _sites = await SiteAccess.FilterAsync(
             (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled), s => s.Slug);

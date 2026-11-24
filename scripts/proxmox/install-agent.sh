@@ -9,7 +9,7 @@
 # there is one agent install path however you get there.
 #
 # Generate the enrollment token in the server's web UI under
-# Settings > Multi-Site > (site) > Agents > Set up agent.
+# Settings > Multi-Site / Agents > (site) > Agents > Set up agent.
 #
 # Usage:
 #   bash -c "$(wget -qLO - https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/proxmox/install-agent.sh)"
@@ -310,7 +310,7 @@ configure_container() {
 
 configure_agent() {
     header "Agent Configuration"
-    echo -e "${DIM}The token comes from the server's web UI: Settings > Multi-Site > (site) > Agents.${CL}"
+    echo -e "${DIM}The token comes from the server's web UI: Settings > Multi-Site / Agents > (site) > Agents.${CL}"
     echo
 
     AGENT_SERVER=$(ask "Server URL (https://...)" "" "$AGENT_SERVER")

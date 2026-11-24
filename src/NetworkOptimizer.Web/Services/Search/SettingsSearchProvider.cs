@@ -103,10 +103,10 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
         /// instance-wide half of Identity.</summary>
         InstanceWide,
 
-        /// <summary>The Multi-Site tab, offered to an Admin always and to anyone once it is on.</summary>
+        /// <summary>The Multi-Site / Agents tab, offered to an Admin always and to anyone once it is on.</summary>
         MultiSite,
 
-        /// <summary>Inside the Multi-Site tab, and only rendered once multi-site is on.</summary>
+        /// <summary>Inside the Multi-Site / Agents tab, and only rendered once multi-site is on.</summary>
         MultiSiteEnabledAdmin,
     }
 

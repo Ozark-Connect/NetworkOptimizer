@@ -118,7 +118,7 @@
                     <p>
                         LAN speed tests on a managed site run from its On-Site Agent, and this
                         site has none online. Set up the site's Agent under
-                        <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")">Settings &gt; Multi-Site</a> to enable them.
+                        <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")">Settings &gt; Multi-Site / Agents</a> to enable them.
                     </p>
                 }
             </div>
@@ -366,7 +366,7 @@
                 <div class="alert alert-info">
                     <strong>Agent on gateway:</strong> Device speed tests reach the site's devices over SSH through
                     the agent tunnel, which isn't enabled for this site. Turn on <strong>Reach this site's devices
-                    through the agent tunnel</strong> under <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")">Settings &gt; Multi-Site</a> to run them.
+                    through the agent tunnel</strong> under <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")">Settings &gt; Multi-Site / Agents</a> to run them.
                 </div>
             }
             else

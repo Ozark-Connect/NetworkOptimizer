@@ -131,7 +131,7 @@ public sealed class UniFiConnectionServiceNoConsoleTests
         });
 
         connected.Should().BeFalse();
-        service.LastError.Should().Contain("Settings - Multi-Site");
+        service.LastError.Should().Contain("Settings - Multi-Site / Agents");
         console.LoginAttempts.Should().Be(0);
     }
 
