@@ -66,6 +66,38 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
             .ToList();
     }
 
+    /// <summary>One console port series' PoE draw at an instant.</summary>
+    public sealed record PortPoePoint(string DeviceMac, string IfName, string PortId, double Watts);
+
+    /// <summary>
+    /// Each console port series' <c>poe_power</c> nearest <paramref name="at"/>, from the five minutes before it
+    /// to 30 s after: Port Statistics' PoE column on a historic scrub. One field, so the read stays small.
+    /// </summary>
+    public async Task<IReadOnlyList<PortPoePoint>> QueryPortPoeAtAsync(DateTime at, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<PortPoePoint>();
+        var center = at.ToUniversalTime();
+        var flux = $@"
+from(bucket: {FluxLiteral.Quote(_bucket)})
+  |> range(start: {ToFluxInstant(center.AddMinutes(-5))}, stop: {ToFluxInstant(center.AddSeconds(30))})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"" and r._field == {FluxLiteral.Quote(InfluxFieldNames.PoePower)})
+";
+        var samples = new List<(DateTime Time, PortPoePoint Point)>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (AsDoubleOrNull(record.GetValue()) is not double w) continue;
+            samples.Add((ToUtc(record.GetTimeInDateTime() ?? center), new PortPoePoint(
+                record.GetValueByKey("device_mac") as string ?? "",
+                record.GetValueByKey("if_name") as string ?? "",
+                record.GetValueByKey("port_id") as string ?? "",
+                w)));
+        }
+        return samples
+            .GroupBy(s => (s.Point.DeviceMac.ToLowerInvariant(), s.Point.PortId))
+            .Select(g => g.OrderBy(s => Math.Abs((s.Time - center).Ticks)).First().Point)
+            .ToList();
+    }
+
     /// <summary>LAN Health events (link changes, uplink context, device states) in a window. Raw; <c>events</c> is sparse.</summary>
     public async Task<IReadOnlyList<LanEventPoint>> QueryLanEventsAsync(
         DateTime from, DateTime to, IReadOnlyList<string> eventTypes, CancellationToken ct = default)
