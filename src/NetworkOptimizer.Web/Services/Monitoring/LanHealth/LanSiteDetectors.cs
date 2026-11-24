@@ -87,7 +87,7 @@ public static class LanSiteDetectors
         if (!churn) yield break;
         // One alert for the loop, not one per port: the per-port storms fold into it.
         yield return Site(Detectors.L2Instability, "Network Loop", $"{storms.Count} ports",
-            $"Broadcast storms on {storms.Count} ports at the same time, along with STP changes, point to a loop. Look for a cable connecting two ports, or a switch or AP connected to the network twice.",
+            $"Broadcast storms on {storms.Count} ports at once, with STP changes: a loop. Look for a cable between two ports, or a switch or AP connected twice.",
             FindingSeverity.Critical, storms[0].LinkId, 60, LinkStatus.Storm, "Loop");
     }
 
@@ -100,7 +100,7 @@ public static class LanSiteDetectors
             if (v.Window < 10 || v.Window < expected * 3) continue;
             var name = DeviceName(s, mac);
             yield return Site(Detectors.StpChurn, "STP Churn", name,
-                $"{v.Window:0} STP state changes in {s.Text.Range}, compared to {expected:0} normally. Every topology change flushes MAC tables, and the switches flood traffic until they relearn them.",
+                $"{v.Window:0} STP state changes in {s.Text.Range}, against {expected:0} normally. Each one floods traffic until the switches relearn MACs.",
                 chips: "STP");
         }
     }
@@ -116,7 +116,7 @@ public static class LanSiteDetectors
         var priorities = switches.Select(d => d.StpPriority ?? 32768).ToList();
         if (switches.Count >= 2 && priorities.All(p => p == 32768))
             yield return Site(Detectors.StpConfig, "STP Root Left to Chance", "all switches",
-                "Every switch has the default STP priority, so the switch with the lowest MAC address becomes the root. Give your core switch a lower priority, and a backup switch the next lowest.",
+                "Every switch has the default STP priority, so the lowest MAC address wins root. Give your core switch the lowest priority, and a backup the next.",
                 chips: "STP");
 
         // Root placement: the root should be the gateway-adjacent switch, never one behind a mesh link or a Flex Mini.
@@ -162,19 +162,19 @@ public static class LanSiteDetectors
                         or DeviceType.BuildingBridge or DeviceType.DeviceBridge
                     && edge)
                     yield return Site(Detectors.StpConfig, "Edge Port on a Fabric Link", link.Link.Name,
-                        "This port's STP mode is Edge, but a UniFi device is plugged into it. Set it to Infrastructure.", FindingSeverity.Warning, link.Link.Id, chips: "STP");
+                        "STP is set to Edge, but a UniFi device is plugged in. Set it to Infrastructure.", FindingSeverity.Warning, link.Link.Id, chips: "STP");
                 // Infrastructure forced on an access port: every client link-up waits 30 s or more.
                 if (!link.Link.IsFabric && string.Equals(conf?.StpEdgeState, "disabled", StringComparison.OrdinalIgnoreCase))
                     yield return Site(Detectors.StpConfig, "Infrastructure Mode on an Access Port", link.Link.Name,
-                        "This port's STP mode is Infrastructure, but a client is plugged into it, so every time the client links up it waits 30 seconds or more before passing traffic. Set it to Edge or Auto.", linkId: link.Link.Id, chips: "STP");
+                        "STP is set to Infrastructure on a client port, so each link-up waits 30 seconds or more. Set it to Edge or Auto.", linkId: link.Link.Id, chips: "STP");
                 // BPDU guard off on a client-facing port where a user can plug in a switch.
                 if (!link.Link.IsFabric && conf != null && conf.StpBpduGuardEnabled == false && edge)
                     yield return Site(Detectors.StpConfig, "BPDU Guard Off", link.Link.Name,
-                        "BPDU guard is off on this client port. If someone plugs a switch in here, it can take part in STP.", linkId: link.Link.Id, chips: "STP");
+                        "BPDU guard is off on this client port, so a switch plugged in here joins STP.", linkId: link.Link.Id, chips: "STP");
                 // A blocked port that was not meant as redundancy.
                 if (port.Up && (string.Equals(port.StpState, "blocking", StringComparison.OrdinalIgnoreCase) || string.Equals(port.StpRole, "alternate", StringComparison.OrdinalIgnoreCase)))
                     yield return Site(Detectors.StpConfig, "Blocked Port", link.Link.Name,
-                        "STP is blocking this port because there's a second path between the same switches. If you didn't set that up for redundancy, remove the extra cable.", linkId: link.Link.Id, chips: "STP");
+                        "STP is blocking this port: there's a second path between the same switches. Remove the extra cable unless it's for redundancy.", linkId: link.Link.Id, chips: "STP");
                 // Path cost overrides that send traffic down the slower path.
                 if (port.StpPathCost is int cost && cost > 0 && link.Link.SpeedMbps is int mbps && mbps >= 10000 && cost > 20000)
                     yield return Site(Detectors.StpConfig, "STP Path Cost", link.Link.Name,
@@ -355,7 +355,7 @@ public static class LanSiteDetectors
             && LanHealthDetectors.Utilization(trunk.Link, x) > 0.4).ToList();
         if (both.Count < 2 || cpu is not >= 70) yield break;
         yield return Site(Detectors.HairpinLoad, "Inter-VLAN Hairpin", trunk.Link.Name,
-            $"For {both.Count} hours, the gateway trunk carried nearly the same traffic in both directions while the gateway CPU hit {cpu:0}%. Traffic between VLANs crosses this trunk twice.",
+            $"For {both.Count} hours the gateway trunk ran nearly equal both ways with the gateway CPU at {cpu:0}%: traffic between VLANs crosses it twice.",
             linkId: trunk.Link.Id, chips: "Capacity");
     }
 
@@ -368,7 +368,7 @@ public static class LanSiteDetectors
             var link = s.Links.FirstOrDefault(l => l.Link.IsFabric && l.Link.Downstream.DeviceMac == mac);
             if (link != null && link.Drops > 0) continue;
             yield return Site(Detectors.ManagementPlane, "Console Reachability", DeviceName(s, mac),
-                $"{count} inform failures in {s.Text.Range} while the device stayed up on the LAN. It's having trouble reaching the UniFi Console.",
+                $"{count} inform failures to the UniFi Console in {s.Text.Range}, while its LAN link stayed up.",
                 linkId: link?.Link.Id ?? "", chips: "Management");
         }
     }
@@ -444,7 +444,7 @@ public static class LanSiteDetectors
         var link = s.Links.Where(l => gateway != null && l.Link.Upstream.DeviceMac == LanLinkBuilder.Mac(gateway.Mac) && l.Link.IsFabric)
             .OrderByDescending(l => l.Link.ClientsBehind).FirstOrDefault();
         yield return Site(Detectors.GatewayForwarding, "Gateway Forwarding", gateway?.Name ?? "Gateway",
-            $"{g.Tests} LAN speed tests through the gateway averaged {g.RatioToNorm * 100:0}% of their normal speed. A gateway low on memory or /tmp space can slow down LAN forwarding until it restarts.",
+            $"{g.Tests} LAN speed tests through the gateway averaged {g.RatioToNorm * 100:0}% of normal. A gateway low on memory or /tmp space forwards slowly until it restarts.",
             FindingSeverity.Warning, link?.Link.Id ?? "", 20, chips: "Gateway");
     }
 
@@ -459,7 +459,7 @@ public static class LanSiteDetectors
             if (ports.Count < 3 || churning * 10 < ports.Count * 6) continue;
             var name = s.PortProfiles.FirstOrDefault(p => p.Id == g.Key)?.Name ?? g.Key;
             yield return Site(Detectors.ChurnByDesign, "Churn by Design", name,
-                $"{churning} of {ports.Count} access ports on the {name} profile relink many times a day. If that's expected (guest rooms, a lab), exclude the profile from any of its ports' pages with Mute alerts or Exclude from score.",
+                $"{churning} of {ports.Count} access ports on the {name} profile relink many times a day. If that's expected (guest rooms, a lab), use Mute alerts or Exclude from score on any of its ports.",
                 chips: "Exclusions");
         }
     }

@@ -55,7 +55,7 @@ public class SiteDetectorTests
     public void StpChurn_ThreeTimesItsNormalAndAtLeastTen()
     {
         var s = new SiteEvidence { Devices = [Switch(CoreMac, "Core")], StpChanges = new Dictionary<string, (double, double)> { [CoreMac] = (30, 0.1) } };
-        LanSiteDetectors.StpChurn(s).Single().Body.Should().StartWith("30 STP state changes in 48h, compared to 5 normally.");
+        LanSiteDetectors.StpChurn(s).Single().Body.Should().StartWith("30 STP state changes in 48h, against 5 normally.");
         LanSiteDetectors.StpChurn(new SiteEvidence { StpChanges = new Dictionary<string, (double, double)> { [CoreMac] = (9, 0) } }).Should().BeEmpty();
         LanSiteDetectors.StpChurn(new SiteEvidence { StpChanges = new Dictionary<string, (double, double)> { [CoreMac] = (30, 0.5) } }).Should().BeEmpty("24 expected");
     }
@@ -194,7 +194,7 @@ public class SiteDetectorTests
             Devices = [Gateway()], Links = [trunk], Evidence = new Dictionary<string, LinkEvidence> { [trunk.Link.Id] = ev },
             DeviceHealth = new Dictionary<string, (double?, double?, double?)> { [GwMac] = (cpu, null, null) },
         };
-        LanSiteDetectors.HairpinLoad(S(85)).Single().Body.Should().StartWith("For 3 hours, the gateway trunk carried nearly the same traffic in both directions while the gateway CPU hit 85%.");
+        LanSiteDetectors.HairpinLoad(S(85)).Single().Body.Should().StartWith("For 3 hours the gateway trunk ran nearly equal both ways with the gateway CPU at 85%:");
         LanSiteDetectors.HairpinLoad(S(40)).Should().BeEmpty();
     }
 
@@ -203,7 +203,7 @@ public class SiteDetectorTests
     {
         var link = Link("ap", CoreMac, "Core", 1, DeviceType.AccessPoint, "AP 1");
         var s = new SiteEvidence { Devices = [new UniFiDeviceResponse { Mac = "ap-dn", Name = "AP 1", Type = "uap" }], Links = [link], InformFailures = new Dictionary<string, int> { ["ap-dn"] = 4 } };
-        LanSiteDetectors.ManagementPlane(s).Single().Body.Should().StartWith("4 inform failures in 48h while the device stayed up on the LAN.");
+        LanSiteDetectors.ManagementPlane(s).Single().Body.Should().StartWith("4 inform failures to the UniFi Console in 48h, while its LAN link stayed up.");
         LanSiteDetectors.ManagementPlane(new SiteEvidence { InformFailures = new Dictionary<string, int> { ["ap-dn"] = 2 } }).Should().BeEmpty();
     }
 
@@ -260,7 +260,7 @@ public class SiteDetectorTests
     {
         var s = new SiteEvidence { Devices = [Gateway()], Links = [Link("gw-core", GwMac, "Gateway A", 2, DeviceType.Switch)], GatewayForwarding = (3, 0.4) };
         var f = LanSiteDetectors.GatewayForwarding(s).Single();
-        f.Body.Should().StartWith("3 LAN speed tests through the gateway averaged 40% of their normal speed.");
+        f.Body.Should().StartWith("3 LAN speed tests through the gateway averaged 40% of normal.");
         f.LinkId.Should().Be("gw-core");
         f.Points.Should().Be(20);
         LanSiteDetectors.GatewayForwarding(new SiteEvidence { GatewayForwarding = (3, 0.7) }).Should().BeEmpty();

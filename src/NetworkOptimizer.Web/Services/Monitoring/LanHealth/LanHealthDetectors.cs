@@ -204,10 +204,11 @@ public static class LanHealthDetectors
             Severity = ev.Link.IsFabric ? FindingSeverity.Warning : FindingSeverity.Info,
             Class = "Link Speed Degraded",
             Title = Title("Link Speed Degraded", ev.Link),
-            Body = $"Linked at {DisplayFormatters.FormatLinkSpeed(now)}, below the {DisplayFormatters.FormatLinkSpeed(usual)} it normally hits"
+            Body = $"Linked at {DisplayFormatters.FormatLinkSpeed(now)}"
                 + (since is DateTime t ? $" since {text.Time(t)}" : "")
+                + $", down from its usual {DisplayFormatters.FormatLinkSpeed(usual)}"
                 + (alternates ? ", and the speed has changed more than once." : ".")
-                + " A bad pair in the cable or an auto-negotiation problem causes this. Forcing the port's speed is one fix to try.",
+                + " Check the cable, or force the port's speed.",
             Chips = [alternates ? "Alternating speed" : "Speed downshift", ImpactChip(ev.Link)],
             Points = 25,
             Onset = since,
@@ -231,8 +232,8 @@ public static class LanHealthDetectors
             Class = "Link Speed Degraded",
             Title = Title("Link Speed Degraded", ev.Link),
             Body = half
-                ? $"The link runs at half duplex{(late > 0 ? $", with {late:0} late collisions" : "")}. One end forced and the other on auto does this: set both the same."
-                : $"{late:0} late collisions on a full-duplex link: the far end is likely at half duplex.",
+                ? $"Half duplex{(late > 0 ? $", with {late:0} late collisions" : "")}. One end is forced and the other is on auto: set both the same."
+                : $"{late:0} late collisions: the far end is likely at half duplex.",
             Chips = ["Duplex mismatch", ImpactChip(ev.Link)],
             Points = 40,
             Status = LinkStatus.SpeedDegraded,
@@ -251,10 +252,10 @@ public static class LanHealthDetectors
         var packets = (ev.Upstream.RxPackets ?? 0) + (ev.Downstream.RxPackets ?? 0);
         double? perMillion = packets > 0 ? errors / packets * 1e6 : null;
         // lanh-31 carries the asymmetry sentence.
-        var body = $"{errors:0} receive errors in {text.Range} on a link that never dropped"
-            + (perMillion is double pm ? $" ({pm:0.###} per million packets)" : "") + "."
-            + (asym is { } a ? $" Receive errors only at {a.End}, none at {a.Other}." : "")
-            + " A steady error rate is a marginal channel: cable, termination, keystone, or length.";
+        var body = $"{errors:0} receive errors in {text.Range}"
+            + (perMillion is double pm ? $" ({pm:0.###} per million packets)" : "")
+            + (asym is { } a ? $", all at {a.End}" : "")
+            + ". Check the cable, terminations, and keystones.";
         return new LinkFinding
         {
             Detector = asym != null ? Detectors.ErrorAsymmetry : Detectors.StableLinkErrors,
@@ -286,7 +287,7 @@ public static class LanHealthDetectors
             Severity = FindingSeverity.Info,
             Class = "Packet Loss",
             Title = Title("Packet Loss", ev.Link),
-            Body = $"{bursts.Count} short bursts of total probe loss in {text.Range}, with no drop or error recorded on the link at those times. A drop of a few seconds can fall between counter polls and leave no trace there.",
+            Body = $"{bursts.Count} bursts of total probe loss in {text.Range}, with no drop or error recorded. A drop of a few seconds can fall between polls.",
             Chips = ["Loss bursts", ImpactChip(ev.Link)],
             Points = ScoreCurve.Interpolate(bursts.Count, (3, 5), (10, 15), (30, 30)),
             Onset = bursts.Min(i => i.Start),
@@ -363,7 +364,7 @@ public static class LanHealthDetectors
             Severity = FindingSeverity.Info,
             Class = "Microbursts",
             Title = Title("Microbursts", ev.Link),
-            Body = $"{discards:0} packets were discarded while the link averaged under {peak * 100:0}% of its speed. Short bursts of traffic are filling the port's buffer faster than it can send them."
+            Body = $"{discards:0} packets discarded while the link averaged under {peak * 100:0}% of its speed: short bursts are overflowing the port's buffer."
                 + (FlowControlOn(ev.Link) ? " Flow Control is on for this port." : ""),
             Chips = ["Microbursts"],
         };
@@ -622,7 +623,7 @@ public static class LanHealthDetectors
             Severity = FindingSeverity.Info,
             Class = "Below Capability",
             Title = Title("Below Capability", ev.Link),
-            Body = $"Both ends support {DisplayFormatters.FormatLinkSpeed(cap)}, but the link negotiated {DisplayFormatters.FormatLinkSpeed(now)}. Check the cable, keystones, and patch panel: one of them may not be rated for {DisplayFormatters.FormatLinkSpeed(cap)}.",
+            Body = $"Both ends support {DisplayFormatters.FormatLinkSpeed(cap)}, but the link runs at {DisplayFormatters.FormatLinkSpeed(now)}. Check the cable, keystones, and patch panel.",
             Chips = ["Below port capability", ImpactChip(ev.Link)],
             Points = 10,
             Status = LinkStatus.SpeedDegraded,
@@ -651,7 +652,7 @@ public static class LanHealthDetectors
             Severity = FindingSeverity.Info,
             Class = "Link Speed Degraded",
             Title = Title("Link Speed Degraded", ev.Link),
-            Body = $"The client now links at {DisplayFormatters.FormatLinkSpeed(now)}. It linked at {DisplayFormatters.FormatLinkSpeed(usual)} before. Check the cable and the client's network adapter.",
+            Body = $"The client links at {DisplayFormatters.FormatLinkSpeed(now)}, down from {DisplayFormatters.FormatLinkSpeed(usual)}. Check the cable and its network adapter.",
             Chips = ["Access"],
             Points = 15,
             Status = LinkStatus.SpeedDegraded,
@@ -673,8 +674,8 @@ public static class LanHealthDetectors
             Class = "Unmanaged Switch",
             Title = Title("Unmanaged Switch", ev.Link),
             Body = half
-                ? $"This access port runs at half duplex with {macs} MAC addresses on it, which points to a hub or an old unmanaged switch."
-                : $"{macs} MAC addresses on one access port, so there's an unmanaged switch behind it.",
+                ? $"Half duplex with {macs} MAC addresses: a hub or an old unmanaged switch is behind it."
+                : $"{macs} MAC addresses on one access port: there's an unmanaged switch behind it.",
             Chips = ["Access"],
         };
     }

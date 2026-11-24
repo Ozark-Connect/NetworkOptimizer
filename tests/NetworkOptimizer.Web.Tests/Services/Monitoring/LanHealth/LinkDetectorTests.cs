@@ -89,7 +89,7 @@ public class LinkDetectorTests
     {
         var f = LanHealthDetectors.SpeedDownshift(Ev(Fabric(1000), s => { s.Usual = 2500; s.Speeds.Add(new(T0.AddHours(3), 2500, true, LinkSource.PortTableState)); }), FindingText.Utc)!;
         f.Class.Should().Be("Link Speed Degraded");
-        f.Body.Should().StartWith("Linked at 1 Gbps, below the 2.5 Gbps it normally hits since");
+        f.Body.Should().StartWith("Linked at 1 Gbps since");
         f.Chips.Should().Contain("Speed downshift");
     }
 
@@ -117,8 +117,8 @@ public class LinkDetectorTests
     [Fact]
     public void DuplexMismatch_HalfDuplexOrLateCollisions()
     {
-        LanHealthDetectors.DuplexMismatch(Ev(Fabric(fullDuplex: false)))!.Body.Should().StartWith("The link runs at half duplex.");
-        LanHealthDetectors.DuplexMismatch(Ev(Fabric(), s => s.Up.LateCollisions = 12))!.Body.Should().StartWith("12 late collisions on a full-duplex link");
+        LanHealthDetectors.DuplexMismatch(Ev(Fabric(fullDuplex: false)))!.Body.Should().StartWith("Half duplex.");
+        LanHealthDetectors.DuplexMismatch(Ev(Fabric(), s => s.Up.LateCollisions = 12))!.Body.Should().StartWith("12 late collisions: the far end");
         LanHealthDetectors.DuplexMismatch(Ev(Fabric())).Should().BeNull();
     }
 
@@ -134,7 +134,7 @@ public class LinkDetectorTests
         var incidents = new[] { Incident(IncidentKind.ErrorBurst, T0.AddHours(1), 40) };
         var f = LanHealthDetectors.StableLinkErrors(Ev(Fabric(), s => { s.Up.RxErrors = 0; s.Down.RxErrors = 40; s.Down.RxPackets = 4_000_000; }), incidents, FindingText.Utc)!;
         f.Detector.Should().Be(Detectors.ErrorAsymmetry);
-        f.Body.Should().Contain("40 receive errors").And.Contain("(10 per million packets)").And.Contain("Receive errors only at AP 1, none at Switch A.");
+        f.Body.Should().Contain("40 receive errors").And.Contain("(10 per million packets)").And.Contain(", all at AP 1.");
     }
 
     [Fact]
@@ -175,7 +175,7 @@ public class LinkDetectorTests
     {
         // A switch port's normal is 10 per million; 500 discards over 1M packets is 500.
         var f = LanHealthDetectors.Microbursts(Ev(Fabric(1000), s => { s.Up.TxDiscards = 500; s.Up.TxPackets = 1_000_000; s.Hours.Add(Hour(0, meanIn: 50e6)); }))!;
-        f.Body.Should().StartWith("500 packets were discarded while the link averaged under 5% of its speed.");
+        f.Body.Should().StartWith("500 packets discarded while the link averaged under 5% of its speed:");
         LanHealthDetectors.Microbursts(Ev(Fabric(1000), s => { s.Up.TxDiscards = 500; s.Up.TxPackets = 1_000_000; s.Hours.Add(Hour(0, meanIn: 600e6)); }))
             .Should().BeNull("a busy link's discards are load");
     }
@@ -210,7 +210,7 @@ public class LinkDetectorTests
     [Fact]
     public void BelowCapability_BothEndsCanDoMore()
     {
-        LanHealthDetectors.BelowCapability(Ev(Fabric(1000, cap: 2500)))!.Body.Should().StartWith("Both ends support 2.5 Gbps, but the link negotiated 1 Gbps.");
+        LanHealthDetectors.BelowCapability(Ev(Fabric(1000, cap: 2500)))!.Body.Should().StartWith("Both ends support 2.5 Gbps, but the link runs at 1 Gbps.");
         LanHealthDetectors.BelowCapability(Ev(Fabric(1000, cap: 2500, forced: true))).Should().BeNull();
         LanHealthDetectors.BelowCapability(Ev(Fabric(2500, cap: 2500))).Should().BeNull();
     }

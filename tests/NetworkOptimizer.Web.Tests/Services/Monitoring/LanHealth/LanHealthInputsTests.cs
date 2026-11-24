@@ -80,9 +80,9 @@ public class LanHealthInputsTests
     public void Suggestions_ForEachUntestedFabricLink_TheCheapestTest()
     {
         var s = LanHealthSpeedTests.Suggestions([Test(Now.AddDays(-2), 900, hops: [Gw, Sw])], Links, Now, mac => mac == Ap).ToList();
-        s.Should().ContainSingle().Which.Body.Should().Be("No speed test has run across this link in 30 days. Run a LAN Speed Test to AP 1 to measure it.");
+        s.Should().ContainSingle().Which.Body.Should().Be("No speed test in 30 days. Run a LAN Speed Test to AP 1.");
         LanHealthSpeedTests.Suggestions([], [Links[0]], Now, _ => false).Single().Body
-            .Should().Be("No speed test has run across this link in 30 days. Run a Client Speed Test from a wired client connected below Switch A to measure it.");
+            .Should().Be("No speed test in 30 days. Run a Client Speed Test from a wired client below Switch A.");
     }
 
     [Fact]
