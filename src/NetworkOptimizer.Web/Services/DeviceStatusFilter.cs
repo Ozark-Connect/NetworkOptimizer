@@ -51,13 +51,19 @@ public static class DeviceStatusFilter
     public static DeviceType? EffectiveType(IEnumerable<DeviceInfo> devices, DeviceType? picked) =>
         picked is { } t && devices.Any(d => d.Type == t) ? t : null;
 
+    /// <summary>The card shows its search only when there is more than one device to search.</summary>
+    public static bool ShowsSearch(IReadOnlyCollection<DeviceInfo> devices) => devices.Count > 1;
+
     /// <summary>
-    /// The devices the card shows for its type tab, search, and Needs Attention toggle. The toggle
-    /// stops filtering once nothing needs attention, because its button is gone with it.
+    /// The devices the card shows for its type tab, search, and Needs Attention toggle. A control
+    /// stops filtering once its button is gone: the search below two devices, the toggle once
+    /// nothing needs attention.
     /// </summary>
     public static List<DeviceInfo> Visible(IReadOnlyList<DeviceInfo> devices, DeviceType? pickedType, string? query,
         bool attentionOnly, Func<DeviceInfo, bool> needsAttention)
     {
+        if (!ShowsSearch(devices))
+            query = null;
         var type = EffectiveType(devices, pickedType);
         var attention = attentionOnly && devices.Any(needsAttention);
         return devices.Where(d => Matches(d, type, query) && (!attention || needsAttention(d))).ToList();

@@ -866,7 +866,8 @@
                         </div>
                     }
                 </div>
-                @if (!_loading && devices.Count > 0)
+                @* One device has nothing to search or narrow to. *@
+                @if (!_loading && DeviceStatusFilter.ShowsSearch(devices))
                 {
                     var types = DeviceStatusFilter.PresentTypes(devices);
                     <div class="device-status-filters">

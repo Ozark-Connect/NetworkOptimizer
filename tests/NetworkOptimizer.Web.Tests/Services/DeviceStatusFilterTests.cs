@@ -178,6 +178,16 @@ public class DeviceStatusFilterTests
     }
 
     [Fact]
+    public void Search_HiddenAndIgnored_WithOneDevice()
+    {
+        var one = new List<DeviceInfo> { Device(DeviceType.Gateway, name: "Gateway") };
+        DeviceStatusFilter.ShowsSearch(one).Should().BeFalse();
+        DeviceStatusFilter.ShowsSearch(Site()).Should().BeTrue();
+        // Text typed while a second device was there must not hide the last one.
+        DeviceStatusFilter.Visible(one, null, "nomatch", false, Attn).Should().HaveCount(1);
+    }
+
+    [Fact]
     public void Visible_UsesTheCallersAttentionRule()
     {
         // The page folds a failed restart in through the callback.
