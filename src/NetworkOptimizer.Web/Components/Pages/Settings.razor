@@ -8965,6 +8965,9 @@
         savingAuditSettings = true;
         auditSettingsMessage = "";
         StateHasChanged();
+        // Sends the busy render before the save runs: a save that finishes in one render repeats its last message
+        // unchanged, so settings-section-save.js would see nothing happen and the floating Save shows no result.
+        await Task.Yield();
 
         try
         {
