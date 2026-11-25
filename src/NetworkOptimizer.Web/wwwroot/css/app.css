@@ -20532,6 +20532,12 @@ tr.stats-row-filtered {
     cursor: help;
     user-select: none;
 }
+/* An idle link's pill holding only its LAN Health badge: the badge alone, no pill around it. */
+.lan-flow-map-link-label.is-badge-only {
+    background: none;
+    border-color: transparent;
+    padding: 0;
+}
 .lan-flow-map-link-label .down {
     color: var(--speed-download-color);
 }

@@ -2023,7 +2023,7 @@ export class LanFlowMap {
                 let tip = null;
                 if (capDown > 0 && capUp > 0) tip = `${capLabel}: ↓ ${formatCapacity(capDown)} / ↑ ${formatCapacity(capUp)}`;
                 else if (capDown > 0 || capUp > 0) tip = `${capLabel}: ${formatCapacity(capDown > 0 ? capDown : capUp)}`;
-                if (tip) el.setAttribute('data-tooltip', tip);
+                if (tip) el.dataset.capTip = tip;
             }
             const r = this._currentRates?.[linkId];
             const down = r?.downstreamBps || 0;
@@ -2031,9 +2031,12 @@ export class LanFlowMap {
             const isWan = kind === LINK_KIND.Wan || kind === LINK_KIND.Transit;
             const thresh = isWan ? WAN_LABEL_THRESHOLD_BPS : LINK_LABEL_THRESHOLD_BPS;
             if (down < thresh && up < thresh) {
-                // An unhealthy link shows its badge even when idle; a clean map stays clean.
+                // An unhealthy link shows its badge even when idle; a clean map stays clean. The badge
+                // stands alone then: no pill around it and no link-speed tooltip over its own.
                 if (entry.healthEl && entry.health && !entry.health.healthy) {
                     el.replaceChildren(entry.healthEl);
+                    el.classList.add('is-badge-only');
+                    el.removeAttribute('data-tooltip');
                     el._hasData = true;
                     continue;
                 }
@@ -2041,6 +2044,8 @@ export class LanFlowMap {
                 el._hasData = false;
                 continue;
             }
+            el.classList.remove('is-badge-only');
+            if (el.dataset.capTip && el.getAttribute('data-tooltip') !== el.dataset.capTip) el.setAttribute('data-tooltip', el.dataset.capTip);
             el.innerHTML = `<span class="down">↓ ${formatBps(down)}</span><span class="up">↑ ${formatBps(up)}</span>`;
             if (entry.healthEl) el.appendChild(entry.healthEl);
             // Don't add is-visible here — _updateFloatingLabels will add it
@@ -3993,6 +3998,7 @@ export class LanFlowMap {
                 capTip = `${capLabel}: ${formatCapacity(link.capacityBps)}`;
             }
             if (capTip) {
+                el.dataset.capTip = capTip;
                 el.setAttribute('data-tooltip', capTip);
                 el.setAttribute('data-tooltip-hover-only', '');
                 el.setAttribute('data-tooltip-delay', '500');
