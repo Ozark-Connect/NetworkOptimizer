@@ -180,6 +180,10 @@ public sealed class LiveTrafficService : ILiveTrafficService
                 store.NoteLeasePushed(now);
             }
             state = store.HasRates(now) ? LiveTrafficState.Live : LiveTrafficState.Starting;
+            // The agent samples conntrack only while the site's Monitoring is on, so without it
+            // Starting never ends. Checked only while no rates arrive, to keep the poll off the DB.
+            if (state == LiveTrafficState.Starting && !await IsMonitoringEnabledAsync(slug, ct))
+                return store.BuildView(query, LiveTrafficState.MonitoringOff);
 
             // Awaited here, in the viewer's own request: the address books are scoped to the sites
             // this viewer may see, so another site's addresses never label a flow they could not open.
@@ -234,6 +238,22 @@ public sealed class LiveTrafficService : ILiveTrafficService
             : cache.Failed ? LiveHistoryState.Failed
             : LiveHistoryState.Loading;
         return cache.BuildView(query, state, now);
+    }
+
+    /// <summary>Whether the site's Monitoring is on, which gates the agent's conntrack sampling.</summary>
+    private async Task<bool> IsMonitoringEnabledAsync(string slug, CancellationToken ct)
+    {
+        try
+        {
+            await using var db = _siteDb.CreateForSite(slug, slug == SiteManagementService.DefaultSiteSlug);
+            return await db.MonitoringSettings.AsNoTracking().AnyAsync(s => s.Enabled, ct);
+        }
+        catch (Exception ex)
+        {
+            // Unreadable settings keep the Starting view rather than claim Monitoring is off.
+            _logger.LogDebug(ex, "Could not read Monitoring settings for site {Slug}", slug);
+            return true;
+        }
     }
 
     /// <inheritdoc />
