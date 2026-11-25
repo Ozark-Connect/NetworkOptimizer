@@ -115,10 +115,13 @@ public class HighRadioUtilizationRuleTests
         var issue = Evaluate(ap).Single();
         issue.Severity.Should().Be(HealthIssueSeverity.Info);
         issue.ScoreImpact.Should().Be(0);
-        issue.Recommendation.Should().EndWith("some of this may be unavoidable.");
+        issue.Recommendation.Should().StartWith("This radio is already on the quietest 2.4 GHz channel",
+            "the move-channel advice has nowhere to send it");
 
         ap.Radios[0].QuietestChannelUtilization = 40;
-        Evaluate(ap).Single().Severity.Should().Be(HealthIssueSeverity.Warning, "a quieter channel exists");
+        var movable = Evaluate(ap).Single();
+        movable.Severity.Should().Be(HealthIssueSeverity.Warning, "a quieter channel exists");
+        movable.Recommendation.Should().StartWith("Run the Channel Recommendation");
     }
 
     [Fact]

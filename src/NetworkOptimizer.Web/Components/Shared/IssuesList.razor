@@ -228,15 +228,23 @@
         _ => "<svg viewBox=\"0 0 24 24\" fill=\"currentColor\" width=\"24\" height=\"24\"><circle cx=\"12\" cy=\"12\" r=\"10\" opacity=\"0.2\"/><path d=\"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z\"/><rect x=\"11\" y=\"11\" width=\"2\" height=\"6\"/><rect x=\"11\" y=\"7\" width=\"2\" height=\"2\"/></svg>"
     };
 
+    private static readonly (string Name, string Href)[] RecommendationLinks =
+    [
+        ("Signal Map", "./wifi-optimizer?tab=floorplan"),
+        ("Channel Recommendation", "./wifi-optimizer?tab=channels&amp;recommend=true"),
+        ("RF Environment", "./wifi-optimizer?tab=spectrum"),
+        ("Client Performance", "./client-dashboard"),
+    ];
+
     private static MarkupString FormatRecommendation(string? text)
     {
         if (string.IsNullOrEmpty(text))
             return new MarkupString("");
 
+        // Places a recommendation names become links to them. Encoded first, so only these tags are markup.
         var formatted = System.Text.Encodings.Web.HtmlEncoder.Default.Encode(text);
-        formatted = formatted.Replace(
-            "Signal Map",
-            "<a href=\"./wifi-optimizer?tab=floorplan\">Signal Map</a>");
+        foreach (var (name, href) in RecommendationLinks)
+            formatted = formatted.Replace(name, $"<a href=\"{href}\">{name}</a>");
 
         return new MarkupString(formatted);
     }

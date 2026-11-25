@@ -84,7 +84,10 @@ public class HighRadioUtilizationRule : IWiFiOptimizerRule
                     Description = description,
                     AffectedEntity = ap.Name,
                     LinkUrl = $"./wifi-optimizer?tab=metrics&ap={Uri.EscapeDataString(ap.Mac)}&band={radio.Band.ToPropagationBand()}&range=1h",
-                    Recommendation = Action(radio.Band, cause, steeringOnEverywhere),
+                    // Already on the quietest channel, the move-channel advice has nowhere to send it.
+                    Recommendation = unavoidable
+                        ? "This radio is already on the quietest 2.4 GHz channel, so moving it won't help. RF Environment lists the networks using it."
+                        : Action(radio.Band, cause, steeringOnEverywhere),
                     ScoreImpact = severity switch
                     {
                         HealthIssueSeverity.Critical => CriticalImpact,

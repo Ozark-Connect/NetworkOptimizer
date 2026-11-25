@@ -87,7 +87,8 @@ public class HighTxRetryRuleTests
     {
         var issue = _rule.Evaluate(Context(Ap(RadioBand.Band5GHz, 20, 4, busy: 60, interference: 35)))!;
 
-        issue.Description.Should().EndWith(" AP-1 5 GHz: other devices use 35% of this channel's airtime. Move this radio to a quieter channel.");
+        issue.Description.Should().EndWith(" AP-1 5 GHz: other devices use 35% of this channel's airtime.");
+        issue.Recommendation.Should().Be("Move this radio to a quieter channel: run the Channel Recommendation on Channels.");
     }
 
     [Fact]
@@ -96,5 +97,31 @@ public class HighTxRetryRuleTests
         var issue = _rule.Evaluate(Context(Ap(RadioBand.Band5GHz, 20, 4, busy: 12, interference: 3)))!;
 
         issue.Description.Should().EndWith(" AP-1 5 GHz: the channel is quiet (12% busy), so the cause is weak signal, or clients too far apart to hear each other that transmit at the same time.");
+        issue.Recommendation.Should().StartWith("Check the weak-signal clients on this radio first.");
+    }
+
+    [Fact]
+    public void A_measured_cause_is_said_once()
+    {
+        // The screenshot case: one quiet radio. The general causes would repeat the measured one.
+        var issue = _rule.Evaluate(Context(Ap(RadioBand.Band5GHz, 22.2, 3, busy: 2, interference: 1)))!;
+
+        issue.Description.Should().StartWith("1 radio has more retries than normal for its band, across 3 clients. Retries waste airtime. AP-1 5 GHz:");
+        issue.Description.Should().NotContain("The usual causes");
+    }
+
+    [Fact]
+    public void An_unmeasured_radio_keeps_the_general_causes_and_advice()
+    {
+        var ap1 = Ap(RadioBand.Band5GHz, 20, 4, busy: 12, interference: 3);
+        var ap2 = Ap(RadioBand.Band5GHz, 20, 4);
+        ap2.Mac = "aa:bb:cc:dd:ee:02";
+        ap2.Name = "AP-2";
+
+        var issue = _rule.Evaluate(Context(ap1, ap2))!;
+
+        issue.Description.Should().StartWith("2 radios have more retries than normal for their band, across 8 clients.");
+        issue.Description.Should().Contain("The usual causes are");
+        issue.Recommendation.Should().StartWith("Check these radios for interference");
     }
 }

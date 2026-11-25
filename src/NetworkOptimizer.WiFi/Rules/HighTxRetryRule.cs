@@ -1,3 +1,4 @@
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 
@@ -59,16 +60,28 @@ public class HighTxRetryRule : IWiFiOptimizerRule
 
         // Where the agent measured the air, the retries have a cause: other transmitters holding
         // the airtime is contention, quiet air is signal or a hidden node.
-        var attribution = string.Concat(highRetryRadios.Select(x =>
+        var air = highRetryRadios.Select(x => AirOf(x.Radio)).ToList();
+        var attribution = string.Concat(highRetryRadios.Select((x, i) =>
         {
             var r = x.Radio;
             var bandName = r.Band.ToDisplayString();
-            if (r.MeasuredInterference is { } interf && interf >= ContentionAirtimePct)
-                return $" {x.Ap.Name} {bandName}: other devices use {interf}% of this channel's airtime. Move this radio to a quieter channel.";
-            if (r.MeasuredUtilization is { } busy && busy <= QuietAirtimePct)
-                return $" {x.Ap.Name} {bandName}: the channel is quiet ({busy}% busy), so the cause is weak signal, or clients too far apart to hear each other that transmit at the same time.";
-            return string.Empty;
+            return air[i] switch
+            {
+                Air.Busy => $" {x.Ap.Name} {bandName}: other devices use {r.MeasuredInterference}% of this channel's airtime.",
+                Air.Quiet => $" {x.Ap.Name} {bandName}: the channel is quiet ({r.MeasuredUtilization}% busy), so the cause is weak signal, or clients too far apart to hear each other that transmit at the same time.",
+                _ => string.Empty
+            };
         }));
+
+        // The general causes are said only when some radio has no measured cause: said beside a
+        // measured one, they repeat it.
+        var count = highRetryRadios.Count;
+        var description = $"{StringUtilities.Pluralize(count, "radio")} {(count == 1 ? "has" : "have")} more retries than normal " +
+            $"for {(count == 1 ? "its" : "their")} band, across {StringUtilities.Pluralize(totalClients, "client")}. Retries waste airtime.";
+        if (air.Any(a => a == Air.Unknown))
+            description += " The usual causes are interference, weak signal, or clients too far apart to hear each other, " +
+                "which then transmit at the same time.";
+        description += attribution;
 
         var critical = anyCritical || totalClients >= CriticalClientCount;
 
@@ -79,12 +92,27 @@ public class HighTxRetryRule : IWiFiOptimizerRule
             Title = "High TX Retry Rates",
             Class = HealthIssueClass.Measured,
             Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Names(highRetryRadios.Select(x => HealthIssueKeys.Radio(x.Ap.Mac, x.Radio.Band)))),
-            Description = $"{highRetryRadios.Count} radio(s) have more retries than normal for their band, " +
-                $"across {totalClients} clients. Retries waste airtime. " +
-                "The usual causes are interference, weak signal, or clients too far apart to hear each other, " +
-                "which then transmit at the same time." + attribution,
-            Recommendation = "Check these radios for interference and overlapping channels, and address clients with weak signal.",
+            Description = description,
+            Recommendation = Recommendation(air),
             ScoreImpact = critical ? -12 : -8
         }.WithLinks(affectedRadios);
+    }
+
+    private enum Air { Unknown, Busy, Quiet }
+
+    private static Air AirOf(RadioSnapshot r) =>
+        r.MeasuredInterference is { } interf && interf >= ContentionAirtimePct ? Air.Busy
+        : r.MeasuredUtilization is { } busy && busy <= QuietAirtimePct ? Air.Quiet
+        : Air.Unknown;
+
+    /// <summary>Advice that follows the measured cause when every radio shares one, else the general checks.</summary>
+    private static string Recommendation(IReadOnlyList<Air> air)
+    {
+        var radios = air.Count == 1 ? "this radio" : "these radios";
+        if (air.All(a => a == Air.Quiet))
+            return $"Check the weak-signal clients on {radios} first. If their signal is fine, add an AP closer to them.";
+        if (air.All(a => a == Air.Busy))
+            return $"Move {radios} to {(air.Count == 1 ? "a quieter channel" : "quieter channels")}: run the Channel Recommendation on Channels.";
+        return "Check these radios for interference and overlapping channels, and address clients with weak signal.";
     }
 }

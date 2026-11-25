@@ -364,6 +364,16 @@ public class CoChannelInterferenceRuleTests
         quiet.Severity.Should().Be(HealthIssueSeverity.Info);
         quiet.ScoreImpact.Should().Be(-1);
         quiet.Description.Should().EndWith("Both radios are lightly used right now (3% to 7% of airtime busy), so this overlap costs little today.");
+        quiet.Recommendation.Should().StartWith("No change needed while these radios stay this quiet.",
+            "an overlap that costs little is not a reason to move a channel now");
+
+        // Three quiet radios are not "Both".
+        var three = _rule.EvaluateAll(CreateContext(new List<AccessPointSnapshot>
+        {
+            Measured("aa:bb:cc:dd:ee:01", "AP-1", 36, 3), Measured("aa:bb:cc:dd:ee:02", "AP-2", 36, 7),
+            Measured("aa:bb:cc:dd:ee:03", "AP-3", 36, 5)
+        })).Single();
+        three.Description.Should().Contain("All 3 radios are lightly used right now");
 
         // One busy: the warning, naming the airtime.
         var busy = _rule.EvaluateAll(CreateContext(new List<AccessPointSnapshot>

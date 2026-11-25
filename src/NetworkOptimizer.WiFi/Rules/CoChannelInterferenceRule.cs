@@ -95,13 +95,14 @@ public class CoChannelInterferenceRule : IWiFiOptimizerRule
                 var primaries = reported.Select(r => r.Channel).Distinct().OrderBy(c => c).ToList();
                 var samePrimary = primaries.Count == 1;
 
-                var recommendation = "Consider changing one or more APs to a different channel to reduce interference.";
+                var recommendation = "Move one of these APs to another channel: the Channel Recommendation on Channels picks one.";
 
                 // If any APs aren't placed on the map, hint that placing them enables spatial filtering
                 var hasUnplacedAps = ctx.PropagationContext == null ||
                     interferingAps.Any(ap => !ctx.PropagationContext.ApsByMac.ContainsKey(ap.Mac.ToLowerInvariant()));
+                const string mapHint = " Place your APs on the Signal Map, so this check can account for the distance and walls between them.";
                 if (hasUnplacedAps)
-                    recommendation += " Place your APs on the Signal Map, so this check can account for the distance and walls between them.";
+                    recommendation += mapHint;
 
                 var denseNote = $" With {radiosInBand.Count} APs on {band.ToDisplayString()} and only {nonOverlappingChannels} non-overlapping channels, some overlap is unavoidable.";
 
@@ -138,7 +139,11 @@ public class CoChannelInterferenceRule : IWiFiOptimizerRule
                     {
                         severity = HealthIssueSeverity.Info;
                         impact = -1;
-                        description += $" Both radios are lightly used right now ({values.Min()}% to {values.Max()}% of airtime busy), so this overlap costs little today.";
+                        var which = values.Count == 2 ? "Both radios" : $"All {values.Count} radios";
+                        description += $" {which} are lightly used right now ({values.Min()}% to {values.Max()}% of airtime busy), so this overlap costs little today.";
+                        // The overlap costs little, so the advice is to watch it, not to move a channel now.
+                        recommendation = "No change needed while these radios stay this quiet. If they get busy, move one to another channel." +
+                            (hasUnplacedAps ? mapHint : "");
                     }
                     else if (values.Any(v => v >= BusyAirtimePct))
                     {

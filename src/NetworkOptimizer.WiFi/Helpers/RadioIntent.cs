@@ -15,7 +15,7 @@ public static class RadioIntent
 
     /// <summary>DC-HINT-CHANNEL.</summary>
     public const string ChannelHint =
-        "These channels are set by hand in UniFi Network. The overlap is real either way; the Channel Recommendation on Channels can weigh the alternatives.";
+        "These channels are set by hand in UniFi Network. The overlap is real either way.";
 
     /// <summary>DC-HINT-WIDTH.</summary>
     public static string WidthHint(RadioBand band, bool meshBackhaul) =>
