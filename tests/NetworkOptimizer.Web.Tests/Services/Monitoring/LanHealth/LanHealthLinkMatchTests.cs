@@ -45,4 +45,18 @@ public class LanHealthLinkMatchTests
     [Fact]
     public void ForClient_FindsItsAccessPort() =>
         LanHealthLinkMatch.ForClient(Links, Pc)!.Link.Id.Should().Be($"{Sw}|7-access");
+
+    [Fact]
+    public void SharedPort_EveryOccupantFindsIt()
+    {
+        const string host = "aa:bb:cc:00:00:10", vm = "aa:bb:cc:00:00:11";
+        var shared = new LinkHealth
+        {
+            Link = new LinkRecord { Id = $"{Sw}|9-access", Kind = LinkKind.Access, ClientMac = host, OccupantMacs = [host, vm],
+                Upstream = new LinkEnd { DeviceMac = Sw, PortIdx = 9 }, Downstream = new LinkEnd() },
+        };
+        LinkHealth[] links = [.. Links, shared];
+        LanHealthLinkMatch.ForClient(links, vm)!.Link.Id.Should().Be($"{Sw}|9-access");
+        LanHealthLinkMatch.Between(links, Sw, vm)!.Link.Id.Should().Be($"{Sw}|9-access");
+    }
 }

@@ -8328,8 +8328,12 @@ tr:hover .snmp-row-chevron {
     border-top: none;
 }
 .path-connector.has-lan-health,
-.bottleneck-warning.has-lan-health {
+.bottleneck-warning.has-lan-health,
+.path-max-speed.has-lan-health {
     cursor: pointer;
+}
+.path-max-speed.has-lan-health:hover .speed-value {
+    color: var(--primary-hover);
 }
 .path-connector.has-lan-health:hover .connector-line {
     filter: brightness(1.4);

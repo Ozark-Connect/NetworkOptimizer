@@ -307,6 +307,8 @@ public sealed class LinkRecord
     public bool AlwaysOnClient { get; set; }
     /// <summary>The end-device client MAC on an access port, when known.</summary>
     public string? ClientMac { get; init; }
+    /// <summary>Every wired client on an access port (a hypervisor's VMs share one), so each finds its port.</summary>
+    public IReadOnlyList<string> OccupantMacs { get; init; } = [];
     /// <summary>That client's IP, online or its last one, which opens it on Client Performance.</summary>
     public string? ClientIp { get; set; }
 

@@ -198,7 +198,10 @@
         @if (PathAnalysis.Path.IsValid)
         {
             <div class="path-summary">
-                <div class="path-max-speed">
+                @* The max is the bottleneck's speed: with one bottleneck, it opens that link's LAN Health page. *@
+                @{ var maxLink = PathAnalysis.Path.HasRealBottleneck ? BottleneckLanLink() : null; }
+                <div class="path-max-speed @(maxLink != null ? "has-lan-health" : "")" @onclick="() => OpenLanLink(maxLink)"
+                     data-tooltip="@(maxLink != null ? "The slowest link in the path sets this. Click for LAN Health." : null)">
                     <span class="speed-value">@FormatPathMaxSpeed()</span>
                     <span class="speed-label">max</span>
                 </div>

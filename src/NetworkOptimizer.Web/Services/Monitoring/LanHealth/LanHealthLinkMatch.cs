@@ -17,16 +17,20 @@ public static class LanHealthLinkMatch
         if (a.Length == 0 || b.Length == 0) return null;
         var list = links as IReadOnlyCollection<LinkHealth> ?? links.ToList();
         return list.FirstOrDefault(l => l.Link.IsFabric && Joins(l.Link, a, b))
-            ?? list.FirstOrDefault(l => !l.Link.IsFabric && l.Link.ClientMac is { } c
-                && (c == a && l.Link.Upstream.DeviceMac == b || c == b && l.Link.Upstream.DeviceMac == a));
+            ?? list.FirstOrDefault(l => !l.Link.IsFabric
+                && (On(l.Link, a) && l.Link.Upstream.DeviceMac == b || On(l.Link, b) && l.Link.Upstream.DeviceMac == a));
     }
 
     /// <summary>The access port a wired client sits on, by the client's MAC.</summary>
     public static LinkHealth? ForClient(IEnumerable<LinkHealth> links, string? clientMac)
     {
         var mac = LanLinkBuilder.Mac(clientMac);
-        return mac.Length == 0 ? null : links.FirstOrDefault(l => !l.Link.IsFabric && l.Link.ClientMac == mac);
+        return mac.Length == 0 ? null : links.FirstOrDefault(l => !l.Link.IsFabric && On(l.Link, mac));
     }
+
+    /// <summary>Whether a client is on an access port: its named client, or any of the port's occupants.</summary>
+    private static bool On(LinkRecord link, string clientMac) =>
+        link.ClientMac == clientMac || link.OccupantMacs.Contains(clientMac);
 
     /// <summary>Whether a link joins the two devices, either way round.</summary>
     internal static bool Joins(LinkRecord link, string a, string b) =>

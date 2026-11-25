@@ -164,6 +164,7 @@ public static class LanLinkBuilder
                     DevicesBehind = 0,
                     UpstreamPort = Config(port),
                     ClientMac = clientMac.Length > 0 ? clientMac : null,
+                    OccupantMacs = occupants.Select(o => Mac(o.Mac)).Where(m => m.Length > 0).ToList(),
                 });
             }
         }
