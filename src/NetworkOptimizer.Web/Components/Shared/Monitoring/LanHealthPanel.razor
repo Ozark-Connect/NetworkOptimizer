@@ -12,6 +12,8 @@
 @inject NetworkOptimizer.Web.Services.DeviceRestart.IDeviceRestartService DeviceRestarts
 @inject IClientIcons ClientIcons
 @using NetworkOptimizer.Web.Services.DeviceRestart
+@using NetworkOptimizer.WiFi.Models
+@using NetworkOptimizer.Web.Components.Shared.WiFi
 
 <div class="lan-health">
 @if (_report == null)
@@ -601,6 +603,132 @@ else
             : null;
     }
 
+    /// <summary>One band of a mesh backhaul as the child reads it now: rates in Kbps, down is parent toward child.</summary>
+    private sealed record MeshBand(NetworkOptimizer.WiFi.Models.RadioBand Band, string Radio, int? SignalDbm, long? DownKbps, long? UpKbps, int? Channel);
+
+    /// <summary>A mesh backhaul's bands now, an MLO one link by link and a classic one (a UDB's too) as its one radio.</summary>
+    private static List<MeshBand> MeshBands(LinkRecord link) => link.Mlo.Count > 0
+        ? link.Mlo.Select(m => new MeshBand(LanHealthDetectors.SignalBand(m.Radio), m.Radio, m.SignalDbm,
+                m.RxRateKbps > 0 ? m.RxRateKbps : null, m.TxRateKbps > 0 ? m.TxRateKbps : null, m.Channel))
+            .OrderByDescending(b => b.Band).ToList()
+        : link.MeshRadio is { Length: > 0 } || link.MeshSignalDbm != null || link.MeshTxRateKbps != null
+            ? [new MeshBand(MeshBandOf(link.MeshRadio, link.MeshChannel), link.MeshRadio ?? "", link.MeshSignalDbm, link.MeshRxRateKbps, link.MeshTxRateKbps, link.MeshChannel)]
+            : [];
+
+    /// <summary>The uplink's band from its radio, else from its channel (a channel up to 14 is 2.4 GHz, 36 to 177 is 5 GHz).</summary>
+    private static NetworkOptimizer.WiFi.Models.RadioBand MeshBandOf(string? radio, int? channel) =>
+        !string.IsNullOrEmpty(radio) ? LanHealthDetectors.SignalBand(radio)
+        : channel switch
+        {
+            >= 1 and <= 14 => NetworkOptimizer.WiFi.Models.RadioBand.Band2_4GHz,
+            >= 36 and <= 177 => NetworkOptimizer.WiFi.Models.RadioBand.Band5GHz,
+            _ => NetworkOptimizer.WiFi.Models.RadioBand.Unknown,
+        };
+
+    private static string BandClass(NetworkOptimizer.WiFi.Models.RadioBand band) => band switch
+    {
+        NetworkOptimizer.WiFi.Models.RadioBand.Band2_4GHz => "band-2ghz",
+        NetworkOptimizer.WiFi.Models.RadioBand.Band5GHz => "band-5ghz",
+        NetworkOptimizer.WiFi.Models.RadioBand.Band6GHz => "band-6ghz",
+        _ => ""
+    };
+
+    private static string Kbps(long? kbps) => kbps is > 0 ? DisplayFormatters.FormatRate(kbps.Value * 1000.0) : "--";
+
+    private static string Pct(double? pct) => pct is double p ? $"{p:0.#}%" : "--";
+
+    /// <summary>
+    /// A mesh backhaul (an AP's or a UDB's): each band's signal, link speed, and channel now, then the window's
+    /// retries, drops, re-associations, and weakest signal, which the parent and child count for the whole link.
+    /// </summary>
+    private RenderFragment MeshBackhaulCard(LinkHealth l) => __builder =>
+    {
+        var link = l.Link;
+        var bands = MeshBands(link);
+        var mlo = bands.Count > 1;
+        var cols = bands.Count + (mlo ? 1 : 0);
+        var lastCol = Math.Max(1, cols);
+        var avg = mlo && bands.Where(b => b.SignalDbm != null && b.Band != NetworkOptimizer.WiFi.Models.RadioBand.Band2_4GHz).ToList() is { Count: > 0 } graded
+            ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetAverageSignal(graded.Select(b => (b.SignalDbm!.Value, (string?)(b.Band == NetworkOptimizer.WiFi.Models.RadioBand.Band6GHz ? "6" : "5"))).ToList())
+            : ((int Bars, string Color)?)null;
+        RenderFragment WindowRow(string label, RenderFragment value) => @<tr>
+            <td>@label</td>
+            @for (var i = 1; i < lastCol; i++) { <td></td> }
+            <td>@value</td>
+        </tr>;
+        <div class="card">
+            <div class="card-header"><h2 class="card-title">Mesh Backhaul</h2></div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="data-table lan-health-ends lan-health-mesh">
+                        <thead>
+                            <tr>
+                                <th></th>
+                                @foreach (var b in bands)
+                                {
+                                    <th>@if (b.Band == RadioBand.Unknown) { <text>Wi-Fi</text> } else { <span class="band-badge @BandClass(b.Band)">@b.Band.ToDisplayString()</span> }</th>
+                                }
+                                @if (mlo) { <th>Combined (MLO)</th> }
+                                @if (bands.Count == 0) { <th></th> }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (bands.Count > 0)
+                            {
+                                <tr>
+                                    <td>Signal</td>
+                                    @foreach (var b in bands)
+                                    {
+                                        <td>@(b.SignalDbm is int s ? $"{s} dBm" : "--") <SignalBarsInline Dbm="b.SignalDbm" Band="b.Band" /></td>
+                                    }
+                                    @if (mlo)
+                                    {
+                                        <td>
+                                            @if (avg is { } a)
+                                            {
+                                                <span class="signal-bars-inline" role="img" aria-label="@a.Bars of 5 bars">
+                                                    @for (var i = 0; i < 5; i++) { <span style="@(i < a.Bars ? $"background: {a.Color}" : null)"></span> }
+                                                </span> <span class="lan-health-sub">average</span>
+                                            }
+                                            else { <text>--</text> }
+                                        </td>
+                                    }
+                                </tr>
+                                <tr>
+                                    <td>Link speed</td>
+                                    @foreach (var b in bands)
+                                    {
+                                        <td><span class="speed-down">↓ @Kbps(b.DownKbps)</span> <span class="speed-up">↑ @Kbps(b.UpKbps)</span></td>
+                                    }
+                                    @if (mlo)
+                                    {
+                                        var down = bands.Sum(b => b.DownKbps ?? 0);
+                                        var up = bands.Sum(b => b.UpKbps ?? 0);
+                                        <td><span class="speed-down">↓ @Kbps(down)</span> <span class="speed-up">↑ @Kbps(up)</span></td>
+                                    }
+                                </tr>
+                                <tr>
+                                    <td>Channel</td>
+                                    @foreach (var b in bands) { <td>@(b.Channel?.ToString() ?? "--")</td> }
+                                    @if (mlo) { <td>--</td> }
+                                </tr>
+                            }
+                            @WindowRow($"TX retries ({RangeLabel})", @<text><span class="speed-down">↓ @Pct(l.MeshRetryPct)</span> <span class="speed-up">↑ @Pct(l.MeshChildRetryPct)</span></text>)
+                            @WindowRow($"TX dropped ({RangeLabel})", @<text><span class="speed-down">↓ @(l.MeshTxDropped is double d ? $"{d:N0}" : "--")</span> <span class="speed-up">↑ @(l.MeshChildTxDropped is double c ? $"{c:N0}" : "--")</span></text>)
+                            @WindowRow($"Re-associations ({RangeLabel})", @<text>@(l.MeshReassociations?.ToString() ?? "--")</text>)
+                            @if (l.MeshWorstSignalDbm is int worst && l.MeshWorstSignalRadio is { } wr)
+                            {
+                                var wb = LanHealthDetectors.SignalBand(wr);
+                                @WindowRow($"Weakest signal ({RangeLabel})", @<text>@worst dBm <SignalBarsInline Dbm="worst" Band="wb" /> <span class="lan-health-sub">on @wb.ToDisplayString(), at the @(l.MeshWorstSignalAtParent ? "parent" : "child")</span></text>)
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <p class="lan-health-footer">↓ is @link.Upstream.DeviceName toward @link.Downstream.DeviceName, ↑ the other way. Signal, speed, and channel are as @link.Downstream.DeviceName reads them now.</p>
+            </div>
+        </div>
+    };
+
     /// <summary>Opens Live View's Port Statistics on this device: the table reads the hand-off when it mounts.</summary>
     private async Task OpenPortStatsAsync(LinkEnd end)
     {
@@ -699,6 +827,11 @@ else
                     }
                 </div>
             </div>
+        }
+
+        @if (link.IsMesh)
+        {
+            @MeshBackhaulCard(l)
         }
 
         @if (l.Coverage.Count > 0)

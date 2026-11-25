@@ -290,6 +290,9 @@ public sealed class LinkRecord
     public long? MeshTxRateKbps { get; init; }
     /// <summary>The mesh uplink's radio (ng, na, 6e), for the band's signal levels.</summary>
     public string? MeshRadio { get; init; }
+    /// <summary>The mesh uplink's channel, and its rate parent toward child (TX is child toward parent).</summary>
+    public int? MeshChannel { get; init; }
+    public long? MeshRxRateKbps { get; init; }
     public int? UplinkDepth { get; init; }
     /// <summary>The device on the neighbouring port the swap step names, when that port is in use.</summary>
     public string? SwapNeighbor { get; set; }
@@ -431,6 +434,17 @@ public sealed class LinkHealth
     public double? PoeWatts { get; set; }
     /// <summary>The highest draw sampled in the latest hour with a reading (a boot draws more).</summary>
     public double? PoePeakWatts { get; set; }
+
+    // A mesh backhaul over the window, for the Mesh Backhaul card: parent toward child, then child toward parent.
+    public double? MeshRetryPct { get; set; }
+    public double? MeshChildRetryPct { get; set; }
+    public double? MeshTxDropped { get; set; }
+    public double? MeshChildTxDropped { get; set; }
+    public int? MeshReassociations { get; set; }
+    /// <summary>The window's weakest typical signal, its radio, and whether the parent measured it.</summary>
+    public int? MeshWorstSignalDbm { get; set; }
+    public string? MeshWorstSignalRadio { get; set; }
+    public bool MeshWorstSignalAtParent { get; set; }
 }
 
 /// <summary>The site's LAN Health over a window: the score card, the findings, and every link.</summary>

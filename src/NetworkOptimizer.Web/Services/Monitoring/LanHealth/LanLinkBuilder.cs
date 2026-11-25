@@ -88,6 +88,8 @@ public static class LanLinkBuilder
                     MeshSignalDbm = up.Signal,
                     MeshRadio = up.RadioBand,
                     MeshTxRateKbps = up.TxRate > 0 ? up.TxRate : null,
+                    MeshRxRateKbps = up.RxRate > 0 ? up.RxRate : null,
+                    MeshChannel = up.Channel,
                     UplinkDepth = d.UplinkDepth,
                 });
                 continue;

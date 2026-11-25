@@ -334,6 +334,14 @@ public static class LanHealthReportBuilder
                 DownCarrierChanges = linkRows.LastOrDefault(r => r.DownCarrierChanges != null)?.DownCarrierChanges,
                 PoeWatts = link.UpstreamPort.PoePowerW ?? linkRows.LastOrDefault(r => r.PoeWattsMax != null)?.PoeWattsMax,
                 PoePeakWatts = linkRows.LastOrDefault(r => r.PoeWattsMax != null)?.PoeWattsMax,
+                MeshRetryPct = ev.MeshRetryPct,
+                MeshChildRetryPct = ev.MeshChildRetryPct,
+                MeshTxDropped = link.IsMesh && linkRows.Any(r => r.MeshTxDropped != null) ? ev.MeshTxDropped : null,
+                MeshChildTxDropped = link.IsMesh && linkRows.Any(r => r.MeshChildTxDropped != null) ? ev.MeshChildTxDropped : null,
+                MeshReassociations = link.IsMesh && linkRows.Count > 0 ? linkRows.Sum(r => r.MeshReassociations) : null,
+                MeshWorstSignalDbm = ev.MeshWorstSignalDbm,
+                MeshWorstSignalRadio = ev.MeshWorstSignalRadio,
+                MeshWorstSignalAtParent = ev.MeshWorstSignalAtParent,
             };
             health.Score = health.Exclusion == ExclusionLevel.ExcludeFromScore ? 100 : LanHealthScorer.LinkScore(findings);
             report.Links.Add(health);
