@@ -168,14 +168,11 @@ function portCell(p) {
     const name = p.friendlyName || p.ifName || (p.portId ? `Port ${p.portId}` : '');
     // Tooltip only when the shown label isn't already the raw interface name.
     const tip = (p.ifName && p.ifName !== name) ? ` data-tooltip="${escapeHtml(p.ifName)}"` : '';
-    return `<span class="port-cell">${portIcon(p)}<span class="port-label"${tip}>${escapeHtml(name)}</span>${lanHealthLink(p)}</span>`;
-}
-
-// The port's LAN Health link page, when LAN Health has a link on this port.
-function lanHealthLink(p) {
-    if (!p.lanHealthHref) return '';
+    const inner = `${portIcon(p)}<span class="port-label"${tip}>${escapeHtml(name)}</span>`;
+    if (!p.lanHealthHref) return `<span class="port-cell">${inner}</span>`;
+    // A port LAN Health has a link on opens that link's page from anywhere on the icon and name.
     const icon = window.noLinkOutIcon ? window.noLinkOutIcon('port-lan-health-icon') : '';
-    return `<a class="port-lan-health" href="${escapeHtml(p.lanHealthHref)}" data-tooltip="View this port on LAN Health" data-tooltip-hover-only aria-label="View this port on LAN Health">${icon}</a>`;
+    return `<a class="port-cell port-lan-health" href="${escapeHtml(p.lanHealthHref)}" data-tooltip="View this port on LAN Health" data-tooltip-hover-only>${inner}${icon}</a>`;
 }
 
 // The single wired client on this port, linked to its Client Performance dashboard.

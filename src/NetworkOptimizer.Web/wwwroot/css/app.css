@@ -22978,12 +22978,16 @@ body.kiosk-mode .status-indicators {
 }
 
 .port-lan-health {
-    display: inline-flex;
     color: var(--text-muted);
+    text-decoration: none;
+    border-radius: var(--border-radius);
+    margin: -2px -4px;
+    padding: 2px 4px;
 }
 
 .port-lan-health:hover {
     color: var(--primary-hover);
+    background: var(--bg-hover);
 }
 
 .port-client-link,
