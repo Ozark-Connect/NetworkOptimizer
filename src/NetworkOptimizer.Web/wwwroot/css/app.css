@@ -9298,11 +9298,6 @@ a.path-hop.hop-clickable:hover {
     margin-left: auto;
 }
 
-.threat-header-bar .wifi-tabs-scroll-btn {
-    border-bottom: none;
-    margin-top: 0.35rem;
-}
-
 .threat-controls {
     display: flex;
     align-items: center;
@@ -13947,20 +13942,37 @@ h3 > .tooltip-icon-sm {
     display: none; /* Chrome/Safari */
 }
 
+/* The arrows float over the strip's ends and fade out there. Never give them layout width: one that
+   collapsed at an end widened the strip mid-scroll, and the tabs jumped back a frame. */
 .wifi-tabs-scroll-btn {
     display: none;
+    position: absolute;
+    /* The tab row only: clear of the strip's top margin and its bottom padding and border line. */
+    top: 0.5rem;
+    bottom: calc(0.5rem + 1px);
     align-items: center;
-    justify-content: center;
     background: transparent;
     border: none;
-    border-bottom: 1px solid var(--border-color);
     color: var(--text-secondary);
     cursor: pointer;
     padding: 0 0.4rem;
     font-size: 1.2rem;
-    flex-shrink: 0;
     z-index: 1;
-    transition: color 0.15s ease;
+    transition: color 0.15s ease, opacity 0.15s ease;
+}
+
+.wifi-tabs-scroll-left {
+    left: 0;
+    padding-right: 1.25rem;
+    justify-content: flex-start;
+    background: linear-gradient(to right, var(--bg-primary) 55%, transparent);
+}
+
+.wifi-tabs-scroll-right {
+    right: 0;
+    padding-left: 1.25rem;
+    justify-content: flex-end;
+    background: linear-gradient(to left, var(--bg-primary) 55%, transparent);
 }
 
 .wifi-tabs-scroll-btn:hover {
@@ -13972,12 +13984,10 @@ h3 > .tooltip-icon-sm {
     display: flex;
 }
 
-/* Collapse button when scrolled to start/end */
+/* Fade the button out when scrolled to its end */
 .wifi-view-tabs-wrapper.at-start .wifi-tabs-scroll-left,
 .wifi-view-tabs-wrapper.at-end .wifi-tabs-scroll-right {
-    width: 0;
-    padding: 0;
-    overflow: hidden;
+    opacity: 0;
     pointer-events: none;
 }
 
