@@ -10,6 +10,7 @@
 @inject ILogger<LanHealthPanel> Logger
 @inject UniFiConnectionService ConnectionService
 @inject NetworkOptimizer.Web.Services.DeviceRestart.IDeviceRestartService DeviceRestarts
+@inject IClientIcons ClientIcons
 @using NetworkOptimizer.Web.Services.DeviceRestart
 
 <div class="lan-health">
@@ -283,7 +284,10 @@ else
             catch { /* the circuit is gone */ }
         }, null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
+        _ = ClientIcons.LoadIntoAsync(map => InvokeAsync(() => { _clientIcons = map; StateHasChanged(); }), Logger);
     }
+
+    private ClientIconMap _clientIcons = ClientIconMap.Empty;
 
     // Fires off the dispatcher. Reload on reconnect so a page opened while the console was down fills in.
     private async void OnConnectionChanged()
@@ -511,8 +515,8 @@ else
         </div>
     };
 
-    /// <summary>One end of the link: the device's icon with its restart button, its name, and its port.</summary>
-    private RenderFragment LinkEndView(LinkEnd end) => __builder =>
+    /// <summary>One end of the link: the device's icon with its restart button (a client's UniFi Network icon), its name, and its port.</summary>
+    private RenderFragment LinkEndView(LinkEnd end, string? clientMac = null) => __builder =>
     {
         <div class="lan-health-end">
             <div class="lan-health-end-icon">
@@ -524,6 +528,10 @@ else
                         <DeviceRestartButton Mac="@end.DeviceMac" Name="@end.DeviceName" OnChanged="LoadRestartBadgesAsync"
                                              Restart="@_restartBadges.GetValueOrDefault(NetworkOptimizer.Web.Services.Firmware.MacNormalizer.Normalize(end.DeviceMac))" />
                     }
+                }
+                else if (_clientIcons.UrlFor(clientMac) is { } iconUrl)
+                {
+                    <ClientIcon Url="@iconUrl" Size="40" />
                 }
                 else
                 {
@@ -564,7 +572,7 @@ else
             <div class="lan-health-link-ends">
                 @LinkEndView(link.Upstream)
                 <div class="lan-health-end-line @(link.Kind is LinkKind.FabricMesh or LinkKind.FabricMeshMlo ? "is-mesh" : null)"></div>
-                @LinkEndView(link.Downstream)
+                @LinkEndView(link.Downstream, link.ClientMac)
             </div>
             <div class="lan-health-link-head-right">
                 <span class="status-badge @StatusClass(l.Status)">@StatusLabel(l.Status)</span>
