@@ -1,5 +1,6 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.WiFi
+@using NetworkOptimizer.WiFi.Helpers
 @using NetworkOptimizer.WiFi.Models
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
@@ -386,7 +387,7 @@
         _authorizedClients = _clients.Count(c => c.IsAuthorized);
         _guestClients = _clients.Count(c => c.IsGuest);
         _clientsWithIssues = _clients.Count(c => !c.IsAuthorized || string.IsNullOrEmpty(c.Ip) ||
-                                                  (c.Signal.HasValue && c.Signal < -75));
+                                                  (c.Signal.HasValue && SignalClassification.IsWeakSignal(c.Signal.Value, c.Band)));
 
         // Success rate
         _successRate = _associatedClients > 0
@@ -429,7 +430,7 @@
         }
 
         // Weak signal clients (may have connectivity issues)
-        var weakSignalClients = _clients.Where(c => c.Signal.HasValue && c.Signal < -75).ToList();
+        var weakSignalClients = _clients.Where(c => c.Signal.HasValue && SignalClassification.IsWeakSignal(c.Signal.Value, c.Band)).ToList();
         if (weakSignalClients.Any())
         {
             _connectionIssues.Add(new ConnectionIssue
@@ -437,7 +438,7 @@
                 Icon = "wifi",
                 Severity = "warning",
                 Title = "Weak Signal",
-                Description = "These clients have signal below -75 dBm and may experience intermittent connectivity or slow speeds.",
+                Description = "These clients have weak signal for their band and may experience intermittent connectivity or slow speeds.",
                 Count = weakSignalClients.Count,
                 AffectedClients = weakSignalClients.Select(c => (c.Name, c.Mac)).ToList()
             });

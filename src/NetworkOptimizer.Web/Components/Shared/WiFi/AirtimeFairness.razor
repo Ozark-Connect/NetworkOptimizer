@@ -387,12 +387,11 @@
             .ToList();
 
         // Identify high airtime clients
-        // Criteria: legacy protocol, weak signal, or on 2.4GHz with weak signal
+        // Criteria: legacy protocol, or weak signal for the client's band
         _highAirtimeClientsList = onlineClients
             .Where(c =>
                 (c.WifiGeneration.HasValue && c.WifiGeneration <= 4) ||
-                (c.Signal.HasValue && c.Signal < -75) ||
-                (c.Band == RadioBand.Band2_4GHz && c.Signal.HasValue && c.Signal < -70))
+                IsWeak(c))
             .OrderBy(c => c.WifiGeneration ?? 4)
             .ThenBy(c => c.Signal ?? 0)
             .ToList();
@@ -442,9 +441,12 @@
         var gen = client.WifiGeneration ?? 4;
         if (gen <= 3) return "High Impact";
         if (gen == 4) return "Moderate Impact";
-        if (client.Signal.HasValue && client.Signal < -75) return "Weak Signal";
+        if (IsWeak(client)) return "Weak Signal";
         return "Review";
     }
+
+    private static bool IsWeak(WirelessClientSnapshot c) =>
+        c.Signal.HasValue && SignalClassification.IsWeakSignal(c.Signal.Value, c.Band);
 
     private string GetAirtimeReason(WirelessClientSnapshot client)
     {
@@ -453,7 +455,7 @@
         if (client.WifiGeneration.HasValue && client.WifiGeneration <= 4)
             reasons.Add($"Wi-Fi {client.WifiGeneration} - slower protocol");
 
-        if (client.Signal.HasValue && client.Signal < -75)
+        if (IsWeak(client))
             reasons.Add($"Weak signal ({client.Signal} dBm) - lower data rates");
 
         if (client.Band == RadioBand.Band2_4GHz && client.Capabilities.Supports5GHz)
@@ -466,7 +468,7 @@
     {
         var gen = client.WifiGeneration ?? 4;
         if (gen <= 3) return "airtime-high";
-        if (gen == 4 || (client.Signal.HasValue && client.Signal < -75)) return "airtime-medium";
+        if (gen == 4 || IsWeak(client)) return "airtime-medium";
         return "";
     }
 

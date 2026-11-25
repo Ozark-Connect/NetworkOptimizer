@@ -102,7 +102,7 @@ public class SiteHealthScorer
             var signals = clients.Where(c => c.Signal.HasValue).Select(c => c.Signal!.Value);
             stats.AvgSignalStrength = signals.Any() ? signals.Average() : 0;
 
-            stats.WeakSignalClients = clients.Count(c => c.Signal.HasValue && c.Signal.Value < _options.WeakSignalThreshold);
+            stats.WeakSignalClients = clients.Count(c => c.Signal.HasValue && SignalClassification.IsWeakSignal(c.Signal.Value, c.Band));
             stats.LegacyClients = clients.Count(c => IsLegacyClient(c));
         }
 
@@ -676,7 +676,6 @@ public class SiteHealthScorerOptions
     // Signal thresholds (dBm)
     public int ExcellentSignalThreshold { get; set; } = -50;
     public int GoodSignalThreshold { get; set; } = -65;
-    public int WeakSignalThreshold { get; set; } = -70;
 
     // Utilization thresholds (%)
     public int HighUtilizationThreshold { get; set; } = 70;
