@@ -81,17 +81,9 @@ public static class PortStatsEndpoints
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException) { /* The column shows listed clients only. */ }
             }
-            // The LAN map's names and recent addresses from client history, so an offline client or one listed
-            // with no ip names and links as it does on the map. Read off the cached snapshot: never a rebuild.
+            // The LAN map's client history names, for a client LAN Health has no link for (a past occupant on a
+            // historic scrub). Read off the cached snapshot: never a rebuild.
             var recentNames = mapCache.Current?.RecentClientNames;
-            var recentIps = mapCache.Current?.RecentClientIps;
-            (string? Mac, string? Ip, string? Name) Fill(string? clientMac, string? ip, string? name)
-            {
-                var key = Norm(clientMac ?? "");
-                if (string.IsNullOrWhiteSpace(name) && recentNames?.GetValueOrDefault(key) is { } known) name = known;
-                if (string.IsNullOrWhiteSpace(ip)) ip = recentIps?.GetValueOrDefault(key);
-                return (clientMac, string.IsNullOrWhiteSpace(ip) ? null : ip, string.IsNullOrWhiteSpace(name) ? null : name);
-            }
 
             await using var db = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
 
@@ -117,12 +109,9 @@ public static class PortStatsEndpoints
                     friendlyByMacIf[k] = m.FriendlyName!;
             }
 
-            Dictionary<(string Mac, int Port), double> poeByPort;
-            var lastClientByPort = new Dictionary<(string Mac, int Port), string>();
-            if (at.HasValue)
-                poeByPort = await HistoricPoeAsync(influx, at.Value, mapByKey, ct);
-            else
-                (poeByPort, lastClientByPort) = await LivePortTableAsync(connectionService, ct);
+            var poeByPort = at.HasValue
+                ? await HistoricPoeAsync(influx, at.Value, mapByKey, ct)
+                : await LivePoeAsync(connectionService, ct);
 
             // Each port's LAN Health link (today's), so a row opens its link page. Empty when LAN Health has none yet.
             var lanByPort = new Dictionary<(string Mac, int Port), NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkHealth>();
@@ -132,6 +121,25 @@ public static class PortStatsEndpoints
                 lanByPort = NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanHealthLinkMatch.ByPort(report.Links);
             }
             catch (Exception ex) when (ex is not OperationCanceledException) { /* The table renders without the links. */ }
+
+            // The port's client as LAN Health resolves it (named through ClientNames, then client history; its ip
+            // online or its last one), so both pages agree. A shared port (a hypervisor's VMs) names no one client.
+            NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkRecord? LanClient(string deviceMac, int port) =>
+                lanByPort.TryGetValue((deviceMac, port), out var lh)
+                    && lh.Link.Kind == NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkKind.Access && lh.Link.Upstream.DeviceMac == deviceMac
+                    && !string.IsNullOrEmpty(lh.Link.ClientMac) && lh.Link.OccupantMacs.Count <= 1 ? lh.Link : null;
+            (string? Mac, string? Ip, string? Name) Fill(string deviceMac, int port, string? clientMac, string? ip, string? name)
+            {
+                var key = Norm(clientMac ?? "");
+                var lan = LanClient(deviceMac, port);
+                if (lan != null && Norm(lan.ClientMac!) == key)
+                {
+                    if (string.IsNullOrWhiteSpace(name) && lan.Downstream.DeviceName != key) name = lan.Downstream.DeviceName;
+                    if (string.IsNullOrWhiteSpace(ip)) ip = lan.ClientIp;
+                }
+                if (string.IsNullOrWhiteSpace(name) && recentNames?.GetValueOrDefault(key) is { } known) name = known;
+                return (clientMac, string.IsNullOrWhiteSpace(ip) ? null : ip, string.IsNullOrWhiteSpace(name) ? null : name);
+            }
 
             string? ResolveFriendly(string mac, string ifName)
             {
@@ -184,19 +192,20 @@ public static class PortStatsEndpoints
                                     if (histClients != null)
                                     {
                                         if (histClients.TryGetValue((mac, pnum), out var hc))
-                                            (clientMac, clientIp, clientName) = Fill(hc.ClientMac, hc.ClientIp, hc.ClientName);
+                                            (clientMac, clientIp, clientName) = Fill(mac, pnum, hc.ClientMac, hc.ClientIp, hc.ClientName);
                                     }
                                     else if (liveStats.GetPortClient(mac, pnum) is { } lc)
                                     {
-                                        (clientMac, clientIp, clientName) = Fill(lc.Mac, lc.Ip, lc.Name);
+                                        (clientMac, clientIp, clientName) = Fill(mac, pnum, lc.Mac, lc.Ip, lc.Name);
                                     }
                                     else if (presentByPort.TryGetValue((mac, pnum), out var present))
                                     {
-                                        (clientMac, clientIp, clientName) = Fill(present.ClientMac, present.Ip, present.Name);
+                                        (clientMac, clientIp, clientName) = Fill(mac, pnum, present.ClientMac, present.Ip, present.Name);
                                     }
-                                    else if (!liveStats.IsSharedPort(mac, pnum) && lastClientByPort.TryGetValue((mac, pnum), out var lastMac))
+                                    else if (LanClient(mac, pnum) is { } lan)
                                     {
-                                        (clientMac, clientIp, clientName) = Fill(lastMac, null, null);
+                                        // Asleep or unplugged: the port's last client, as LAN Health's link names it.
+                                        (clientMac, clientIp, clientName) = Fill(mac, pnum, lan.ClientMac, null, null);
                                     }
                                 }
                                 return new
@@ -255,35 +264,24 @@ public static class PortStatsEndpoints
     /// UniFi Network shows, for every switch and gateway whether SNMP reads it or not. Empty when the console
     /// is not answering. A port with PoE turned off (<c>poe_mode</c> "off") is left out, so it reads as no PoE.
     /// </summary>
-    private static async Task<(Dictionary<(string Mac, int Port), double> Poe, Dictionary<(string Mac, int Port), string> LastClient)> LivePortTableAsync(
-        UniFiConnectionService connection, CancellationToken ct)
+    private static async Task<Dictionary<(string Mac, int Port), double>> LivePoeAsync(UniFiConnectionService connection, CancellationToken ct)
     {
         var poe = new Dictionary<(string, int), double>();
-        var lastClient = new Dictionary<(string, int), string>();
-        if (connection.Client is not { } client) return (poe, lastClient);
+        if (connection.Client is not { } client) return poe;
         try
         {
-            var devices = await client.GetDevicesAsync(ct);
-            var deviceMacs = devices.Where(d => !string.IsNullOrEmpty(d.Mac)).Select(d => Norm(d.Mac)).ToHashSet();
-            foreach (var device in devices)
+            foreach (var device in await client.GetDevicesAsync(ct))
                 foreach (var port in device.PortTable ?? [])
-                {
-                    if (port.PortIdx <= 0) continue;
-                    var key = (Norm(device.Mac ?? ""), port.PortIdx);
-                    if (port.PortPoe
+                    if (port.PortPoe && port.PortIdx > 0
                         && !string.Equals(port.PoeMode, "off", StringComparison.OrdinalIgnoreCase)
                         && double.TryParse(port.PoePower, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var w))
-                        poe[key] = w;
-                    // The console's last client on the port, as LAN Health names an access port. A UniFi device there is fabric.
-                    if (port.LastConnection?.Mac is { Length: > 0 } lc && !deviceMacs.Contains(Norm(lc)))
-                        lastClient[key] = Norm(lc);
-                }
+                        poe[(Norm(device.Mac ?? ""), port.PortIdx)] = w;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // PoE and the last client are details: the table renders without them.
+            // The column is a detail: the table renders without it.
         }
-        return (poe, lastClient);
+        return poe;
     }
 
     /// <summary>

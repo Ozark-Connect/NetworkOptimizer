@@ -454,21 +454,11 @@ public class MonitoringLiveStats
     private volatile IReadOnlyDictionary<(string DeviceMac, int Port), PortClient> _portClients =
         new Dictionary<(string, int), PortClient>();
 
-    // Ports the console lists more than one wired client on: nobody's, so no last-connection label either.
-    private volatile IReadOnlySet<(string DeviceMac, int Port)> _sharedPorts = new HashSet<(string, int)>();
-
-    /// <summary>Replaces the whole (device, port) → wired-client map, and the ports more than one client shares.</summary>
-    public void RecordPortClients(IReadOnlyDictionary<(string DeviceMac, int Port), PortClient> map,
-        IReadOnlySet<(string DeviceMac, int Port)>? sharedPorts = null)
+    /// <summary>Replaces the whole (device, port) → wired-client map.</summary>
+    public void RecordPortClients(IReadOnlyDictionary<(string DeviceMac, int Port), PortClient> map)
     {
-        if (map == null) return;
-        _portClients = map;
-        _sharedPorts = sharedPorts ?? new HashSet<(string, int)>();
+        if (map != null) _portClients = map;
     }
-
-    /// <summary>True when the console lists more than one wired client on the port.</summary>
-    public bool IsSharedPort(string deviceMac, int port) =>
-        !string.IsNullOrEmpty(deviceMac) && _sharedPorts.Contains((Normalize(deviceMac), port));
 
     /// <summary>The wired client on a device port, or null when none / ambiguous.</summary>
     public PortClient? GetPortClient(string deviceMac, int port)
