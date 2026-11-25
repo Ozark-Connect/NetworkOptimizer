@@ -422,7 +422,11 @@ public static class LanSiteDetectors
         foreach (var (id, ev) in s.Evidence)
         {
             if (!ev.Link.IsFabric || ev.BaselineHours.Count < 24 * 14) continue;
-            var weeks = ev.BaselineHours.Concat(ev.Hours).GroupBy(h => (int)((h.Hour - ev.BaselineHours[0].Hour).TotalDays / 7))
+            // Only hours with a rate: an hour from before the link's rates were collected (a mesh link's, until
+            // 2.12) is unknown, not idle, and counting it as 0% invents growth. A week needs three days of them.
+            var weeks = ev.BaselineHours.Concat(ev.Hours).Where(h => h.MeanInBps != null || h.MeanOutBps != null)
+                .GroupBy(h => (int)((h.Hour - ev.BaselineHours[0].Hour).TotalDays / 7))
+                .Where(g => g.Count() >= 72)
                 .Select(g => (Week: g.Key, P95: LanHealthDetectors.Percentile(g.Select(h => LanHealthDetectors.Utilization(ev.Link, h)).ToList(), 0.95) ?? 0))
                 .OrderBy(w => w.Week).ToList();
             if (weeks.Count < 3) continue;

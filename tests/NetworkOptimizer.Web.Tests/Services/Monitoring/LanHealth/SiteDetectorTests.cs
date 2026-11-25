@@ -263,6 +263,17 @@ public class SiteDetectorTests
     }
 
     [Fact]
+    public void CapacityTrend_HoursBeforeRatesWereCollected_AreNotGrowth()
+    {
+        // A mesh link with no rates for two weeks, then a steady 10%: unknown hours are not 0% load.
+        var link = Link("gw-core", GwMac, "Gateway A", 2, DeviceType.Switch, "Core", speed: 1000);
+        var start = T0.AddDays(-21);
+        LinkHourSample H(int hour) => new(start.AddHours(hour), null, null, hour < 14 * 24 ? null : 1e8, null, null, null, null, null, null);
+        var ev = new LinkEvidence { Link = link.Link, BaselineHours = Enumerable.Range(0, 21 * 24).Select(H).ToList(), Hours = Enumerable.Range(21 * 24, 48).Select(H).ToList() };
+        LanSiteDetectors.CapacityTrend(new SiteEvidence { Evidence = new Dictionary<string, LinkEvidence> { [link.Link.Id] = ev } }).Should().BeEmpty();
+    }
+
+    [Fact]
     public void GatewayForwarding_TestsWellBelowNorm()
     {
         var s = new SiteEvidence { Devices = [Gateway()], Links = [Link("gw-core", GwMac, "Gateway A", 2, DeviceType.Switch)], GatewayForwarding = (3, 0.4) };
