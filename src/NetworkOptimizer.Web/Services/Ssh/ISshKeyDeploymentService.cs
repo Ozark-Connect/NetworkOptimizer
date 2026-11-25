@@ -1,7 +1,5 @@
-using System.Text;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Gates;
-using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Web.Services.Ssh;
 
@@ -233,7 +231,7 @@ public sealed class SshKeyDeploymentService : ISshKeyDeploymentService
         if (!result.success || result.output.Contains("FAILED"))
             return (false, $"Could not remove the key from the gateway: {result.output.Trim()}");
         if (result.output.Contains("KEPT_PREEXISTING"))
-            return (true, "Network Optimizer no longer keeps the key on the gateway. It was there before Network Optimizer installed it, so it stays in authorized_keys.");
+            return (true, "Network Optimizer no longer keeps the key on the gateway. It was there before we installed it, so it stays in authorized_keys.");
         if (result.output.Contains("NOT_PLACED"))
             return (true, "Network Optimizer did not put this key on the gateway, so it stays in authorized_keys.");
         if (result.output.Contains("REMOVED"))
