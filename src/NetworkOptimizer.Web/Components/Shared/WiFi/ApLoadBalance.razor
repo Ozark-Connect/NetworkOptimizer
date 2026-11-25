@@ -146,7 +146,7 @@
                             @foreach (var radio in ap.Radios.Where(r => r.Channel.HasValue))
                             {
                                 <div class="radio-summary">
-                                    <span class="radio-band @GetBandCssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
+                                    <span class="radio-band @BandBadge.CssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
                                     <span class="radio-clients clickable" @onclick="@(() => OnNavigateToClients.InvokeAsync((ap.Mac, (RadioBand?)radio.Band)))">@(radio.ClientCount ?? 0) clients</span>
                                     <span class="radio-util @GetUtilizationClass(radio.ChannelUtilization ?? 0)">
                                         @(radio.ChannelUtilization ?? 0)% util
@@ -337,14 +337,6 @@
         > 50 => "stat-danger",
         > 30 => "stat-warning",
         _ => "stat-good"
-    };
-
-    private string GetBandCssClass(RadioBand band) => band switch
-    {
-        RadioBand.Band2_4GHz => "band-2ghz",
-        RadioBand.Band5GHz => "band-5ghz",
-        RadioBand.Band6GHz => "band-6ghz",
-        _ => ""
     };
 
     private string GetUtilizationClass(int util) => util switch

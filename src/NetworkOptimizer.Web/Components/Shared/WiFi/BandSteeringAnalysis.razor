@@ -114,7 +114,7 @@
                                     </div>
                                     <div class="client-current-band">
                                         <span class="current-label">Currently on:</span>
-                                        <span class="band-badge @GetBandCssClass(client.Band)">@client.Band.ToDisplayString()</span>
+                                        <span class="band-badge @BandBadge.CssClass(client.Band)">@client.Band.ToDisplayString()</span>
                                     </div>
                                     <div class="client-signal">@(client.Signal ?? 0) dBm</div>
                                 </div>
@@ -144,7 +144,7 @@
                                     </div>
                                     <div class="client-current-band">
                                         <span class="current-label">Currently on:</span>
-                                        <span class="band-badge @GetBandCssClass(client.Band)">@client.Band.ToDisplayString()</span>
+                                        <span class="band-badge @BandBadge.CssClass(client.Band)">@client.Band.ToDisplayString()</span>
                                     </div>
                                     <div class="client-signal">@(client.Signal ?? 0) dBm</div>
                                 </div>
@@ -461,14 +461,6 @@
         if (_totalClients == 0) return 0;
         return (int)Math.Round((double)count / _totalClients * 100);
     }
-
-    private string GetBandCssClass(RadioBand band) => band switch
-    {
-        RadioBand.Band2_4GHz => "band-2ghz",
-        RadioBand.Band5GHz => "band-5ghz",
-        RadioBand.Band6GHz => "band-6ghz",
-        _ => ""
-    };
 
     private string GetGenCssClass(int generation) => generation switch
     {

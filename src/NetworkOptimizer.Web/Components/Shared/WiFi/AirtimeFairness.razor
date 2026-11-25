@@ -93,7 +93,7 @@
                                 var utilClass = GetUtilizationClass(utilPct);
                                 <div class="radio-util-row">
                                     <div class="radio-info">
-                                        <span class="radio-band @GetBandCssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
+                                        <span class="radio-band @BandBadge.CssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
                                         <span class="radio-channel">Ch @radio.Channel</span>
                                     </div>
                                     <div class="radio-util-bar-container">
@@ -209,7 +209,7 @@
                                 </div>
                                 <div class="client-detail">
                                     <span class="detail-label">Band</span>
-                                    <span class="detail-value @GetBandCssClass(client.Band)">@client.Band.ToDisplayString()</span>
+                                    <span class="detail-value @BandBadge.CssClass(client.Band)">@client.Band.ToDisplayString()</span>
                                 </div>
                                 <div class="client-detail">
                                     <span class="detail-label">Signal</span>
@@ -244,7 +244,7 @@
                         <div class="retry-row">
                             <div class="retry-ap-info">
                                 <span class="ap-name"><DeviceIcon Model="@ap.Model" Size="md" /> @ap.Name</span>
-                                <span class="radio-band @GetBandCssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
+                                <span class="radio-band @BandBadge.CssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
                             </div>
                             <div class="retry-bar-container">
                                 <div class="retry-bar @retryClass" style="width: @Math.Min(100, retryPct * 2)%"></div>
@@ -484,14 +484,6 @@
         > 20 => "retry-high",
         > 10 => "retry-medium",
         _ => "retry-low"
-    };
-
-    private string GetBandCssClass(RadioBand band) => band switch
-    {
-        RadioBand.Band2_4GHz => "band-2ghz",
-        RadioBand.Band5GHz => "band-5ghz",
-        RadioBand.Band6GHz => "band-6ghz",
-        _ => ""
     };
 
     private string GetGenCssClass(int generation) => generation switch

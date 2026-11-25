@@ -5,6 +5,7 @@
 @using NetworkOptimizer.WiFi
 @using NetworkOptimizer.WiFi.Helpers
 @using NetworkOptimizer.WiFi.Models
+@using NetworkOptimizer.Web.Components.Shared.WiFi
 @using NetworkOptimizer.Storage.Models
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
@@ -683,7 +684,7 @@
                                                     @foreach (var link in ap.MeshUplinkLinks.OrderByDescending(l => l.Band))
                                                     {
                                                         <div class="mesh-mlo-link">
-                                                            <span class="band-badge @GetBandCssClass(link.Band ?? RadioBand.Band5GHz)">@((link.Band ?? RadioBand.Band5GHz).ToDisplayString())</span>
+                                                            <span class="band-badge @BandBadge.CssClass(link.Band ?? RadioBand.Band5GHz)">@((link.Band ?? RadioBand.Band5GHz).ToDisplayString())</span>
                                                             <span class="mesh-signal-value mesh-mlo-signal">
                                                                 @if (link.SignalDbm.HasValue)
                                                                 {
@@ -750,7 +751,7 @@
                                                         @foreach (var link in child.Links.OrderByDescending(l => l.Band))
                                                         {
                                                             <div class="mesh-mlo-link">
-                                                                <span class="band-badge @GetBandCssClass(link.Band ?? RadioBand.Band5GHz)">@((link.Band ?? RadioBand.Band5GHz).ToDisplayString())</span>
+                                                                <span class="band-badge @BandBadge.CssClass(link.Band ?? RadioBand.Band5GHz)">@((link.Band ?? RadioBand.Band5GHz).ToDisplayString())</span>
                                                                 <span class="mesh-signal-value mesh-mlo-signal">
                                                                     @if (link.SignalDbm.HasValue)
                                                                     {
@@ -816,7 +817,7 @@
                                         @if (radio.Channel.HasValue)
                                         {
                                             <div class="ap-radio">
-                                                <span class="radio-band clickable @GetBandCssClass(radio.Band)"
+                                                <span class="radio-band clickable @BandBadge.CssClass(radio.Band)"
                                                       @onclick="@(() => NavigateToTab("metrics", ap.Mac, radio.Band))"
                                                       @onclick:stopPropagation="true">@radio.Band.ToDisplayString()</span>
                                                 <span class="radio-channel clickable"
@@ -842,7 +843,7 @@
                                         else
                                         {
                                             <div class="ap-radio radio-disabled">
-                                                <span class="radio-band @GetBandCssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
+                                                <span class="radio-band @BandBadge.CssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
                                                 @if (radio.Band == RadioBand.Band6GHz && ap.IsAfcEnabled)
                                                 {
                                                     <span class="radio-channel">AFC</span>
@@ -1724,14 +1725,6 @@
         <= 30 => "util-low",
         <= 60 => "util-medium",
         _ => "util-high"
-    };
-
-    private string GetBandCssClass(RadioBand band) => band switch
-    {
-        RadioBand.Band2_4GHz => "band-2ghz",
-        RadioBand.Band5GHz => "band-5ghz",
-        RadioBand.Band6GHz => "band-6ghz",
-        _ => ""
     };
 
     private int GetBandPercentage(int count)

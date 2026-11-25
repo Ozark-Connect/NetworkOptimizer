@@ -136,7 +136,7 @@
                                 <td><code>@client.Mac</code></td>
                                 <td>@(client.ApName ?? "-")</td>
                                 <td class="hide-mobile">@(string.IsNullOrEmpty(client.Essid) ? "-" : client.Essid)</td>
-                                <td>@if (client.IsOnline && client.Band != RadioBand.Unknown) { <span class="band-badge @GetBandCssClass(client.Band)">@client.Band.ToDisplayString()</span> } else { <text>-</text> }</td>
+                                <td>@if (client.IsOnline && client.Band != RadioBand.Unknown) { <span class="band-badge @BandBadge.CssClass(client.Band)">@client.Band.ToDisplayString()</span> } else { <text>-</text> }</td>
                                 <td class="@SignalClassification.GetSignalClass(client.Signal, client.Band)" style="color: @SignalClassification.GetSignalColor(client.Signal, client.Band)">@(client.IsOnline && client.Signal.HasValue ? $"{client.Signal} dBm" : "-")</td>
                             </tr>
                         }
@@ -226,14 +226,14 @@
                             <span class="info-value @SignalClassification.GetSignalClass(_selectedClient.Signal, _selectedClient.Band)" style="color: @SignalClassification.GetSignalColor(_selectedClient.Signal, _selectedClient.Band)"
                                   data-tooltip="Signal of the active MLO link">@(_selectedClient.Signal?.ToString() ?? "-") dBm</span>
                             <SignalBarsInline Dbm="_selectedClient.Signal" Band="_selectedClient.Band" />
-                            <span class="band-badge @GetBandCssClass(_selectedClient.Band)">@_selectedClient.Band.ToDisplayString()</span>
+                            <span class="band-badge @BandBadge.CssClass(_selectedClient.Band)">@_selectedClient.Band.ToDisplayString()</span>
                         </div>
                     }
                     else
                     {
                         <div class="info-item">
                             <span class="info-label">Band:</span>
-                            <span class="info-value band-badge @GetBandCssClass(_selectedClient.Band)">
+                            <span class="info-value band-badge @BandBadge.CssClass(_selectedClient.Band)">
                                 @_selectedClient.Band.ToDisplayString()
                             </span>
                         </div>
@@ -269,7 +269,7 @@
                         {
                             var active = IsMloLinkActive(link);
                             <div class="mlo-link-row @(active ? "" : "mlo-link-idle")">
-                                <span class="band-badge @GetBandCssClass(link.Band)">@link.Band.ToDisplayString()</span>
+                                <span class="band-badge @BandBadge.CssClass(link.Band)">@link.Band.ToDisplayString()</span>
                                 <span class="mlo-link-meta">Ch @(link.Channel?.ToString() ?? "-")@(link.ChannelWidth.HasValue ? $" - {link.ChannelWidth} MHz" : "")</span>
                                 @if (active)
                                 {
@@ -871,14 +871,6 @@
             (evt.Signal.HasValue ? $" · Last signal: {evt.Signal} dBm" : ""),
 
         _ => evt.WifiStats ?? ""
-    };
-
-    private string GetBandCssClass(RadioBand band) => band switch
-    {
-        RadioBand.Band2_4GHz => "band-2ghz",
-        RadioBand.Band5GHz => "band-5ghz",
-        RadioBand.Band6GHz => "band-6ghz",
-        _ => ""
     };
 
     private static bool HasMloLinks(WirelessClientSnapshot client) => client.IsMlo && client.MloLinks.Count > 0;

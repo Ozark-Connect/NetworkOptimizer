@@ -114,7 +114,7 @@
                             {
                                 <div class="radio-power-item">
                                     <div class="radio-info">
-                                        <span class="radio-band @GetBandCssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
+                                        <span class="radio-band @BandBadge.CssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
                                         <span class="radio-channel">Ch @radio.Channel</span>
                                     </div>
                                     <EirpBar Radio="radio" Model="@ap.Model" />
@@ -471,14 +471,6 @@
                 .ToList();
         }
     }
-
-    private string GetBandCssClass(RadioBand band) => band switch
-    {
-        RadioBand.Band2_4GHz => "band-2ghz",
-        RadioBand.Band5GHz => "band-5ghz",
-        RadioBand.Band6GHz => "band-6ghz",
-        _ => ""
-    };
 
     private string GetSignalClass(int? signal) =>
         signal.HasValue ? SignalClassification.GetSignalClass(signal.Value, RadioBand.Band5GHz) : "";

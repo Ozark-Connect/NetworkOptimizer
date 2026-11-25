@@ -159,7 +159,7 @@
             <div class="band-env-grid">
                 @foreach (var band in _bandStats)
                 {
-                    <div class="band-env-card @GetBandCssClass(band.Band)">
+                    <div class="band-env-card @BandBadge.CssClass(band.Band)">
                         <div class="band-env-header">
                             <span class="band-name">@band.Band.ToDisplayString()</span>
                         </div>
@@ -635,14 +635,6 @@
                 (int)(from.g + (to.g - from.g) * t),
                 (int)(from.b + (to.b - from.b) * t));
     }
-
-    private string GetBandCssClass(RadioBand band) => band switch
-    {
-        RadioBand.Band2_4GHz => "band-2ghz",
-        RadioBand.Band5GHz => "band-5ghz",
-        RadioBand.Band6GHz => "band-6ghz",
-        _ => ""
-    };
 
     private class TimeOfDayStats
     {
