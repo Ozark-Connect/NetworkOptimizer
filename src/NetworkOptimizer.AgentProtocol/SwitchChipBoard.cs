@@ -9,11 +9,16 @@ namespace NetworkOptimizer.AgentProtocol;
 /// </summary>
 public static class SwitchChipBoard
 {
-    /// <summary>This board's file among <paramref name="files"/>: board.sysid=0xa67a names udr7-a67a.json. Null when none matches.</summary>
+    /// <summary>
+    /// This board's file among <paramref name="files"/>: board.sysid=0xa67a names udr7-a67a.json. Reads
+    /// /etc/board.info (board.sysid=) or /proc/ubnthal/system.info (systemid=), since the UCG-Fiber has no
+    /// /etc/board.info. Null when none matches.
+    /// </summary>
     public static string? BoardFile(string boardInfo, IEnumerable<string> files)
     {
-        var sysid = boardInfo.Split('\n').Select(l => l.Trim())
-            .FirstOrDefault(l => l.StartsWith("board.sysid=", StringComparison.Ordinal))?["board.sysid=".Length..].Trim();
+        var lines = boardInfo.Split('\n').Select(l => l.Trim()).ToList();
+        var sysid = (lines.FirstOrDefault(l => l.StartsWith("board.sysid=", StringComparison.Ordinal))?["board.sysid=".Length..]
+            ?? lines.FirstOrDefault(l => l.StartsWith("systemid=", StringComparison.Ordinal))?["systemid=".Length..])?.Trim();
         if (string.IsNullOrEmpty(sysid)) return null;
         var suffix = "-" + (sysid.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? sysid[2..] : sysid).ToLowerInvariant() + ".json";
         return files.FirstOrDefault(f => f.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));

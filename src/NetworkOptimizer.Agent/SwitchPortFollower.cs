@@ -29,6 +29,7 @@ public sealed class SwitchPortFollower
     private string _model = "";
 
     private const string BoardInfoPath = "/etc/board.info";
+    private const string SystemInfoPath = "/proc/ubnthal/system.info";
     private const string BoardConfigDir = "/usr/share/ubios-udapi-server/config-board";
 
     /// <summary>Tests: a follower with a known chip port map.</summary>
@@ -45,7 +46,13 @@ public sealed class SwitchPortFollower
     /// <summary>True when swconfig answers for switch0 and the board's own file maps its ports.</summary>
     public static bool Available()
     {
-        try { return File.Exists("/usr/sbin/swconfig") && LoadPortMap(RunSwconfig) is { Count: > 0 }; }
+        try
+        {
+            if (!File.Exists("/usr/sbin/swconfig")) return false;
+            if (LoadPortMap(RunSwconfig) is { Count: > 0 }) return true;
+            Console.Error.WriteLine("Switch ports: no board file maps this switch chip, so no chip data is sent");
+            return false;
+        }
         catch (Exception) { return false; }
     }
 
@@ -53,8 +60,9 @@ public sealed class SwitchPortFollower
     private static Dictionary<int, string>? LoadPortMap(Func<string, TimeSpan, string?> run)
     {
         var description = SwitchChipOutput.Describe(run("dev switch0 help", TimeSpan.FromSeconds(5)));
-        if (description.Ports.Count == 0 || !File.Exists(BoardInfoPath) || !Directory.Exists(BoardConfigDir)) return null;
-        var file = SwitchChipBoard.BoardFile(File.ReadAllText(BoardInfoPath), Directory.GetFiles(BoardConfigDir, "*.json"));
+        var infoPath = File.Exists(BoardInfoPath) ? BoardInfoPath : File.Exists(SystemInfoPath) ? SystemInfoPath : null;
+        if (description.Ports.Count == 0 || infoPath == null || !Directory.Exists(BoardConfigDir)) return null;
+        var file = SwitchChipBoard.BoardFile(File.ReadAllText(infoPath), Directory.GetFiles(BoardConfigDir, "*.json"));
         if (file == null) return null;
         return SwitchChipBoard.PortMap(File.ReadAllText(file), description.Cpu, description.Ports);
     }

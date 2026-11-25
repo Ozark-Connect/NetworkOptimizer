@@ -45,4 +45,17 @@ public class SwitchChipBoardTests
         SwitchChipBoard.BoardFile("board.sysid=0xffff\n", files).Should().BeNull();
         SwitchChipBoard.BoardFile("board.name=x\n", files).Should().BeNull();
     }
+
+    // The UCG-Fiber has no /etc/board.info; its sysid is in /proc/ubnthal/system.info.
+    [Fact]
+    public void BoardFile_IsPickedBySystemInfo()
+    {
+        var files = new[] { "/c/ucg-fiber-a6a8.json", "/c/udr7-a67a.json", "/c/uxg-fiber-a6aa.json" };
+        SwitchChipBoard.BoardFile("cpu=Alder\nvendorid=0777\nsystemid=a6a8\nshortname=UCGF\n", files).Should().Be("/c/ucg-fiber-a6a8.json");
+    }
+
+    // ucg-fiber-a6a8.json on 6.0.17, as read off a UCG-Fiber.
+    private const string UcgFiber = @"{""switches"":[{""id"":""switch0"",""driver"":""RTL8372"",""cpu-ports"":[{""interface"":{""id"":""switch0""},""cpu-port"":5}],""edge-ports"":[{""interface"":{""id"":""eth4""},""edge-port"":0,""cpu-port"":5},{""interface"":{""id"":""eth3""},""edge-port"":1,""cpu-port"":5},{""interface"":{""id"":""eth2""},""edge-port"":2,""cpu-port"":5},{""interface"":{""id"":""eth1""},""edge-port"":3,""cpu-port"":5},{""interface"":{""id"":""eth0""},""edge-port"":4,""cpu-port"":5}]}]}";
+
+    [Fact] public void UcgFiber_IsReversed() => Map(UcgFiber, 5, 0, 1, 2, 3, 4).Should().Be("0:eth4,1:eth3,2:eth2,3:eth1,4:eth0");
 }
