@@ -4145,10 +4145,11 @@ public class UpstreamTracerService
     }
 
     /// <summary>
-    /// Names PTR-less transit hops "&lt;Org&gt; 1/2/3", skipping any name a saved target at another
-    /// address holds, so a new hop never takes the name of an old one that left the path. A hop
-    /// already saved keeps its name unless it is an auto name an older row at another address
-    /// holds: that duplicate is renumbered, so the next discovery repairs it.
+    /// Names PTR-less transit hops "&lt;Org&gt; N" by their reach N within the ASN. Hops sharing a reach,
+    /// or a name a saved target at another address already holds, take a -1, -2 suffix
+    /// ("AT&amp;T 1-1"), the convention access hops use for responders sharing a number. A saved hop keeps its name
+    /// unless an older row at another address holds the same auto name: that duplicate takes a
+    /// suffix, so the next discovery repairs it. Names the user chose are never changed.
     /// </summary>
     internal static void AssignFallbackNumbers(IReadOnlyList<TransitAsnCandidate> numbered, IReadOnlyList<MonitoringTarget> existing)
     {
@@ -4156,31 +4157,52 @@ public class UpstreamTracerService
             .Where(t => !string.IsNullOrEmpty(t.Name))
             .ToLookup(t => t.Name!, StringComparer.OrdinalIgnoreCase);
         var assigned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool Free(string name, string? address) => !assigned.Contains(name)
+            && !rowsByName[name].Any(t => !string.Equals(t.Address, address, StringComparison.OrdinalIgnoreCase));
 
-        // Saved hops first, so a new hop numbered below never takes a name one of them keeps.
-        var renumber = new List<TransitAsnCandidate>();
+        // Saved hops first, so a new hop named below never takes a name one of them keeps.
+        var suffixed = new List<(TransitAsnCandidate Hop, string Base)>();
         foreach (var c in numbered.Where(c => c.PreservedFromExisting))
         {
             var ownId = existing
                 .Where(t => string.Equals(t.Address, c.HopAddress, StringComparison.OrdinalIgnoreCase))
                 .Select(t => t.Id).DefaultIfEmpty(int.MaxValue).Min();
-            var isAutoName = Regex.IsMatch(c.Label ?? "", $@"^{Regex.Escape(c.AsnName ?? "")} \d+$", RegexOptions.IgnoreCase);
+            var isAutoName = Regex.IsMatch(c.Label ?? "", $@"^{Regex.Escape(c.AsnName ?? "")} \d+(-\d+)?$", RegexOptions.IgnoreCase);
             var olderHolder = rowsByName[c.Label ?? ""].Any(t =>
                 !string.Equals(t.Address, c.HopAddress, StringComparison.OrdinalIgnoreCase) && t.Id < ownId);
             if (isAutoName && (olderHolder || assigned.Contains(c.Label!)))
-                renumber.Add(c);
+                suffixed.Add((c, Regex.Replace(c.Label!, @"-\d+$", "")));
             else if (!string.IsNullOrEmpty(c.Label))
                 assigned.Add(c.Label);
         }
-        renumber.AddRange(numbered.Where(c => !c.PreservedFromExisting));
 
-        foreach (var c in renumber)
+        // N is the hop's reach within the ASN: the rank of its hop number among the ASN's PTR-less
+        // hops, saved ones included. Several new hops at one reach all take N-1, N-2, as access hops do.
+        var reach = new Dictionary<TransitAsnCandidate, int>();
+        foreach (var asnGroup in numbered.GroupBy(c => c.AsnNumber))
         {
-            for (var n = 1; ; n++)
+            var ranks = asnGroup.Select(c => c.HopNumber).Distinct().Order().ToList();
+            foreach (var c in asnGroup) reach[c] = ranks.IndexOf(c.HopNumber) + 1;
+        }
+        foreach (var group in numbered.Where(c => !c.PreservedFromExisting).GroupBy(c => (c.AsnNumber, reach[c])))
+        {
+            var members = group.ToList();
+            var name = $"{members[0].AsnName} {group.Key.Item2}";
+            if (members.Count == 1 && Free(name, members[0].HopAddress))
             {
-                var name = $"{c.AsnName} {n}";
-                if (assigned.Contains(name)) continue;
-                if (rowsByName[name].Any(t => !string.Equals(t.Address, c.HopAddress, StringComparison.OrdinalIgnoreCase))) continue;
+                members[0].Label = name;
+                assigned.Add(name);
+            }
+            else
+                suffixed.AddRange(members.Select(c => (c, name)));
+        }
+
+        foreach (var (c, baseName) in suffixed)
+        {
+            for (var k = 1; ; k++)
+            {
+                var name = $"{baseName}-{k}";
+                if (!Free(name, c.HopAddress)) continue;
                 c.Label = name;
                 assigned.Add(name);
                 break;
