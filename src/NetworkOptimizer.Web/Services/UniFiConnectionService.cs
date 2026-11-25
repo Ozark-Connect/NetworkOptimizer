@@ -1927,13 +1927,15 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     }
 
     /// <summary>
-    /// The gateway whose wan1..wan6 objects the WAN lookups read: a ugw, udm, or uxg in the
-    /// gateway role. An HA pair lists two, and the active one wins over the shadow gateway.
+    /// The gateway whose wan1..wan6 objects the WAN lookups read: the first ugw, udm, or uxg in
+    /// the gateway role.
     /// </summary>
+    // HA pairs are not handled here on purpose. Do not prefer the non-shadow gateway: after a
+    // failover the managed_shadow_gateway is VRRP master and carries the traffic. UniFi's rule
+    // (gateway && (vrrp.state == "master" || not shadow)) belongs in one shared helper that every
+    // gateway pick, including UniFiDiscovery.SiteGateway, moves to together.
     internal static UniFiDeviceResponse? FindWanGateway(IEnumerable<UniFiDeviceResponse> devices) =>
-        devices.Where(d => d.Type is "ugw" or "udm" or "uxg" && d.DeviceType == DeviceType.Gateway)
-            .OrderBy(d => d.DeviceModeOverride == "managed_shadow_gateway")
-            .FirstOrDefault();
+        devices.FirstOrDefault(d => d.Type is "ugw" or "udm" or "uxg" && d.DeviceType == DeviceType.Gateway);
 
     /// <summary>
     /// Every WAN's interface forms from the cached device call, one entry per wan1..wan6 object

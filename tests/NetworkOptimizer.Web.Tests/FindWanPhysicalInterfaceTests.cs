@@ -12,7 +12,7 @@ namespace NetworkOptimizer.Web.Tests;
 /// </summary>
 public class FindWanPhysicalInterfaceTests
 {
-    private const string ActiveGateway = """
+    private const string Gateway = """
         {
           "type": "udm",
           "mac": "aa:bb:cc:dd:ee:01",
@@ -23,14 +23,7 @@ public class FindWanPhysicalInterfaceTests
         }
         """;
 
-    private const string ShadowGateway = """
-        {
-          "type": "udm",
-          "mac": "aa:bb:cc:dd:ee:02",
-          "device_mode_override": "managed_shadow_gateway",
-          "wan1": { "uplink_ifname": "ppp0", "ifname": "eth9" }
-        }
-        """;
+    private const string Switch = """{ "type": "usw", "mac": "aa:bb:cc:dd:ee:03" }""";
 
     private static List<UniFiDeviceResponse> Devices(params string[] devices) =>
         JsonSerializer.Deserialize<List<UniFiDeviceResponse>>($"[{string.Join(",", devices)}]")!;
@@ -42,7 +35,7 @@ public class FindWanPhysicalInterfaceTests
     [InlineData("ppp9", null)]
     public void FindWanPhysicalInterface_MatchesTheRequestedUplink(string uplinkInterface, string? expected)
     {
-        var devices = Devices(ShadowGateway, ActiveGateway);
+        var devices = Devices(Switch, Gateway);
 
         UniFiConnectionService.FindWanPhysicalInterface(devices, uplinkInterface).Should().Be(expected);
     }
@@ -50,23 +43,14 @@ public class FindWanPhysicalInterfaceTests
     [Fact]
     public void FindWanPhysicalInterface_NoGateway_ReturnsNull()
     {
-        var devices = Devices("""{ "type": "usw", "mac": "aa:bb:cc:dd:ee:03" }""");
-
-        UniFiConnectionService.FindWanPhysicalInterface(devices, "ppp0").Should().BeNull();
+        UniFiConnectionService.FindWanPhysicalInterface(Devices(Switch), "ppp0").Should().BeNull();
     }
 
     [Fact]
-    public void FindWanGateway_HaPair_PrefersTheActiveGatewayInEitherOrder()
+    public void FindWanGateway_ExpressInApMode_IsNotTheGateway()
     {
-        UniFiConnectionService.FindWanGateway(Devices(ShadowGateway, ActiveGateway))!.Mac
-            .Should().Be("aa:bb:cc:dd:ee:01");
-        UniFiConnectionService.FindWanGateway(Devices(ActiveGateway, ShadowGateway))!.Mac
-            .Should().Be("aa:bb:cc:dd:ee:01");
-    }
+        var express = """{ "type": "udm", "mac": "aa:bb:cc:dd:ee:04", "device_mode_override": "mesh" }""";
 
-    [Fact]
-    public void FindWanGateway_OnlyShadowGateway_StillReturnsIt()
-    {
-        UniFiConnectionService.FindWanGateway(Devices(ShadowGateway))!.Mac.Should().Be("aa:bb:cc:dd:ee:02");
+        UniFiConnectionService.FindWanGateway(Devices(express, Gateway))!.Mac.Should().Be("aa:bb:cc:dd:ee:01");
     }
 }
