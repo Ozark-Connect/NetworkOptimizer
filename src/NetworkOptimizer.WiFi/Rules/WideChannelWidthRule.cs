@@ -135,12 +135,7 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
             $"{JoinNames(meshAps)} carry a mesh backhaul on {bandName}, and narrowing them would cut the link's capacity.";
     }
 
-    private static string JoinNames(IReadOnlyList<string> names) => names.Count switch
-    {
-        1 => names[0],
-        2 => $"{names[0]} and {names[1]}",
-        _ => string.Join(", ", names.Take(names.Count - 1)) + $", and {names[^1]}"
-    };
+    private static string JoinNames(IReadOnlyList<string> names) => WiFiAnalysisHelpers.JoinNames(names);
 
     /// <summary>
     /// Info-level issue for unconditionally wide channels (6 GHz 320 MHz).

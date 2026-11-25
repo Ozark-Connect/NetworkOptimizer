@@ -57,9 +57,8 @@ public class RaisedNoiseFloorRule : IWiFiOptimizerRule
                         "Something near it is transmitting on or next to its channel.",
                     AffectedEntity = ap.Name,
                     AffectedLinks = { new IssueLink($"{ap.Name} ({bandName})", IssueLinks.Metrics(ap.Mac, band)) },
-                    Recommendation = $"Look for a transmitter near {ap.Name}: another AP on an adjacent channel at high power, " +
-                        "a non-Wi-Fi device (cameras, baby monitors, and microwave ovens on 2.4 GHz), or a neighbor's network in RF Environment. " +
-                        "Moving the radio to a different part of the band is the quickest test.",
+                    Recommendation = $"Try a channel in another part of the band first. If that helps, something near {ap.Name} is transmitting: " +
+                        "another AP, a non-Wi-Fi device (baby monitors, microwaves on 2.4 GHz), or a neighbor's network.",
                     ScoreImpact = -4,
                     AffectedChannels = { radio.Channel!.Value }
                 };

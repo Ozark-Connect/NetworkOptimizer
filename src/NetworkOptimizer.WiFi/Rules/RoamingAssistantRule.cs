@@ -56,8 +56,8 @@ public class RoamingAssistantRule : IWiFiOptimizerRule
 
         var affected = string.Join("; ", issues);
         return BuildIssue(
-            $"SSIDs without Roaming Assistant - {affected}. " +
-                "Roaming Assistant uses BSS transition frames (soft nudge) instead of hard-disconnecting clients.",
+            $"SSIDs without Roaming Assistant: {affected}. " +
+                "Roaming Assistant asks a weak client to move to a better AP instead of disconnecting it.",
             affected,
             "Per SSID: Settings > WiFi > (SSID) > Advanced > Roaming Assistant. " +
                 "Recommended threshold: -70 to -75 dBm.");
@@ -77,8 +77,8 @@ public class RoamingAssistantRule : IWiFiOptimizerRule
 
         var names = string.Join(", ", apsWithout.Select(ap => ap.Name));
         return BuildIssue(
-            $"{apsWithout.Count} AP(s) don't have Roaming Assistant enabled on 5 GHz. " +
-                "Unlike Minimum RSSI, this uses BSS transition frames (soft nudge) instead of hard-disconnecting clients.",
+            $"{apsWithout.Count} AP(s) don't have Roaming Assistant on for 5 GHz. " +
+                "Unlike Minimum RSSI, it asks a weak client to move to a better AP instead of disconnecting it.",
             names,
             "Per AP: Devices > (AP) > Settings > Radios > 5 GHz > Roaming Assistant. " +
                 "Or globally: Settings > WiFi > 5 GHz Roaming Assistant with 'Override All APs'. " +

@@ -371,7 +371,7 @@ public class CoChannelInterferenceRuleTests
             Measured("aa:bb:cc:dd:ee:01", "AP-1", 36, 44), Measured("aa:bb:cc:dd:ee:02", "AP-2", 36, 51)
         })).Single();
         busy.Severity.Should().Be(HealthIssueSeverity.Warning);
-        busy.Description.Should().EndWith("The shared spectrum is busy: AP-1 at 44%, AP-2 at 51%. They are taking turns on the same air.");
+        busy.Description.Should().EndWith("The shared channel is busy: AP-1 at 44%, AP-2 at 51%. These APs have to take turns using it.");
 
         // One radio unmeasured: today's issue, ungraded.
         var mixed = _rule.EvaluateAll(CreateContext(new List<AccessPointSnapshot>

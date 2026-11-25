@@ -5485,6 +5485,11 @@ input.form-control::-webkit-date-and-time-value {
     color: var(--text-secondary);
 }
 
+/* A per-item recommendation (the group's items differ) sits inside the item's own padding. */
+.issue-type-item .issue-type-recommendation {
+    padding: 0.5rem 0 0;
+}
+
 /* Footer */
 .app-footer {
     padding: 1.5rem 2rem;

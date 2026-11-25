@@ -39,6 +39,47 @@ public static class WiFiAnalysisHelpers
     /// </summary>
     public static bool SupportsAutoPowerLeveling => false;
 
+    // Friendly model names of desktop APs. Dream Routers are left out: they are always the gateway.
+    private static readonly HashSet<string> DesktopApModels = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "UX", "UX7"
+    };
+
+    /// <summary>
+    /// Whether the AP is a UniFi Express or Express 7 running as an AP, so it can be moved. A wall or
+    /// ceiling mount cannot, and neither can a gateway: the WAN cable decides where it sits.
+    /// </summary>
+    public static bool IsMovableAp(AccessPointSnapshot ap) => !ap.IsGateway && DesktopApModels.Contains(ap.Model);
+
+    /// <summary>
+    /// Whether any of the AP's radios on <paramref name="bands"/> can still transmit louder: not
+    /// set to High (or Auto, which is High while <see cref="SupportsAutoPowerLeveling"/> is false)
+    /// and below its maximum. True when no radio on those bands reports, so the advice is kept.
+    /// </summary>
+    public static bool CanRaiseTxPower(AccessPointSnapshot ap, IEnumerable<RadioBand> bands)
+    {
+        var bandSet = bands.ToHashSet();
+        var radios = ap.Radios.Where(r => bandSet.Contains(r.Band)).ToList();
+        return radios.Count == 0 || radios.Any(r => !IsAtFullPower(r));
+    }
+
+    private static bool IsAtFullPower(RadioSnapshot radio)
+    {
+        var mode = radio.TxPowerMode;
+        if (string.Equals(mode, "high", StringComparison.OrdinalIgnoreCase)) return true;
+        if (!SupportsAutoPowerLeveling && string.Equals(mode, "auto", StringComparison.OrdinalIgnoreCase)) return true;
+        return radio.TxPower.HasValue && radio.MaxTxPower.HasValue && radio.TxPower >= radio.MaxTxPower;
+    }
+
+    /// <summary>Names joined for a sentence: "A", "A and B", "A, B, and C".</summary>
+    public static string JoinNames(IReadOnlyList<string> names) => names.Count switch
+    {
+        0 => "",
+        1 => names[0],
+        2 => $"{names[0]} and {names[1]}",
+        _ => string.Join(", ", names.Take(names.Count - 1)) + $", and {names[^1]}"
+    };
+
     /// <summary>
     /// Sort access points by IP address (ascending, proper numeric sorting).
     /// APs without valid IPs are placed at the end.

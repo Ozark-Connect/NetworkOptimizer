@@ -78,7 +78,7 @@ public class HighTxRetryRuleTests
         var issue = _rule.Evaluate(Context(Ap(RadioBand.Band5GHz, 20, 4)))!;
 
         issue.Severity.Should().Be(HealthIssueSeverity.Warning);
-        issue.Description.Should().EndWith("hidden node problems.");
+        issue.Description.Should().EndWith("which then transmit at the same time.");
         issue.AffectedEntity.Should().Be("AP-1 (5 GHz 20.0%, 4 clients, threshold 15%)");
     }
 
@@ -87,7 +87,7 @@ public class HighTxRetryRuleTests
     {
         var issue = _rule.Evaluate(Context(Ap(RadioBand.Band5GHz, 20, 4, busy: 60, interference: 35)))!;
 
-        issue.Description.Should().EndWith(" AP-1 5 GHz: other transmitters hold 35% of the airtime, so these retries are contention; a channel move is the fix.");
+        issue.Description.Should().EndWith(" AP-1 5 GHz: other devices use 35% of this channel's airtime. Move this radio to a quieter channel.");
     }
 
     [Fact]
@@ -95,6 +95,6 @@ public class HighTxRetryRuleTests
     {
         var issue = _rule.Evaluate(Context(Ap(RadioBand.Band5GHz, 20, 4, busy: 12, interference: 3)))!;
 
-        issue.Description.Should().EndWith(" AP-1 5 GHz: the air is quiet (12% busy), so these retries are weak signal or a hidden node, not contention.");
+        issue.Description.Should().EndWith(" AP-1 5 GHz: the channel is quiet (12% busy), so the cause is weak signal, or clients too far apart to hear each other that transmit at the same time.");
     }
 }

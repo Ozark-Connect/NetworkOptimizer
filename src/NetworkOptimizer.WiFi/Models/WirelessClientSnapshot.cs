@@ -14,6 +14,9 @@ public class WirelessClientSnapshot
     /// <summary>A UniFi Protect device: UniFi Protect owns its name, so no rename is offered.</summary>
     public bool IsProtectDevice { get; set; }
 
+    /// <summary>What kind of device this is (phone, camera, TV), from the Security Audit's detection. Unknown when undetected.</summary>
+    public NetworkOptimizer.Core.Enums.ClientDeviceCategory DeviceCategory { get; set; }
+
     /// <summary>Client IP address</summary>
     public string? Ip { get; set; }
 

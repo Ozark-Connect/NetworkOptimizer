@@ -73,7 +73,7 @@ public class HighPowerOverlapRule : IWiFiOptimizerRule
                     var hasUnplacedAps = ctx.PropagationContext == null ||
                         highPowerAps.Any(ap => !ctx.PropagationContext.ApsByMac.ContainsKey(ap.Mac.ToLowerInvariant()));
                     if (hasUnplacedAps)
-                        recommendation += " Place your APs on the Signal Map for more accurate interference analysis based on physical distance and wall attenuation.";
+                        recommendation += " Place your APs on the Signal Map, so this check can account for the distance and walls between them.";
 
                     var issue = new HealthIssue
                     {

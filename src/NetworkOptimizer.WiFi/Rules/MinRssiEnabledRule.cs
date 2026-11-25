@@ -31,8 +31,7 @@ public class MinRssiEnabledRule : IWiFiOptimizerRule
                 "This hard-disconnects clients below the threshold, which can help roaming but may cause " +
                 "unexpected disconnects with sticky or poorly-behaved clients.",
             AffectedEntity = string.Join(", ", apsWithMinRssi.Select(ap => ap.Name)),
-            Recommendation = "If clients are dropping unexpectedly, consider disabling or lowering " +
-                "the threshold to -80 dBm. Monitor for complaints about disconnects.",
+            Recommendation = "If clients drop unexpectedly, lower the threshold to -80 dBm or turn Minimum RSSI off.",
             ScoreImpact = -2,
             ShowOnOverview = false  // Informational, only relevant to Roaming tab
         };

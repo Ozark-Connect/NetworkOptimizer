@@ -1106,6 +1106,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             Mac = ap.Mac,
             Name = ap.Name,
             Model = ap.FriendlyModelName,
+            IsGateway = ap.Type == NetworkOptimizer.Core.Enums.DeviceType.Gateway,
             FirmwareVersion = ap.Firmware,
             Ip = ap.IpAddress,
             Satisfaction = ap.Satisfaction,
@@ -1304,6 +1305,23 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         }
     }
 
+    // Fingerprint, OUI, and name detection only; nothing here is per site, so one instance serves all.
+    private static readonly NetworkOptimizer.Audit.Services.DeviceTypeDetectionService ClientDetection = new();
+
+    /// <summary>The client's device category, for advice that depends on whether it moves. Unknown on any failure.</summary>
+    private static NetworkOptimizer.Core.Enums.ClientDeviceCategory DetectCategory(UniFiClientResponse client)
+    {
+        if (client.IsProtectDevice) return NetworkOptimizer.Core.Enums.ClientDeviceCategory.Camera;
+        try
+        {
+            return ClientDetection.DetectDeviceType(client).Category;
+        }
+        catch (Exception)
+        {
+            return NetworkOptimizer.Core.Enums.ClientDeviceCategory.Unknown;
+        }
+    }
+
     internal static WirelessClientSnapshot MapToWirelessClientSnapshot(
         UniFiClientResponse client,
         Dictionary<string, string> apNames,
@@ -1346,6 +1364,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             Name = ClientNames.Choose(displayName, client.Name, client.UnifiDeviceInfoFromUcore?.Name, client.Hostname,
                 client.IsUniFiDevice) ?? client.Mac,
             IsProtectDevice = client.IsProtectDevice,
+            DeviceCategory = DetectCategory(client),
             Ip = client.Ip,
             FixedIp = client.UseFixedIp && !string.IsNullOrEmpty(client.FixedIp) ? client.FixedIp : null,
             ApMac = client.ApMac ?? "",

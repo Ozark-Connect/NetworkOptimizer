@@ -64,9 +64,9 @@ public class HighTxRetryRule : IWiFiOptimizerRule
             var r = x.Radio;
             var bandName = r.Band.ToDisplayString();
             if (r.MeasuredInterference is { } interf && interf >= ContentionAirtimePct)
-                return $" {x.Ap.Name} {bandName}: other transmitters hold {interf}% of the airtime, so these retries are contention; a channel move is the fix.";
+                return $" {x.Ap.Name} {bandName}: other devices use {interf}% of this channel's airtime. Move this radio to a quieter channel.";
             if (r.MeasuredUtilization is { } busy && busy <= QuietAirtimePct)
-                return $" {x.Ap.Name} {bandName}: the air is quiet ({busy}% busy), so these retries are weak signal or a hidden node, not contention.";
+                return $" {x.Ap.Name} {bandName}: the channel is quiet ({busy}% busy), so the cause is weak signal, or clients too far apart to hear each other that transmit at the same time.";
             return string.Empty;
         }));
 
@@ -79,11 +79,11 @@ public class HighTxRetryRule : IWiFiOptimizerRule
             Title = "High TX Retry Rates",
             Class = HealthIssueClass.Measured,
             Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Names(highRetryRadios.Select(x => HealthIssueKeys.Radio(x.Ap.Mac, x.Radio.Band)))),
-            Description = $"{highRetryRadios.Count} radio(s) have retry rates above their band's threshold " +
-                $"across {totalClients} clients. " +
-                "Retries waste airtime and indicate interference, weak signals, or hidden node problems." + attribution,
-            Recommendation = "Check for sources of interference, ensure APs are on non-overlapping channels, " +
-                "and verify client signal strength is adequate (-70 dBm or better).",
+            Description = $"{highRetryRadios.Count} radio(s) have more retries than normal for their band, " +
+                $"across {totalClients} clients. Retries waste airtime. " +
+                "The usual causes are interference, weak signal, or clients too far apart to hear each other, " +
+                "which then transmit at the same time." + attribution,
+            Recommendation = "Check these radios for interference and overlapping channels, and address clients with weak signal.",
             ScoreImpact = critical ? -12 : -8
         }.WithLinks(affectedRadios);
     }

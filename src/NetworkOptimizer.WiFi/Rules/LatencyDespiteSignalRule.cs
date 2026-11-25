@@ -53,11 +53,11 @@ public class LatencyDespiteSignalRule : IWiFiOptimizerRule
                     Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Radio(ap.Mac, radio.Band)),
                     Title = $"High Latency Despite Good Signal on {ap.Name}",
                     Description = $"{clients.Count} client(s) on {ap.Name}'s {bandName} radio have strong signal but slow service: " +
-                        $"a median transmit latency of {medianLatency:F0} ms at the AP and {stalls} TCP stalls between them in the last hour. " +
-                        "Signal is not the problem; airtime is.",
+                        $"{medianLatency:F0} ms median delay and {stalls} connection stalls in the last hour. " +
+                        "The signal is fine; the channel is too busy.",
                     AffectedEntity = ap.Name,
                     AffectedLinks = { new IssueLink($"{ap.Name} ({bandName})", IssueLinks.Clients(ap.Mac, radio.Band)) },
-                    Recommendation = "Look at what shares this radio's air: co-channel APs on Channels, neighbor networks on RF Environment, and heavy clients on Client Performance.",
+                    Recommendation = "Find what else is using this channel: other APs on Channels, neighbor networks on RF Environment, and heavy clients on Client Performance.",
                     ScoreImpact = -6
                 };
             }

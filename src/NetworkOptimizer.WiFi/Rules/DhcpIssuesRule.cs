@@ -33,8 +33,8 @@ public class DhcpIssuesRule : IWiFiOptimizerRule
             Description = $"{clientsWithoutIp.Count} client(s) connected but failed to get an IP address. " +
                 "This typically indicates connectivity issues such as weak signal or interference.",
             AffectedClientMac = clientsWithoutIp.Count == 1 ? clientsWithoutIp[0].Mac : null,
-            Recommendation = "Check for connectivity issues first - is the client in a weak signal area or experiencing interference? " +
-                "If connectivity is good, verify your DHCP pool isn't exhausted in UniFi: Settings > Networks > (Network) > DHCP Range.",
+            Recommendation = "If these clients have good signal, check that the network's DHCP range isn't full. " +
+                "In UniFi Network: Settings > Networks > (Network) > DHCP Range.",
             ScoreImpact = -10,
             ShowOnOverview = false
         }.WithLinks(clientsWithoutIp.Take(5).Select(c => new IssueLink(c.Name, IssueLinks.Client(c.Mac)))

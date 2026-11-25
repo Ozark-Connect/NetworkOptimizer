@@ -172,7 +172,7 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
 
         // Hint about floor plan placement if propagation context isn't available
         if (ctx.PropagationContext == null)
-            recommendation += " Place your APs on the Signal Map to enable RF distance analysis - this issue may be suppressed if the APs are in separate coverage zones.";
+            recommendation += " Place your APs on the Signal Map. If they cover separate areas, this issue then clears on its own.";
 
         return new HealthIssue
         {

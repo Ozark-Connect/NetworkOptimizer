@@ -10,6 +10,8 @@
             var groupKey = group.Key;
             var isExpanded = isSingleItem || _expandedGroups.Contains(groupKey);
             var firstIssue = group.First();
+            // One shared recommendation shows once under the group; differing ones (a phone and a camera) show per item.
+            var sharedRecommendation = group.Select(i => i.Recommendation).Distinct().Count() == 1;
 
             @if (isSingleItem)
             {
@@ -80,10 +82,14 @@
                                             }
                                             @RenderActions(issue)
                                         </div>
+                                        @if (!sharedRecommendation && !string.IsNullOrEmpty(issue.Recommendation))
+                                        {
+                                            <div class="issue-type-recommendation"><strong>Recommendation:</strong> @FormatRecommendation(issue.Recommendation)</div>
+                                        }
                                     </div>
                                 }
                             </div>
-                            @if (!string.IsNullOrEmpty(firstIssue.Recommendation))
+                            @if (sharedRecommendation && !string.IsNullOrEmpty(firstIssue.Recommendation))
                             {
                                 <div class="issue-type-recommendation"><strong>Recommendation:</strong> @FormatRecommendation(firstIssue.Recommendation)</div>
                             }

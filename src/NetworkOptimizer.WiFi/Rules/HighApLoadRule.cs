@@ -50,7 +50,7 @@ public class HighApLoadRule : IWiFiOptimizerRule
                     "Clients may experience degraded performance.",
                 AffectedLinks = { new IssueLink(ap.Name, IssueLinks.Clients(ap.Mac)) },
                 AffectedEntity = ap.Name,
-                Recommendation = "Consider adjusting TX power, enabling load balancing features, or adding APs to the area.",
+                Recommendation = "Add an AP nearby, or lower this AP's TX power so nearby APs take some of its clients.",
                 ScoreImpact = -8
             };
         }
@@ -64,7 +64,7 @@ public class HighApLoadRule : IWiFiOptimizerRule
             Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Macs(overloadedAps.Select(ap => ap.Mac))),
             Description = $"{overloadedAps.Count} access points have more than 2x the average client count ({avgClientsPerAp:F0}). " +
                 "This may indicate coverage or load balancing issues.",
-            Recommendation = "Consider adjusting TX power, enabling load balancing features, or adding APs to busy areas.",
+            Recommendation = "Add APs in these busy areas, or lower these APs' TX power so nearby APs share the load.",
             ScoreImpact = -8 * overloadedAps.Count
         }.WithLinks(overloadedAps.Select(ap => new IssueLink($"{ap.Name} ({ap.EffectiveClientCount})", IssueLinks.Clients(ap.Mac))));
     }

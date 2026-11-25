@@ -43,8 +43,7 @@ public class LegacyClientAirtimeRule : IWiFiOptimizerRule
             Description = $"{legacyClients.Count} legacy clients ({legacyPct:F0}% of total) are consuming " +
                 "disproportionate airtime. Legacy devices use slower modulation rates, taking 5-10x longer " +
                 "to transmit the same data.",
-            Recommendation = "Increase the minimum data rate on 2.4 GHz (e.g., 12 Mbps) to force higher modulation. " +
-                "Note: very old devices may disconnect if they can't maintain the rate.",
+            Recommendation = "Raise the 2.4 GHz minimum data rate to 12 Mbps. Very old devices may disconnect at that rate.",
             ScoreImpact = -8,
             ShowOnOverview = false
         };

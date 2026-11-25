@@ -44,8 +44,8 @@ public class MinRssiRule : IWiFiOptimizerRule
             Key = HealthIssueKeys.For(RuleId),
             Description = "Minimum RSSI can help sticky clients roam by hard-disconnecting them when signal drops. " +
                 "Use cautiously as it can cause issues with some clients.",
-            Recommendation = "In UniFi Network: Devices > (AP) > Settings > Radios > Minimum RSSI (per band). " +
-                "Use a conservative threshold like -75 to -80 dBm. Consider setting lower (e.g., -80 dBm) for perimeter APs.",
+            Recommendation = "In UniFi Network: Devices > (AP) > Settings > Radios > Minimum RSSI. " +
+                "Start between -75 and -80 dBm, and use -80 dBm or lower on APs at the edge of your coverage.",
             ScoreImpact = -3,
             ShowOnOverview = false  // Informational, only relevant to Roaming tab
         };

@@ -287,6 +287,19 @@ public class SiteHealthScorer
             : $"Check for coverage gaps between these APs. Fast roaming is off on {string.Join(", ", fastRoamingOff)}; turning it on can help, except where IoT or older devices need it off.";
 
     /// <summary>The Roaming failures recommendation when one device made every failure on the AP pair.</summary>
+    /// <summary>
+    /// The Weak signal recommendation for the client's kind of device: a phone may only pass through
+    /// a weak spot, a stationary device sits in one.
+    /// </summary>
+    internal static string WeakSignalRecommendation(NetworkOptimizer.Core.Enums.ClientDeviceCategory category)
+    {
+        if (NetworkOptimizer.Core.Enums.ClientDeviceCategoryExtensions.IsMobile(category))
+            return "Check this device's Signal history on Client Performance. If it drops in the same place every day, plan coverage there with the Signal Map.";
+        if (NetworkOptimizer.Core.Enums.ClientDeviceCategoryExtensions.IsStationary(category))
+            return "Stationary device. Consider adding AP coverage.";
+        return "Consider adding AP coverage where this device is used, or check its Signal history on Client Performance.";
+    }
+
     internal const string SingleDeviceRoamFailureRecommendation =
         "The APs look fine for other clients. Check this client's Wi-Fi driver or roaming settings.";
 
@@ -571,7 +584,7 @@ public class SiteHealthScorer
                 Description = $"Client has weak signal ({client.Signal} dBm on {client.Band.ToDisplayString()}){apInfo}",
                 AffectedEntity = client.Name,
                 AffectedClientMac = client.Mac,
-                Recommendation = "Move closer to AP or add additional coverage.",
+                Recommendation = WeakSignalRecommendation(client.DeviceCategory),
                 ScoreImpact = -5
             });
         }
@@ -643,7 +656,7 @@ public class SiteHealthScorer
                 Key = HealthIssueKeys.For("WIFI-LEGACY-CLIENTS-001"),
                 Title = "Legacy clients detected",
                 Description = $"{legacyClients.Count} clients using Wi-Fi 4 or older",
-                Recommendation = "Legacy clients consume more airtime - consider upgrading or isolating to separate SSID.",
+                Recommendation = "Older devices use more airtime. Replace them, or move them to their own SSID.",
                 ScoreImpact = -5
             });
         }

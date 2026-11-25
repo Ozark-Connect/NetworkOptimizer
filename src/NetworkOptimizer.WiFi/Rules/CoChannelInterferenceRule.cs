@@ -101,7 +101,7 @@ public class CoChannelInterferenceRule : IWiFiOptimizerRule
                 var hasUnplacedAps = ctx.PropagationContext == null ||
                     interferingAps.Any(ap => !ctx.PropagationContext.ApsByMac.ContainsKey(ap.Mac.ToLowerInvariant()));
                 if (hasUnplacedAps)
-                    recommendation += " Place your APs on the Signal Map for more accurate interference analysis based on physical distance and wall attenuation.";
+                    recommendation += " Place your APs on the Signal Map, so this check can account for the distance and walls between them.";
 
                 var denseNote = $" With {radiosInBand.Count} APs on {band.ToDisplayString()} and only {nonOverlappingChannels} non-overlapping channels, some overlap is unavoidable.";
 
@@ -143,7 +143,7 @@ public class CoChannelInterferenceRule : IWiFiOptimizerRule
                     else if (values.Any(v => v >= BusyAirtimePct))
                     {
                         var busyList = string.Join(", ", reported.Select(r => $"{r.Ap.Name} at {r.Radio.MeasuredUtilization}%"));
-                        description += $" The shared spectrum is busy: {busyList}. They are taking turns on the same air.";
+                        description += $" The shared channel is busy: {busyList}. These APs have to take turns using it.";
                     }
                 }
 

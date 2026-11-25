@@ -250,4 +250,63 @@ public class CoverageGapRuleTests
         var ctxFair = CreateContext([ap], clientsFair);
         _rule.Evaluate(ctxFair).Should().BeNull("-85 dBm on 6 GHz is fair, not weak");
     }
+
+    private static AccessPointSnapshot Ap(string name, string model = "U7 Pro", bool isGateway = false, string? txMode = "medium") => new()
+    {
+        Mac = "aa:bb:cc:dd:ee:01", Name = name, Model = model, IsGateway = isGateway,
+        Radios = [new RadioSnapshot { Band = RadioBand.Band5GHz, Channel = 36, TxPowerMode = txMode }]
+    };
+
+    [Fact]
+    public void Single_ap_offers_tx_power_when_it_can_go_up()
+    {
+        CoverageGapRule.SingleApRecommendation(Ap("AP"), [RadioBand.Band5GHz]).Should().Be(
+            "Consider: (1) increasing TX power on this AP, or (2) adding an AP closer to weak clients.");
+    }
+
+    [Theory]
+    [InlineData("high")]
+    [InlineData("auto")] // Auto is High in UniFi Network today
+    public void Single_ap_at_full_power_drops_the_tx_power_step(string mode)
+    {
+        CoverageGapRule.SingleApRecommendation(Ap("AP", txMode: mode), [RadioBand.Band5GHz]).Should().Be(
+            "Consider adding an AP closer to weak clients.");
+    }
+
+    [Fact]
+    public void Custom_power_at_the_radio_max_counts_as_full()
+    {
+        var ap = Ap("AP", txMode: "custom");
+        ap.Radios[0].TxPower = 23;
+        ap.Radios[0].MaxTxPower = 23;
+        CoverageGapRule.SingleApRecommendation(ap, [RadioBand.Band5GHz]).Should().Be(
+            "Consider adding an AP closer to weak clients.");
+    }
+
+    [Fact]
+    public void An_express_in_ap_mode_offers_moving_it()
+    {
+        CoverageGapRule.SingleApRecommendation(Ap("Den", model: "UX7"), [RadioBand.Band5GHz]).Should().Be(
+            "Consider: (1) moving this AP closer to weak clients, (2) increasing TX power on this AP, or (3) adding an AP closer to weak clients.");
+    }
+
+    [Theory]
+    [InlineData("UX", true)]   // an Express running as the gateway sits where the WAN cable is
+    [InlineData("UDR7", false)] // a Dream Router is always the gateway
+    [InlineData("U7 Pro", false)]
+    public void Only_an_express_in_ap_mode_is_movable(string model, bool isGateway)
+    {
+        CoverageGapRule.SingleApRecommendation(Ap("AP", model: model, isGateway: isGateway), [RadioBand.Band5GHz])
+            .Should().NotContain("moving this AP");
+    }
+
+    [Fact]
+    public void Several_aps_name_who_each_step_applies_to()
+    {
+        var den = Ap("Den", model: "UX");
+        var hall = Ap("Hall", txMode: "high");
+        var porch = Ap("Porch");
+        CoverageGapRule.MultiApRecommendation([(den, [RadioBand.Band5GHz]), (hall, [RadioBand.Band5GHz]), (porch, [RadioBand.Band5GHz])])
+            .Should().Be("Consider: (1) moving Den closer to weak clients, (2) increasing TX power on Den and Porch, or (3) adding APs in areas with weak coverage.");
+    }
 }

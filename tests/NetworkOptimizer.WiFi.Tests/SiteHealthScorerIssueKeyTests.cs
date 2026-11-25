@@ -33,6 +33,22 @@ public class SiteHealthScorerIssueKeyTests
         score.Issues.Should().NotContain(i => i.Title == "Weak signal");
     }
 
+    [Theory]
+    [InlineData(NetworkOptimizer.Core.Enums.ClientDeviceCategory.Smartphone, "Check this device's Signal history")]
+    [InlineData(NetworkOptimizer.Core.Enums.ClientDeviceCategory.Camera, "Stationary device.")]
+    [InlineData(NetworkOptimizer.Core.Enums.ClientDeviceCategory.Unknown, "Consider adding AP coverage where this device is used")]
+    public void The_weak_signal_advice_follows_the_device_type(NetworkOptimizer.Core.Enums.ClientDeviceCategory category, string start)
+    {
+        var scorer = new SiteHealthScorer();
+        var aps = new List<AccessPointSnapshot> { Ap("aa:bb:cc:dd:ee:01", "AP-1") };
+        var client = Client("cc:00:00:00:00:01", aps[0].Mac, "AP-1", -88, RadioBand.Band5GHz);
+        client.DeviceCategory = category;
+
+        var score = scorer.Calculate(aps, new List<WirelessClientSnapshot> { client }, null);
+
+        score.Issues.Single(i => i.Title == "Weak signal").Recommendation.Should().StartWith(start);
+    }
+
     [Fact]
     public void A_poor_client_raises_a_recommendation_per_client_issue()
     {

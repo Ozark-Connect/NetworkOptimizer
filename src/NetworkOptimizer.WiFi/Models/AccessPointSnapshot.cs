@@ -16,6 +16,9 @@ public class AccessPointSnapshot
     /// <summary>Model name (e.g., "U7 Pro")</summary>
     public string Model { get; set; } = string.Empty;
 
+    /// <summary>The device is the site's gateway serving Wi-Fi (a UniFi Express or Dream Router), not an AP.</summary>
+    public bool IsGateway { get; set; }
+
     /// <summary>Firmware version</summary>
     public string? FirmwareVersion { get; set; }
 

@@ -46,8 +46,8 @@ public class LatencyDespiteSignalRuleTests
         issue.Class.Should().Be(HealthIssueClass.Measured);
         issue.Description.Should().Be(
             "4 client(s) on AP-1's 5 GHz radio have strong signal but slow service: " +
-            "a median transmit latency of 82 ms at the AP and 37 TCP stalls between them in the last hour. " +
-            "Signal is not the problem; airtime is.");
+            "82 ms median delay and 37 connection stalls in the last hour. " +
+            "The signal is fine; the channel is too busy.");
     }
 
     [Fact]
