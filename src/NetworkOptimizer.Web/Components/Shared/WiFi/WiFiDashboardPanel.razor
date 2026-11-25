@@ -47,7 +47,8 @@ else
             }
             else
             {
-                @foreach (var group in Issues.GroupBy(i => i.Title))
+                @* Severity is part of the key: the header icon and count speak for every item under it. *@
+                @foreach (var group in Issues.GroupBy(i => $"{i.Severity}|{i.Title}"))
                 {
                     var groupCount = group.Count();
                     var groupKey = group.Key;
