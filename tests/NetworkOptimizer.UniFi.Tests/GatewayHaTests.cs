@@ -131,6 +131,39 @@ public class GatewayHaTests
         GatewayHa.IsUnreachableStandby(gateway, devices).Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData("UDMPRO")]
+    [InlineData("UDMPROSE")]
+    [InlineData("UDMPROMAX")]
+    [InlineData("UDMEA4C")]
+    [InlineData("UDMENT")]
+    public void ConsoleShadowMode_BothListed_TheVrrpMasterWins(string model)
+    {
+        // Console Shadow Mode carries vrrp.state but no shadow label.
+        UniFiDeviceResponse Udm(string mac, string state) => Parse(
+            "{ \"mac\": \"" + mac + "\", \"type\": \"udm\", \"model\": \"" + model + "\"" + Vrrp(state) + " }");
+        var backup = Udm("aa:bb:cc:00:00:01", "backup");
+        var master = Udm("aa:bb:cc:00:00:02", "master");
+        var devices = new[] { backup, master };
+
+        GatewayHa.Active(devices).Should().BeSameAs(master);
+        GatewayHa.IsStandby(backup, devices).Should().BeTrue();
+        GatewayHa.IsStandby(master, devices).Should().BeFalse();
+        GatewayHa.IsUnreachableStandby(backup, devices).Should().BeTrue();
+        GatewayHa.IsUnreachableStandby(master, devices).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ConsoleShadowMode_OnlyTheLocalUdmListed_IsALoneGateway()
+    {
+        var udm = Parse("{ \"mac\": \"aa:bb:cc:00:00:01\", \"type\": \"udm\", \"model\": \"UDMPRO\"" + Vrrp("backup") + " }");
+        var devices = new[] { udm, Switch() };
+
+        GatewayHa.Active(devices).Should().BeSameAs(udm);
+        GatewayHa.IsStandby(udm, devices).Should().BeFalse("nothing else holds master");
+        GatewayHa.IsUnreachableStandby(udm, devices).Should().BeFalse();
+    }
+
     [Fact]
     public void VrrpSecondary_IsNeverTheSiteGateway_AndIsReachable()
     {

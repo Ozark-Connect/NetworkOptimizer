@@ -134,18 +134,28 @@ public static class GatewayHa
         string.Equals(d.HaVrrpState, VrrpMaster, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// The gateway carrying the site's traffic: the shadow while it is VRRP master, else the
-    /// primary. With no primary listed (it was forgotten before UniFi cleared the label), the
-    /// shadow. Null when no unit is a gateway.
+    /// The gateway carrying the site's traffic: the shadow while it is VRRP master (UniFi's own
+    /// pick), else any VRRP master, else the primary. With no primary listed (it was forgotten
+    /// before UniFi cleared the label), the shadow. Null when no unit is a gateway.
     /// </summary>
+    /// <remarks>
+    /// "Any VRRP master" covers Console Shadow Mode (UDM Pro, UDM SE, UDM Pro Max, UDM-Beast, EFG):
+    /// its pair carries vrrp.state but no shadow label, so the state is the only thing that can
+    /// tell its units apart if the console ever lists both.
+    /// </remarks>
     public static T? Active<T>(IEnumerable<T>? devices) where T : class, IGatewayHaFacts
     {
         if (devices == null) return null;
         var gateways = devices.Where(IsGateway).ToList();
         return gateways.FirstOrDefault(d => IsShadow(d) && IsMaster(d))
+            ?? gateways.FirstOrDefault(IsMaster)
             ?? gateways.FirstOrDefault(d => !IsShadow(d))
             ?? gateways.FirstOrDefault();
     }
+
+    // A second unit holds VRRP master and this one does not: this one is the pair's backup.
+    private static bool AnotherIsMaster<T>(T device, IEnumerable<T> devices) where T : class, IGatewayHaFacts =>
+        !IsMaster(device) && devices.Any(d => !ReferenceEquals(d, device) && IsGateway(d) && IsMaster(d));
 
     /// <summary>
     /// The gateway that owns the config: the first non-shadow gateway, else the shadow when it
@@ -160,7 +170,7 @@ public static class GatewayHa
 
     /// <summary>
     /// True for a role gateway that is not carrying the site's traffic: a UDM in application mode,
-    /// a VRRP secondary, a shadow in backup, or a primary whose shadow is VRRP master. Use it to
+    /// a VRRP secondary, a shadow in backup, or a unit whose pair partner is VRRP master. Use it to
     /// skip units in a walk over every device. A lone gateway is never standby.
     /// </summary>
     public static bool IsStandby<T>(T device, IEnumerable<T> devices) where T : class, IGatewayHaFacts
@@ -168,20 +178,22 @@ public static class GatewayHa
         if (device.HaRoleType != DeviceType.Gateway) return false;
         if (!IsGateway(device)) return true;
         if (IsShadow(device)) return !IsMaster(device);
-        return devices.Any(d => !ReferenceEquals(d, device) && IsGateway(d) && IsShadow(d) && IsMaster(d));
+        return AnotherIsMaster(device, devices);
     }
 
     /// <summary>
-    /// True for the backup member of a Managed Shadow Gateway pair. It holds no IPv4 address on any
-    /// LAN (every LAN address is a VIP on the master; its own address is on the HA link), so SNMP,
-    /// SSH, and ping cannot reach it: anything sent to the LAN gateway address lands on the master.
-    /// Per-network VRRP units have their own LAN addresses and are never this.
+    /// True for the backup member of a Shadow Mode pair. On a Managed Shadow Gateway pair it holds
+    /// no IPv4 address on any LAN (every LAN address is a VIP on the master; its own address is on
+    /// the HA link), so SNMP, SSH, and ping cannot reach it: anything sent to the LAN gateway address
+    /// lands on the master. A Console Shadow Mode backup is treated the same way, the safe reading
+    /// while no capture shows its addressing. Per-network VRRP units have their own LAN addresses and
+    /// are never this.
     /// </summary>
     public static bool IsUnreachableStandby<T>(T device, IEnumerable<T> devices) where T : class, IGatewayHaFacts
     {
         if (!IsGateway(device) || !string.IsNullOrEmpty(device.HaGatewayVrrpMode)) return false;
         if (IsShadow(device)) return !IsMaster(device);
-        return devices.Any(d => !ReferenceEquals(d, device) && IsGateway(d) && IsShadow(d) && IsMaster(d));
+        return AnotherIsMaster(device, devices);
     }
 
     /// <summary>

@@ -93,7 +93,9 @@ public class DashboardService : IDashboardService
                         Mac = d.Mac ?? string.Empty,
                         Type = d.Type,
                         HaRole = d.HaRole,
-                        IsHaStandby = d.HaRole != NetworkOptimizer.UniFi.GatewayHaRole.None && !d.IsActiveGateway,
+                        // A Console Shadow Mode pair has vrrp.state but no shadow label, so either marks a pair member.
+                        IsHaStandby = d.Type == DeviceType.Gateway && !d.IsActiveGateway
+                            && (d.HaRole != NetworkOptimizer.UniFi.GatewayHaRole.None || d.VrrpState != null),
                         StatusInfo = UniFiDeviceStateMap.ToStatus(d.State),
                         IpAddress = d.DisplayIpAddress ?? "",
                         Model = d.FriendlyModelName,
