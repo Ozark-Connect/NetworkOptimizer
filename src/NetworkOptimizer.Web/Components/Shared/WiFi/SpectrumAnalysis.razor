@@ -232,25 +232,10 @@
                 <!-- Pagination -->
                 @if (filteredNeighbors.Count > _pageSize)
                 {
-                    <div class="pagination-controls">
-                        <div class="pagination-info">
-                            Showing @((_currentPage - 1) * _pageSize + 1)-@Math.Min(_currentPage * _pageSize, filteredNeighbors.Count) of @filteredNeighbors.Count
-                        </div>
-                        <div class="pagination-buttons">
-                            <button class="page-btn" @onclick="GoToFirstPage" disabled="@(_currentPage == 1)">
-                                <AppIcon Name="chevron-first" />
-                            </button>
-                            <button class="page-btn" @onclick="GoToPreviousPage" disabled="@(_currentPage == 1)">
-                                <AppIcon Name="chevron-left" />
-                            </button>
-                            <span class="page-indicator">Page @_currentPage of @TotalPages</span>
-                            <button class="page-btn" @onclick="GoToNextPage" disabled="@(_currentPage >= TotalPages)">
-                                <AppIcon Name="chevron-right" />
-                            </button>
-                            <button class="page-btn" @onclick="GoToLastPage" disabled="@(_currentPage >= TotalPages)">
-                                <AppIcon Name="chevron-last" />
-                            </button>
-                        </div>
+                    <div class="pagination">
+                        <button class="btn btn-sm btn-secondary" disabled="@(_currentPage <= 1)" @onclick="GoToPreviousPage"><AppIcon Name="chevron-left" /> Prev</button>
+                        <span class="pagination-info">Page @_currentPage of @TotalPages (@filteredNeighbors.Count total)</span>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_currentPage >= TotalPages)" @onclick="GoToNextPage">Next <AppIcon Name="chevron-right" /></button>
                     </div>
                 }
             </div>
@@ -896,33 +881,6 @@
     .recommendation-description {
         font-size: 0.9rem;
         color: var(--text-secondary);
-    }
-
-    /* Pagination */
-    .pagination-controls {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 1rem 0 0;
-        border-top: 1px solid var(--border-color);
-        margin-top: 1rem;
-    }
-
-    .pagination-info {
-        font-size: 0.85rem;
-        color: var(--text-secondary);
-    }
-
-    .pagination-buttons {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-
-    .page-indicator {
-        font-size: 0.85rem;
-        color: var(--text-secondary);
-        padding: 0 0.5rem;
     }
 
     .vendor-col {
@@ -1602,10 +1560,8 @@
 
     private int TotalPages => (int)Math.Ceiling(filteredNeighbors.Count / (double)_pageSize);
 
-    private void GoToFirstPage() => _currentPage = 1;
     private void GoToPreviousPage() { if (_currentPage > 1) _currentPage--; }
     private void GoToNextPage() { if (_currentPage < TotalPages) _currentPage++; }
-    private void GoToLastPage() => _currentPage = TotalPages;
 
     // Three states per header, as on the other data tables: its first direction, the other
     // direction, then cleared, which is the default order with no header marked.

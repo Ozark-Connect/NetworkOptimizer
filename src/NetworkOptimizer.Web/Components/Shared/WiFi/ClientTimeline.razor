@@ -146,25 +146,10 @@
 
             @if (TotalPages > 1)
             {
-                <div class="pagination-controls">
-                    <div class="pagination-info">
-                        Showing @((_currentPage - 1) * _pageSize + 1)-@Math.Min(_currentPage * _pageSize, GetFilteredClients().Count()) of @GetFilteredClients().Count()
-                    </div>
-                    <div class="pagination-buttons">
-                        <button class="page-btn" @onclick="GoToFirstPage" disabled="@(_currentPage == 1)">
-                            <AppIcon Name="chevron-first" />
-                        </button>
-                        <button class="page-btn" @onclick="GoToPreviousPage" disabled="@(_currentPage == 1)">
-                            <AppIcon Name="chevron-left" />
-                        </button>
-                        <span class="page-indicator">Page @_currentPage of @TotalPages</span>
-                        <button class="page-btn" @onclick="GoToNextPage" disabled="@(_currentPage >= TotalPages)">
-                            <AppIcon Name="chevron-right" />
-                        </button>
-                        <button class="page-btn" @onclick="GoToLastPage" disabled="@(_currentPage >= TotalPages)">
-                            <AppIcon Name="chevron-last" />
-                        </button>
-                    </div>
+                <div class="pagination">
+                    <button class="btn btn-sm btn-secondary" disabled="@(_currentPage <= 1)" @onclick="GoToPreviousPage"><AppIcon Name="chevron-left" /> Prev</button>
+                    <span class="pagination-info">Page @_currentPage of @TotalPages (@GetFilteredClients().Count() total)</span>
+                    <button class="btn btn-sm btn-secondary" disabled="@(_currentPage >= TotalPages)" @onclick="GoToNextPage">Next <AppIcon Name="chevron-right" /></button>
                 </div>
             }
         </div>
@@ -1136,10 +1121,8 @@
         _ = OnClientSelected();
     }
 
-    private void GoToFirstPage() => _currentPage = 1;
     private void GoToPreviousPage() { if (_currentPage > 1) _currentPage--; }
     private void GoToNextPage() { if (_currentPage < TotalPages) _currentPage++; }
-    private void GoToLastPage() => _currentPage = TotalPages;
 
     public class ClientChartPoint
     {

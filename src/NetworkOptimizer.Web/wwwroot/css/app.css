@@ -8590,8 +8590,7 @@ a.path-hop.hop-clickable:hover {
     margin-top: 1rem;
 }
 
-.pagination-info,
-.page-indicator {
+.pagination-info {
     font-family: var(--font-display);
     font-variant-numeric: tabular-nums;
     word-spacing: var(--display-word-spacing);
@@ -8614,37 +8613,6 @@ a.path-hop.hop-clickable:hover {
     width: 1.1em;
     height: 1.1em;
     margin: 0 -0.2em;
-}
-
-/* First, previous, next, last as icon buttons (the Wi-Fi tables). */
-.page-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--border-radius);
-    color: var(--text-primary);
-    cursor: pointer;
-    transition: background-color 0.15s ease, border-color 0.15s ease;
-}
-
-.page-btn .line-icon {
-    width: 16px;
-    height: 16px;
-}
-
-.page-btn:hover:not(:disabled) {
-    background: var(--bg-elevated);
-    border-color: var(--border-strong);
-}
-
-.page-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
 }
 
 /* Sits inside the history card rather than between sections, so it needs the room underneath. */
@@ -13434,33 +13402,6 @@ h3 > .tooltip-icon-sm {
 
 .client-list-section .data-table tbody tr:hover {
     background: rgba(59, 130, 246, 0.1);
-}
-
-/* Pagination (shared with SpectrumAnalysis) */
-.client-list-section .pagination-controls {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1rem 0 0;
-    border-top: 1px solid var(--border-color);
-    margin-top: 1rem;
-}
-
-.client-list-section .pagination-info {
-    font-size: 0.85rem;
-    color: var(--text-secondary);
-}
-
-.client-list-section .pagination-buttons {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.client-list-section .page-indicator {
-    font-size: 0.85rem;
-    color: var(--text-secondary);
-    padding: 0 0.5rem;
 }
 
 .client-list-section .data-table td:first-child {
