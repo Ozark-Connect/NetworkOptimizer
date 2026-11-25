@@ -679,16 +679,19 @@ else
                                     <td>Signal</td>
                                     @foreach (var b in bands)
                                     {
-                                        <td>@(b.SignalDbm is int s ? $"{s} dBm" : "--") <SignalBarsInline Dbm="b.SignalDbm" Band="b.Band" /></td>
+                                        <td><span class="lan-health-signal">@(b.SignalDbm is int s ? $"{s} dBm" : "--")<SignalBarsInline Dbm="b.SignalDbm" Band="b.Band" /></span></td>
                                     }
                                     @if (mlo)
                                     {
                                         <td>
                                             @if (avg is { } a)
                                             {
-                                                <span class="signal-bars-inline" role="img" aria-label="@a.Bars of 5 bars">
-                                                    @for (var i = 0; i < 5; i++) { <span style="@(i < a.Bars ? $"background: {a.Color}" : null)"></span> }
-                                                </span> <span class="lan-health-sub">average</span>
+                                                <span class="lan-health-signal">
+                                                    <span class="signal-bars-inline" role="img" aria-label="@a.Bars of 5 bars">
+                                                        @for (var i = 0; i < 5; i++) { <span style="@(i < a.Bars ? $"background: {a.Color}" : null)"></span> }
+                                                    </span>
+                                                    <span class="lan-health-sub">average</span>
+                                                </span>
                                             }
                                             else { <text>--</text> }
                                         </td>
@@ -719,7 +722,7 @@ else
                             @if (l.MeshWorstSignalDbm is int worst && l.MeshWorstSignalRadio is { } wr)
                             {
                                 var wb = LanHealthDetectors.SignalBand(wr);
-                                @WindowRow($"Weakest signal ({RangeLabel})", @<text>@worst dBm <SignalBarsInline Dbm="worst" Band="wb" /> <span class="lan-health-sub">on @wb.ToDisplayString(), at the @(l.MeshWorstSignalAtParent ? "parent" : "child")</span></text>)
+                                @WindowRow($"Weakest signal ({RangeLabel})", @<text><span class="lan-health-signal">@worst dBm<SignalBarsInline Dbm="worst" Band="wb" /></span> <span class="lan-health-sub">on @wb.ToDisplayString(), at the @(l.MeshWorstSignalAtParent ? "parent" : "child")</span></text>)
                             }
                         </tbody>
                     </table>

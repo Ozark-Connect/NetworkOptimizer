@@ -21029,6 +21029,8 @@ tr.stats-row-filtered {
 .lan-health .lan-health-end { position: relative; }
 .lan-health .lan-health-end-link { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; min-width: 0; color: inherit; text-decoration: none; }
 .lan-health a.lan-health-end-link:hover .lan-health-end-name, .lan-health .lan-health-device-link:hover { color: var(--primary-hover); }
+/* A dBm reading and its bars, spaced and aligned as Client Stats' client detail sets them (.info-item). */
+.lan-health .lan-health-signal { display: inline-flex; align-items: baseline; gap: 0.5rem; }
 .lan-health .lan-health-device-link { display: inline-flex; align-items: center; gap: 0.3rem; color: inherit; text-decoration: none; }
 .lan-health .lan-health-device-link > svg { flex: none; color: var(--text-muted); }
 .lan-health .lan-health-device-link:hover > svg { color: inherit; }
