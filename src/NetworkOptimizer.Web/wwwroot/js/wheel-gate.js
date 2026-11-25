@@ -57,11 +57,14 @@
             if (armed) return;
             armed = true;
             showRing(!exempt());
+            // For a map's own controls to follow, as the Signal Map's Pan tool does (app.css).
+            host.classList.add('map-touch-armed');
             document.addEventListener('pointerdown', onOutside, true);
         }
         function disarm() {
             armed = false;
             showRing(false);
+            host.classList.remove('map-touch-armed');
             document.removeEventListener('pointerdown', onOutside, true);
         }
 

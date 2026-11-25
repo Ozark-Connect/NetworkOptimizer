@@ -20088,6 +20088,14 @@ tr.stats-row-filtered {
     border-color: var(--primary-hover);
     color: #fff;
 }
+/* On a touch screen one finger pans only once the map is armed (wheel-gate.js), so Pan reads as off until then. */
+@media (pointer: coarse) {
+    .floor-plan-editor:not(.fp-fullscreen) .leaflet-container:not(.map-touch-armed) .fp-tool-control a[data-tool="pan"].active {
+        background: rgba(26, 29, 35, 0.9);
+        border-color: rgba(255, 255, 255, 0.1);
+        color: var(--text-secondary);
+    }
+}
 .fp-map-container .fp-tool-control a.disabled,
 .fp-map-container .fp-tool-control a.disabled:hover,
 .fp-map-container .fp-tool-control a.disabled:focus {
