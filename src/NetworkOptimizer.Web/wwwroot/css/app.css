@@ -13541,6 +13541,12 @@ h3 > .tooltip-icon-sm {
     color: var(--text-primary);
 }
 
+/* A row holding the bars aligns on the text baseline: the bars have no text, so their baseline is
+   their bottom edge, which puts the bar bottoms on the dBm text's baseline. */
+.info-item:has(> .signal-bars-inline) {
+    align-items: baseline;
+}
+
 /* SignalBarsInline: five bars beside a dBm reading. Not .signal-bars, which is taken three times over. */
 .signal-bars-inline {
     display: inline-flex;
