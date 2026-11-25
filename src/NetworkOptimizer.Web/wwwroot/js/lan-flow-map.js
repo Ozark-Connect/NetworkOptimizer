@@ -2003,6 +2003,7 @@ export class LanFlowMap {
             const fabric = h && h.fabric !== false ? h : null;
             entry.health = fabric;
             entry.healthEl = fabric ? lanHealth.createBadge(fabric) : null;
+            entry.el.style.cursor = h?.href ? 'pointer' : '';
         }
         this._refreshLinkLabels();
     }
@@ -4004,6 +4005,13 @@ export class LanFlowMap {
                 e.preventDefault();
                 this.canvas.dispatchEvent(new WheelEvent('wheel', e));
             }, { passive: false });
+            // The pill sits over its pipe, so it opens the link's LAN Health page as the pipe does.
+            el.addEventListener('dblclick', (e) => {
+                const href = this._linkHealth?.get(link.id)?.href;
+                if (!href) return;
+                e.stopPropagation();
+                navigate(href);
+            });
             this._labelsLayer.appendChild(el);
             this._linkLabels.set(link.id, { el, kind: link.kind, link });
         }
