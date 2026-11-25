@@ -272,9 +272,11 @@ else
         {
             // Still showing the tab: remember where it was before the link page replaces it.
             try { await JS.InvokeVoidAsync("noTabScroll.save", "lan-health"); } catch (JSDisconnectedException) { }
-            _scrollToLink = true;
         }
         else if (!string.IsNullOrEmpty(_loadedLink) && string.IsNullOrEmpty(LinkId)) _restoreTab = true;
+        // Every way onto a link page lands at its top: from the tab, another link, or another tab (the
+        // LAN maps on Live View), whose scroll position the Monitoring page otherwise keeps.
+        if (!string.IsNullOrEmpty(LinkId) && LinkId != _loadedLink) _scrollToLink = true;
         if (_report == null || _loadedLink != LinkId) await LoadAsync();
     }
 
@@ -328,7 +330,8 @@ else
     {
         // A link opens at its title; the way back returns the tab to where it was, as Back does.
         // A query-only navigation keeps the scroll on purpose (scrollRestoration.js), so both are done here.
-        if (_scrollToLink)
+        // Not until the report is in: before that the spinner is all there is to scroll to.
+        if (_scrollToLink && _report != null)
         {
             _scrollToLink = false;
             try { await JS.InvokeVoidAsync("eval", "document.getElementById('lan-health-link-top')?.scrollIntoView({ behavior: 'instant', block: 'start' })"); }
