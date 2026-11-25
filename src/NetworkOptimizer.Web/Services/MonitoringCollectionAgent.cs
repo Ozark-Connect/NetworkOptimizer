@@ -1366,12 +1366,18 @@ public class MonitoringCollectionAgent : BackgroundService
             list.Add(c);
         }
         var portClients = new Dictionary<(string DeviceMac, int Port), MonitoringLiveStats.PortClient>();
+        IReadOnlyDictionary<string, string> displayNames = new Dictionary<string, string>();
+        if (wiredByPort.Count > 0)
+        {
+            try { displayNames = await ClientDisplayNameCache.GetAsync(_connectionService.Client, ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { _logger.LogDebug(ex, "WiFi tier: client display names unavailable"); }
+        }
         foreach (var (key, list) in wiredByPort)
         {
             if (list.Count != 1) continue;
             var pc = list[0];
-            var pcName = !string.IsNullOrWhiteSpace(pc.Name) ? pc.Name
-                : !string.IsNullOrWhiteSpace(pc.Hostname) ? pc.Hostname : pc.Mac;
+            // Empty when nothing names it: Port Statistics then falls back to the client's history name, then its MAC.
+            var pcName = ClientNames.For(pc, displayNames.GetValueOrDefault(pc.Mac.ToLowerInvariant())) ?? string.Empty;
             // BestIp falls back ip -> last_ip -> fixed_ip, so fixed/reservation devices
             // (no live DHCP lease) still resolve, matching the UniFi client table.
             portClients[key] = new MonitoringLiveStats.PortClient(pc.Mac, pc.BestIp ?? string.Empty, pcName);

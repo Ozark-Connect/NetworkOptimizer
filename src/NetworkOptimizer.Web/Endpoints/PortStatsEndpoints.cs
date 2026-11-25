@@ -43,6 +43,8 @@ public static class PortStatsEndpoints
             SiteContextService siteContext,
             UniFiConnectionService connectionService,
             NetworkOptimizer.Web.Services.Monitoring.LanHealth.ILanHealthService lanHealth,
+            NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCache mapCache,
+            NetworkOptimizer.Web.Services.WiredPortPresence.IWiredPortPresenceService portPresence,
             string? macs,
             DateTime? at,
             CancellationToken ct) =>
@@ -66,6 +68,29 @@ public static class PortStatsEndpoints
             {
                 histClients = (await influx.QueryWiredPortClientsAsync(filterMacs, at.Value.ToUniversalTime(), ct))
                     .ToDictionary(p => (Norm(p.DeviceMac), p.Port));
+            }
+
+            // Live: a client the console dropped while its port stayed up, as the LAN map draws it on that port.
+            var presentByPort = new Dictionary<(string Mac, int Port), NetworkOptimizer.Web.Services.WiredPortPresence.WiredPortPresence>();
+            if (!at.HasValue)
+            {
+                try
+                {
+                    foreach (var p in await portPresence.ListAsync())
+                        presentByPort.TryAdd((Norm(p.SwitchMac), p.Port), p);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException) { /* The column shows listed clients only. */ }
+            }
+            // The LAN map's names and recent addresses from client history, so an offline client or one listed
+            // with no ip names and links as it does on the map. Read off the cached snapshot: never a rebuild.
+            var recentNames = mapCache.Current?.RecentClientNames;
+            var recentIps = mapCache.Current?.RecentClientIps;
+            (string? Mac, string? Ip, string? Name) Fill(string? clientMac, string? ip, string? name)
+            {
+                var key = Norm(clientMac ?? "");
+                if (string.IsNullOrWhiteSpace(name) && recentNames?.GetValueOrDefault(key) is { } known) name = known;
+                if (string.IsNullOrWhiteSpace(ip)) ip = recentIps?.GetValueOrDefault(key);
+                return (clientMac, string.IsNullOrWhiteSpace(ip) ? null : ip, string.IsNullOrWhiteSpace(name) ? null : name);
             }
 
             await using var db = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
@@ -156,11 +181,15 @@ public static class PortStatsEndpoints
                                     if (histClients != null)
                                     {
                                         if (histClients.TryGetValue((mac, pnum), out var hc))
-                                            (clientMac, clientIp, clientName) = (hc.ClientMac, hc.ClientIp, hc.ClientName);
+                                            (clientMac, clientIp, clientName) = Fill(hc.ClientMac, hc.ClientIp, hc.ClientName);
                                     }
                                     else if (liveStats.GetPortClient(mac, pnum) is { } lc)
                                     {
-                                        (clientMac, clientIp, clientName) = (lc.Mac, lc.Ip, lc.Name);
+                                        (clientMac, clientIp, clientName) = Fill(lc.Mac, lc.Ip, lc.Name);
+                                    }
+                                    else if (presentByPort.TryGetValue((mac, pnum), out var present))
+                                    {
+                                        (clientMac, clientIp, clientName) = Fill(present.ClientMac, present.Ip, present.Name);
                                     }
                                 }
                                 return new

@@ -445,7 +445,7 @@ public class MonitoringLiveStats
             && map.TryGetValue(ifName, out var label) ? label : null;
     }
 
-    /// <summary>The single wired client on a switch/gateway port (for the port stats table).</summary>
+    /// <summary>The single wired client on a switch/gateway port (for the port stats table). Ip and Name are empty when the console has none.</summary>
     public readonly record struct PortClient(string Mac, string Ip, string Name);
 
     // Wired client per (device mac, port number), for ports with exactly one client.
