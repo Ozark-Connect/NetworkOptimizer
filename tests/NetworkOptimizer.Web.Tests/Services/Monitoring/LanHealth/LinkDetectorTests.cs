@@ -364,6 +364,43 @@ public class LinkDetectorTests
     }
 
     [Fact]
+    public void UniFiOsUpdate_ExplainsTheConsoleAndEveryDeviceBelowIt()
+    {
+        // A UniFi OS-only plan writes no step row; its downtime lives in the plan document.
+        const string gw = "aa:bb:cc:00:00:01", ap = "aa:bb:cc:00:00:02", other = "aa:bb:cc:00:00:09";
+        var topology = new LanHealthEngine.Topology
+        {
+            Devices = [new() { Mac = gw, Type = "udm" }, new() { Mac = ap, Type = "uap" }],
+            Links = [new LinkRecord
+            {
+                Id = $"{gw}|{ap}", Kind = LinkKind.FabricWired,
+                Upstream = new LinkEnd { DeviceMac = gw, DeviceType = DeviceType.Gateway },
+                Downstream = new LinkEnd { DeviceMac = ap, DeviceType = DeviceType.AccessPoint },
+            }],
+        };
+        var down = T0.AddMinutes(2);
+        var doc = new NetworkOptimizer.Web.Services.Firmware.RolloutPlanDocument { IncludesUniFiOsUpdate = true, ConsoleMac = "AA:BB:CC:00:00:01" };
+        doc.UniFiOsUpdate.WentDownAt = down;
+        doc.UniFiOsUpdate.BackAt = down.AddMinutes(4);
+        doc.UniFiOsUpdate.TargetVersion = "6.0.19";
+        var plan = new NetworkOptimizer.Storage.Models.FirmwareRolloutPlan { PlanJson = System.Text.Json.JsonSerializer.Serialize(doc), StartedAt = T0, CompletedAt = down.AddMinutes(5) };
+
+        var windows = LanHealthEngine.UniFiOsUpdateWindows([plan], topology, T0.AddHours(1)).ToList();
+
+        windows.Select(w => w.DeviceMac).Should().BeEquivalentTo([gw, ap]).And.NotContain(other);
+        windows.Should().OnlyContain(w => w.Reason == ExplainReason.FirmwareRolloutWave && w.Detail == "6.0.19");
+        windows[0].Covers(down.AddSeconds(4), down.AddSeconds(15)).Should().BeTrue("a drop while the gateway reboots");
+        windows[0].Covers(down.AddMinutes(20), down.AddMinutes(20)).Should().BeFalse();
+
+        var serverHosted = new LanHealthEngine.Topology { Devices = [topology.Devices[1]], Links = topology.Links };
+        LanHealthEngine.UniFiOsUpdateWindows([plan], serverHosted, T0.AddHours(1)).Should().BeEmpty("a UniFi OS Server host is not a gateway");
+
+        doc.IncludesUniFiOsUpdate = false;
+        plan.PlanJson = System.Text.Json.JsonSerializer.Serialize(doc);
+        LanHealthEngine.UniFiOsUpdateWindows([plan], topology, T0.AddHours(1)).Should().BeEmpty("a Network app update only restarts the app");
+    }
+
+    [Fact]
     public void Mesh_NothingOnAWiredLink() => MeshClasses(Ev(Fabric())).Should().BeEmpty();
 
     [Fact]

@@ -17,7 +17,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 public sealed class LanHealthEngine
 {
     /// <summary>Bump when the roll-up changes; older rows are recomputed on the next backfill pass.</summary>
-    public const int Version = 21;
+    public const int Version = 22;
 
     internal static readonly TimeSpan RunEvery = TimeSpan.FromMinutes(15);
     internal static readonly TimeSpan Settle = TimeSpan.FromMinutes(5);
@@ -452,6 +452,13 @@ public sealed class LanHealthEngine
                         windows.Add(new ExplainWindow(start, end, mac, ExplainReason.ConsoleCutOff, s.ToVersion));
                 }
             }
+
+            // A UniFi OS update has no step row: its downtime lives in the plan.
+            var plans = await db.FirmwareRolloutPlans.AsNoTracking()
+                .Where(p => p.StartedAt != null && p.StartedAt < to && (p.CompletedAt == null || p.CompletedAt >= from.AddMinutes(-10)))
+                .ToListAsync(ct);
+            foreach (var w in UniFiOsUpdateWindows(plans, topology, to))
+                windows.Add(w);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -569,6 +576,29 @@ public sealed class LanHealthEngine
     /// parent during the step (<paramref name="meshChildren"/>, from the recorded parent) and everything below that child.
     /// A child that failed over to another AP while its parent rebooted is no longer below it in the live topology.
     /// </summary>
+    /// <summary>
+    /// A Firmware Rollout window per UniFi OS update the plans took down, on the gateway and every device below it.
+    /// Only a gateway console: a UniFi OS Server host or a Cloud Key reboots no link.
+    /// </summary>
+    internal static IEnumerable<ExplainWindow> UniFiOsUpdateWindows(IEnumerable<FirmwareRolloutPlan> plans, Topology topology, DateTime to)
+    {
+        var gateways = topology.Devices.Where(d => d.DeviceType == DeviceType.Gateway && !string.IsNullOrEmpty(d.Mac))
+            .Select(d => LanLinkBuilder.Mac(d.Mac)).ToHashSet();
+        foreach (var p in plans)
+        {
+            Firmware.RolloutPlanDocument? doc;
+            try { doc = System.Text.Json.JsonSerializer.Deserialize<Firmware.RolloutPlanDocument>(p.PlanJson); }
+            catch (System.Text.Json.JsonException) { continue; }
+            if (doc is not { IncludesUniFiOsUpdate: true, UniFiOsUpdate.WentDownAt: { } down } || string.IsNullOrWhiteSpace(doc.ConsoleMac)) continue;
+            var consoleMac = LanLinkBuilder.Mac(doc.ConsoleMac);
+            if (!gateways.Contains(consoleMac)) continue;
+            var start = down.AddMinutes(-2);
+            var end = (doc.UniFiOsUpdate.BackAt ?? p.CompletedAt ?? to).AddMinutes(5);
+            foreach (var mac in Below(consoleMac, topology))
+                yield return new ExplainWindow(start, end, mac, ExplainReason.FirmwareRolloutWave, doc.UniFiOsUpdate.TargetVersion);
+        }
+    }
+
     internal static HashSet<string> RolloutAffected(string mac, Topology topology, IEnumerable<string> meshChildren)
     {
         var set = Below(mac, topology).ToHashSet();
