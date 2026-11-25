@@ -578,7 +578,7 @@ public sealed class LanHealthEngine
     /// </summary>
     /// <summary>
     /// A Firmware Rollout window per UniFi OS update the plans took down, on the gateway and every device below it.
-    /// Only a gateway console: a UniFi OS Server host or a Cloud Key reboots no link.
+    /// Only a gateway console: a UniFi OS Server host or a CloudKey reboots no link.
     /// </summary>
     internal static IEnumerable<ExplainWindow> UniFiOsUpdateWindows(IEnumerable<FirmwareRolloutPlan> plans, Topology topology, DateTime to)
     {
