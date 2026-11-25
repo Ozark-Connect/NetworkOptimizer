@@ -5,7 +5,7 @@
 // wait runs out and the wheel zooms.
 //
 // Touch gate (opts.touchSurfaces): the same idea for a finger. A one-finger drag scrolls the page
-// until the map is armed by a tap, by a press held still for HOLD_MS, or by two fingers; a touch
+// until the map is armed by a tap, by a press held still for HOLD_MS, by a sideways swipe, or by two fingers; a touch
 // outside the map disarms it. Armed by touch, the map shows a ring.
 // A classic script, so the eval-built and global maps can use it as well as the ES modules.
 (function () {
@@ -18,13 +18,13 @@
     var SLOP_PX = 8;
 
     /**
-     * Arms the touch side of a gate. The surfaces keep `touch-action: pan-x pan-y` so the browser can
-     * scroll the page through them; an armed map cancels the touchmove instead, which stops the scroll.
+     * Arms the touch side of a gate. The surfaces take `touch-action: pan-y` so the browser can scroll
+     * the page through them; an armed map cancels the touchmove instead, which stops the scroll.
      */
     function touchGate(host, opts, exempt) {
         var surfaces = (opts.touchSurfaces() || []).filter(Boolean);
         var saved = surfaces.map(function (el) { return el.style.touchAction; });
-        surfaces.forEach(function (el) { el.style.touchAction = 'pan-x pan-y'; });
+        surfaces.forEach(function (el) { el.style.touchAction = 'pan-y'; });
 
         var armed = false;
         var press = null;      // the one finger down while disarmed: {id, x, y, moved, claimed}
@@ -96,11 +96,16 @@
         // still while the browser decides to scroll the page.
         function onMove(e) {
             if (!isTouch(e) || open() || claimed() || down.size > 1) return;
-            if (press && e.pointerId === press.id && !press.moved
-                && Math.hypot(e.clientX - press.x, e.clientY - press.y) >= SLOP_PX) {
-                press.moved = true;
-                clearTimeout(hold);
-                hold = null;
+            if (press && e.pointerId === press.id && !press.moved) {
+                var dx = Math.abs(e.clientX - press.x), dy = Math.abs(e.clientY - press.y);
+                // Sideways is intent: the page has no sideways scroll, so the browser leaves the gesture to
+                // the map (touch-action pan-y), and this same swipe pans it.
+                if (dx >= SLOP_PX && dx > dy) { arm(); return; }
+                if (Math.hypot(dx, dy) >= SLOP_PX) {
+                    press.moved = true;
+                    clearTimeout(hold);
+                    hold = null;
+                }
             }
             e.stopPropagation();
         }
