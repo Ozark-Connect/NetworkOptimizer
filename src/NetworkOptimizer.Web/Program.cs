@@ -766,6 +766,8 @@ builder.Services.AddScoped<MonitoringReadinessService>();
 builder.Services.AddSiteScopedRegistry<MonitoringInfluxRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<MonitoringInfluxRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
+// Which MACs served each site as one HA gateway, so its history reads as one series across a failover.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.GatewayPairTracker>();
 // Per-site live monitoring caches, same forwarding shape: pages/endpoints get
 // the current site's instance, singleton collectors pin the default, and the
 // agent result sink records into the owning site's instance.

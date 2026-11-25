@@ -48,7 +48,7 @@ public sealed class DeviceSshRouter
     internal const string GatewayCredentialsMissing = "Gateway SSH credentials are not configured for this site.";
 
     internal const string StandbyUnreachable =
-        "This gateway is the standby of a Shadow Mode pair. It has no LAN address while the other gateway is active, so it cannot be reached over SSH.";
+        "Shadow Mode standby: unreachable over SSH until it becomes the active gateway.";
 
     /// <summary>Bounds the no-op login that settles a route before a caller needs its credentials.</summary>
     private static readonly TimeSpan SettleTimeout = TimeSpan.FromSeconds(15);

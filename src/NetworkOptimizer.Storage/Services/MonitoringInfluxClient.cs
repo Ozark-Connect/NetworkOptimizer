@@ -3517,7 +3517,7 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
                 wanIfNames.Count, string.Join(",", wanIfNames));
         }
         var window = aggregateWindow ?? PickAggregateWindow(to - from, sampleIntervalSeconds);
-        var mac = NormalizeMac(deviceMac);
+        var (macFilter, pairRegroup) = DeviceMacFilter(deviceMac, "if_name", "_field");
         var ifFilter = string.Join(" or ", wanIfNames.Select(n =>
             $@"r.if_name == {FluxLiteral.Quote(n)}"));
         // Summing across interfaces groups by (_time, _field), which on a long window at a fine
@@ -3535,9 +3535,9 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
 from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(mac)})
+  |> filter(fn: (r) => {macFilter})
   |> filter(fn: (r) => {ifFilter})
-  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
+  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps""){pairRegroup}
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false){multiWanSum}
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> sort(columns: [""_time""])
@@ -3584,13 +3584,13 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
     {
         if (!IsConfigured) return Array.Empty<DeviceHealthPoint>();
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
-        var mac = NormalizeMac(deviceMac);
+        var (macFilter, pairRegroup) = DeviceMacFilter(deviceMac, "_field");
         var flux = $@"
 from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""device_health"")
-  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(mac)})
-  |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"" or r._field == ""uptime_seconds"" or r._field == ""fan_speed_rpm"")
+  |> filter(fn: (r) => {macFilter})
+  |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"" or r._field == ""uptime_seconds"" or r._field == ""fan_speed_rpm""){pairRegroup}
   |> map(fn: (r) => ({{ r with _value: if r._field == ""temperature_c"" and float(v: r._value) > {FluxMillidegreeThreshold} then float(v: r._value) / {FluxMillidegreeDivisor} else float(v: r._value) }}))
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
@@ -3629,8 +3629,8 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
 from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""device_health"")
-  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(NormalizeMac(deviceMac))})
-  |> filter(fn: (r) => r._field == ""cpu_percent"")
+  |> filter(fn: (r) => {DeviceMacFilter(deviceMac, "_field").Filter})
+  |> filter(fn: (r) => r._field == ""cpu_percent""){DeviceMacFilter(deviceMac, "_field").Regroup}
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
 ";
         var results = new List<(DateTime, double)>();
@@ -3953,12 +3953,11 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
         string deviceMac, DateTime from, DateTime to, CancellationToken ct = default)
     {
         if (!IsConfigured) return Array.Empty<DeviceHealthPoint>();
-        var mac = NormalizeMac(deviceMac);
         var flux = $@"
 from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""device_health"")
-  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(mac)})
+  |> filter(fn: (r) => {DeviceMacFilter(deviceMac).Filter})
   |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"" or r._field == ""uptime_seconds"" or r._field == ""fan_speed_rpm"")
 ";
         var cpu = new Dictionary<long, double>();
@@ -4580,7 +4579,7 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
 from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""device_health"" and ({fieldFilter}))
-  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(NormalizeMac(deviceMac))})
+  |> filter(fn: (r) => {DeviceMacFilter(deviceMac).Filter})
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
 ";
         var raw = new Dictionary<string, List<(DateTime Time, double Value)>>();
@@ -7328,6 +7327,41 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
     /// only ever match nothing. The one non-MAC tag value written here
     /// (<see cref="ClientWanCoverageMarker"/>) bypasses this by design.
     /// </summary>
+    private string[] _gatewayPairMacs = Array.Empty<string>();
+
+    /// <summary>
+    /// The MACs that have served this site as one HA gateway (a Shadow Mode pair). A Console Shadow
+    /// Mode takeover makes the live gateway row the other unit's, with its own MAC, so the gateway's
+    /// history is split across these MACs. Gateway WAN and health reads for any of them read all.
+    /// </summary>
+    public IReadOnlyList<string> GatewayPairMacs => Volatile.Read(ref _gatewayPairMacs);
+
+    /// <summary>Sets <see cref="GatewayPairMacs"/>. Fewer than two MACs clears it.</summary>
+    public void SetGatewayPairMacs(IEnumerable<string> macs)
+    {
+        var set = macs.Select(NormalizeMac).Where(m => m.Length > 0).Distinct().ToArray();
+        Volatile.Write(ref _gatewayPairMacs, set.Length > 1 ? set : Array.Empty<string>());
+    }
+
+    /// <summary>
+    /// The Flux device_mac predicate for one device. For a member of <see cref="GatewayPairMacs"/> it
+    /// matches every member, and <c>Regroup</c> merges their series by <paramref name="keepColumns"/>
+    /// so one window holds one mean; otherwise <c>Regroup</c> is empty and the query is unchanged.
+    /// </summary>
+    internal (string Filter, string Regroup) DeviceMacFilter(string deviceMac, params string[] keepColumns)
+    {
+        var mac = NormalizeMac(deviceMac);
+        var pair = Volatile.Read(ref _gatewayPairMacs);
+        if (!pair.Contains(mac))
+            return ($"r.device_mac == {FluxLiteral.Quote(mac)}", string.Empty);
+        var filter = string.Join(" or ", pair.Select(m => $"r.device_mac == {FluxLiteral.Quote(m)}"));
+        var regroup = keepColumns.Length == 0 ? string.Empty
+            : $@"
+  |> group(columns: [{string.Join(", ", keepColumns.Select(c => $@"""{c}"""))}])
+  |> sort(columns: [""_time""])";
+        return (filter, regroup);
+    }
+
     private static string NormalizeMac(string mac)
     {
         if (string.IsNullOrEmpty(mac)) return string.Empty;

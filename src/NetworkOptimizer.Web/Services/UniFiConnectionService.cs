@@ -1703,6 +1703,9 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         {
             _cachedDevices = devices;
             _deviceCacheTime = DateTime.UtcNow;
+            // Fire and forget: it only labels history, and never throws.
+            if (_serviceProvider.GetService<Monitoring.GatewayPairTracker>() is { } pairs)
+                _ = pairs.ObserveAsync(SiteSlug, devices);
         }
 
         return devices;
