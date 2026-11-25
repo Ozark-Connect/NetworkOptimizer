@@ -213,7 +213,7 @@ const LINK_LABEL_THRESHOLD_BPS = 1_000_000;
 // A hovered link's pipe: how much thicker it swells, how fast, and how long before its hint shows.
 const LINK_HOVER_SWELL = 1.8;
 const LINK_SWELL_MS = 150;
-const LINK_HINT_MS = 1500;
+const LINK_HINT_MS = 750;
 const WAN_LABEL_THRESHOLD_BPS = 500_000;
 
 // Camera-distance cutoff (scene units) above which leaf link labels

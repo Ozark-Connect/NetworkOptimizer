@@ -263,7 +263,7 @@ const _dotPt={x:0,y:0};
 const _linkPt={x:0,y:0};
 // A link's hit test walks its path in this many straight pieces; the hint waits this long on a link.
 const LINK_HIT_STEPS=24;
-const LINK_HINT_MS=1500;
+const LINK_HINT_MS=750;
 // How much wider a hovered link draws at full swell.
 const LINK_HOVER_GROW=0.8;
 
