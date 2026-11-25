@@ -167,7 +167,7 @@ public class GatewayDiagnosticsResult
 
     /// <summary>
     /// The port the transceiver was actually read from. Differs from <see cref="Interface"/>
-    /// when a VLAN sub-interface was requested, since the module lives in its parent port.
+    /// when a PPPoE or VLAN uplink is mapped to its physical port.
     /// </summary>
     public string? SfpInterface { get; set; }
 
@@ -191,7 +191,7 @@ public static class GatewayDiagnosticsParser
     // Interface names come from a dropdown but are also free-text editable, and they are
     // interpolated into a shell command - so anything outside the set Linux actually allows
     // for an interface name is rejected before it can reach the gateway.
-    private static readonly Regex InterfaceNamePattern = new(@"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,30}$", RegexOptions.Compiled);
+    private static readonly Regex InterfaceNamePattern = new(@"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,30}\z", RegexOptions.Compiled);
 
     /// <summary>True when the name is safe to interpolate into an SSH command.</summary>
     public static bool IsValidInterfaceName(string? name) =>

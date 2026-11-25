@@ -8,6 +8,7 @@ using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
+using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -1892,6 +1893,36 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                     ng, counter, wan.UplinkIfName ?? wan.IfName, wan.IfName);
                 return new PrimaryWanInterfaces(ng, wan.IfName, wan.UplinkIfName, counter);
             }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Finds the current physical port of an exact WAN uplink without loading network settings.
+    /// </summary>
+    internal async Task<string?> GetWanPhysicalInterfaceAsync(string uplinkInterface, CancellationToken ct)
+    {
+        var client = _client;
+        if (client == null) return null;
+
+        var devices = await client.GetDevicesAsync(ct, useCache: false);
+        return FindWanPhysicalInterface(devices, uplinkInterface);
+    }
+
+    internal static string? FindWanPhysicalInterface(IEnumerable<UniFiDeviceResponse> devices, string uplinkInterface)
+    {
+        var gateways = devices.Where(d => d.DeviceType == DeviceType.Gateway &&
+            d.DeviceModeOverride != "managed_shadow_gateway");
+        foreach (var gateway in gateways)
+        {
+            var wan = gateway.GetWanInterfaces().FirstOrDefault(w => w.UplinkIfName == uplinkInterface);
+            if (wan == null) continue;
+            if (!string.IsNullOrEmpty(wan.IfName)) return wan.IfName;
+
+            // Older gateway payloads may omit ifname from the WAN object.
+            var port = gateway.PortTable?.FirstOrDefault(p => p.PortIdx == wan.PortIdx);
+            return port?.IfName ?? wan.Name;
         }
 
         return null;

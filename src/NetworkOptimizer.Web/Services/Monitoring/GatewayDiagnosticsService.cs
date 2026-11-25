@@ -21,12 +21,12 @@ public class GatewayDiagnosticsService
     private const string NeighborMarker = "###NEIGH";
 
     private readonly IGatewaySshService _gatewaySsh;
-    private readonly IeeeOuiDatabase _ouiDatabase;
+    private readonly IIeeeOuiDatabase _ouiDatabase;
     private readonly ILogger<GatewayDiagnosticsService> _logger;
 
     public GatewayDiagnosticsService(
         IGatewaySshService gatewaySsh,
-        IeeeOuiDatabase ouiDatabase,
+        IIeeeOuiDatabase ouiDatabase,
         ILogger<GatewayDiagnosticsService> logger)
     {
         _gatewaySsh = gatewaySsh;
@@ -38,7 +38,8 @@ public class GatewayDiagnosticsService
     /// Runs the diagnostics for one interface. Never throws for a failed command - each
     /// section reports its own error so an interface with no SFP still returns its lease.
     /// </summary>
-    public async Task<GatewayDiagnosticsResult> RunAsync(string interfaceName, CancellationToken ct = default)
+    public async Task<GatewayDiagnosticsResult> RunAsync(
+        string interfaceName, CancellationToken ct = default, string? physicalInterfaceName = null)
     {
         var result = new GatewayDiagnosticsResult { Interface = interfaceName };
 
@@ -48,11 +49,13 @@ public class GatewayDiagnosticsService
             return result;
         }
 
-        // The transceiver belongs to the physical port, so a tagged WAN ("ethN.100") has to
-        // ask its parent - the sub-interface itself only ever answers "Operation not
-        // supported". Addresses and neighbors stay on the requested interface: that is where
-        // the lease and the ARP entries actually live.
-        var sfpInterface = GatewayDiagnosticsParser.PhysicalInterfaceName(interfaceName);
+        // PPPoE has no transceiver of its own. Use the port reported by UniFi for the
+        // selected WAN and strip any VLAN suffix. Addresses and neighbors stay on the uplink.
+        var sfpSource = physicalInterfaceName ?? interfaceName;
+        if (!GatewayDiagnosticsParser.IsValidInterfaceName(sfpSource))
+            sfpSource = interfaceName;
+
+        var sfpInterface = GatewayDiagnosticsParser.PhysicalInterfaceName(sfpSource);
         result.SfpInterface = sfpInterface;
 
         // Every command is redirected to stdout so a failure message (no such device, no SFP
