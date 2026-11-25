@@ -1,7 +1,5 @@
 using System.Text;
-using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Sqm;
-using NetworkOptimizer.Sqm.Models;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Web.Services.Ssh;
 using SqmConfig = NetworkOptimizer.Sqm.Models.SqmConfiguration;
@@ -1055,7 +1053,7 @@ public class SqmDeploymentService : ISqmDeploymentService
                 if (string.IsNullOrWhiteSpace(errorOutput))
                 {
                     var logPath = $"/var/log/sqm-{scriptName}.log";
-                    var logResult = await RunCommandAsync($"grep 'ERROR:' {logPath} | tail -1");
+                    var logResult = await RunCommandAsync($"grep -a 'ERROR:' {logPath} | tail -1");
                     if (logResult.success && !string.IsNullOrWhiteSpace(logResult.output))
                     {
                         // Extract just the error message (after "ERROR: ")
@@ -1428,8 +1426,10 @@ public class SqmDeploymentService : ISqmDeploymentService
         sb.AppendLine("    fi");
         sb.AppendLine("    ");
         sb.AppendLine("    # Find last speedtest entry (look for \"Measured:\" line)");
-        sb.AppendLine("    local measured_line=$(grep 'Measured:' \"$log_file\" | tail -1)");
-        sb.AppendLine("    local adjusted_line=$(grep 'Adjusted to' \"$log_file\" | tail -1)");
+        // -a on every log grep: NUL bytes from an unclean write make grep treat the log as binary
+        // and drop every match after them, which freezes the dates and hides new errors.
+        sb.AppendLine("    local measured_line=$(grep -a 'Measured:' \"$log_file\" | tail -1)");
+        sb.AppendLine("    local adjusted_line=$(grep -a 'Adjusted to' \"$log_file\" | tail -1)");
         sb.AppendLine("    ");
         sb.AppendLine("    if [ -z \"$measured_line\" ]; then");
         sb.AppendLine("        echo 'null'");
@@ -1455,7 +1455,7 @@ public class SqmDeploymentService : ISqmDeploymentService
         sb.AppendLine("    fi");
         sb.AppendLine("    ");
         sb.AppendLine("    # Find last ping adjustment entry");
-        sb.AppendLine("    local ping_line=$(grep 'Ping adjusted to' \"$log_file\" | tail -1)");
+        sb.AppendLine("    local ping_line=$(grep -a 'Ping adjusted to' \"$log_file\" | tail -1)");
         sb.AppendLine("    ");
         sb.AppendLine("    if [ -z \"$ping_line\" ]; then");
         sb.AppendLine("        echo 'null'");
@@ -1487,11 +1487,11 @@ public class SqmDeploymentService : ISqmDeploymentService
         sb.AppendLine("    local log_name=$1");
         sb.AppendLine("    local log_file=\"/var/log/sqm-${log_name}.log\"");
         sb.AppendLine("    [ ! -f \"$log_file\" ] && echo 'null' && return");
-        sb.AppendLine("    local last_error=$(grep -n 'ERROR:' \"$log_file\" | tail -1)");
+        sb.AppendLine("    local last_error=$(grep -a -n 'ERROR:' \"$log_file\" | tail -1)");
         sb.AppendLine("    [ -z \"$last_error\" ] && echo 'null' && return");
         sb.AppendLine("    local error_num=$(echo \"$last_error\" | cut -d: -f1)");
         sb.AppendLine("    # Check if a successful operation happened after the error");
-        sb.AppendLine("    local last_success=$(grep -n -i 'adjusted to' \"$log_file\" | tail -1)");
+        sb.AppendLine("    local last_success=$(grep -a -n -i 'adjusted to' \"$log_file\" | tail -1)");
         sb.AppendLine("    if [ -n \"$last_success\" ]; then");
         sb.AppendLine("        local success_num=$(echo \"$last_success\" | cut -d: -f1)");
         sb.AppendLine("        [ \"$success_num\" -gt \"$error_num\" ] && echo 'null' && return");
@@ -1511,8 +1511,8 @@ public class SqmDeploymentService : ISqmDeploymentService
         sb.AppendLine("    [ ! -f \"$log_file\" ] && echo \"false\" && return");
         sb.AppendLine("    ");
         sb.AppendLine("    # Get line numbers of last \"Starting\" and last \"Adjusted to\"");
-        sb.AppendLine("    local last_start_line=$(grep -n 'Starting speedtest adjustment' \"$log_file\" | tail -1)");
-        sb.AppendLine("    local last_end_line=$(grep -n 'Adjusted to' \"$log_file\" | tail -1)");
+        sb.AppendLine("    local last_start_line=$(grep -a -n 'Starting speedtest adjustment' \"$log_file\" | tail -1)");
+        sb.AppendLine("    local last_end_line=$(grep -a -n 'Adjusted to' \"$log_file\" | tail -1)");
         sb.AppendLine("    ");
         sb.AppendLine("    # If no start ever, not running");
         sb.AppendLine("    [ -z \"$last_start_line\" ] && echo \"false\" && return");
@@ -1524,7 +1524,7 @@ public class SqmDeploymentService : ISqmDeploymentService
         sb.AppendLine("    [ -n \"$end_num\" ] && [ \"$end_num\" -ge \"$start_num\" ] && echo \"false\" && return");
         sb.AppendLine("    ");
         sb.AppendLine("    # Check if an ERROR occurred after start (script exited on error)");
-        sb.AppendLine("    local last_error_line=$(grep -n 'ERROR:' \"$log_file\" | tail -1)");
+        sb.AppendLine("    local last_error_line=$(grep -a -n 'ERROR:' \"$log_file\" | tail -1)");
         sb.AppendLine("    if [ -n \"$last_error_line\" ]; then");
         sb.AppendLine("        local error_num=$(echo \"$last_error_line\" | cut -d: -f1)");
         sb.AppendLine("        [ \"$error_num\" -ge \"$start_num\" ] && echo \"false\" && return");
