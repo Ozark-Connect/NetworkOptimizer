@@ -25,13 +25,16 @@
         surfaces.forEach(function (el) { el.style.touchAction = 'pan-x pan-y'; });
 
         var armed = false;
-        var press = null;      // the one finger down while disarmed: {id, x, y, moved}
+        var press = null;      // the one finger down while disarmed: {id, x, y, moved, claimed}
         var hold = null;
-        var touches = 0;
+        var down = new Set();  // touch pointers down on the map
         var ring = null;
 
         function isTouch(e) { return e.pointerType === 'touch'; }
         function open() { return armed || exempt() || !!(opts.touchExempt && opts.touchExempt()); }
+        // A press on something that takes its own drag (a draggable marker, an editor handle that cancels its
+        // touchstart) belongs to it, armed or not.
+        function claimed() { return !!(press && press.claimed); }
 
         function showRing(on) {
             if (on && !ring && getComputedStyle(host).position !== 'static') {
@@ -62,17 +65,32 @@
 
         function onDown(e) {
             if (!isTouch(e)) return;
-            touches++;
-            if (touches > 1) { press = null; arm(); return; }
+            // The lift is heard on the document: the element the finger went down on can be gone by then
+            // (Leaflet swaps tiles mid-gesture), and a lost lift would count every later finger as a second one.
+            if (down.size === 0) {
+                document.addEventListener('pointerup', onUp, true);
+                document.addEventListener('pointercancel', onUp, true);
+            }
+            down.add(e.pointerId);
+            if (down.size > 1) { press = null; arm(); return; }
             if (open()) return;
-            press = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
+            press = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false,
+                claimed: !!(e.target.closest && e.target.closest('.leaflet-marker-draggable')) };
             clearTimeout(hold);
-            hold = setTimeout(function () { if (press && !press.moved) arm(); }, REST_MS);
+            if (!press.claimed) hold = setTimeout(function () { if (press && !press.moved) arm(); }, REST_MS);
+        }
+        // Bubble, after the target's own handler: one that cancels its touchstart has taken the gesture.
+        function onTouchStart(e) {
+            if (press && e.touches.length === 1 && e.defaultPrevented) {
+                press.claimed = true;
+                clearTimeout(hold);
+                hold = null;
+            }
         }
         // Capture, ahead of the map: a disarmed one-finger move never reaches it, so the map holds
         // still while the browser decides to scroll the page.
         function onMove(e) {
-            if (!isTouch(e) || open() || touches > 1) return;
+            if (!isTouch(e) || open() || claimed() || down.size > 1) return;
             if (press && e.pointerId === press.id && !press.moved
                 && Math.hypot(e.clientX - press.x, e.clientY - press.y) >= SLOP_PX) {
                 press.moved = true;
@@ -82,11 +100,14 @@
             e.stopPropagation();
         }
         function onUp(e) {
-            if (!isTouch(e)) return;
-            touches = Math.max(0, touches - 1);
+            if (!isTouch(e) || !down.delete(e.pointerId)) return;
+            if (down.size === 0) {
+                document.removeEventListener('pointerup', onUp, true);
+                document.removeEventListener('pointercancel', onUp, true);
+            }
             if (press && e.pointerId === press.id) {
                 // A tap: the press ended where it started, before the hold ran out.
-                if (e.type === 'pointerup' && !press.moved && !armed) arm();
+                if (e.type === 'pointerup' && !press.moved && !press.claimed && !armed) arm();
                 press = null;
                 clearTimeout(hold);
                 hold = null;
@@ -97,14 +118,13 @@
         // native touch events), so the browser keeps the scroll.
         function onTouchMove(e) {
             if (e.touches.length > 1) arm();
-            if (open()) { if (e.cancelable) e.preventDefault(); }
+            if (open() || claimed()) { if (e.cancelable) e.preventDefault(); }
             else e.stopPropagation();
         }
 
         host.addEventListener('pointerdown', onDown, true);
         host.addEventListener('pointermove', onMove, true);
-        host.addEventListener('pointerup', onUp, true);
-        host.addEventListener('pointercancel', onUp, true);
+        host.addEventListener('touchstart', onTouchStart, { passive: true });
         host.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
 
         return function dispose() {
@@ -113,9 +133,10 @@
             surfaces.forEach(function (el, i) { el.style.touchAction = saved[i]; });
             host.removeEventListener('pointerdown', onDown, true);
             host.removeEventListener('pointermove', onMove, true);
-            host.removeEventListener('pointerup', onUp, true);
-            host.removeEventListener('pointercancel', onUp, true);
+            host.removeEventListener('touchstart', onTouchStart);
             host.removeEventListener('touchmove', onTouchMove, { capture: true });
+            document.removeEventListener('pointerup', onUp, true);
+            document.removeEventListener('pointercancel', onUp, true);
         };
     }
 

@@ -19558,7 +19558,7 @@ tr.stats-row-filtered {
     border-radius: 0 0 8px 8px;
     overflow: hidden;
 }
-/* Every map (wheel-gate.js): one finger moves it, not the page. Above Leaflet's controls, never in the way of a touch. */
+/* A map armed by touch (wheel-gate.js): one finger moves it, not the page. Above Leaflet's controls, never in the way of a touch. */
 .map-touch-ring {
     position: absolute;
     inset: 0;
@@ -19566,6 +19566,11 @@ tr.stats-row-filtered {
     border-radius: inherit;
     pointer-events: none;
     z-index: 1001;
+}
+/* Fullscreen is always armed, so the ring says nothing there. */
+.lan-flow-map-fullscreen .map-touch-ring,
+.fp-fullscreen .map-touch-ring {
+    display: none;
 }
 /* A press held on a map arms it: iOS must not open its Save Image callout on a tile instead. */
 .leaflet-tile,
