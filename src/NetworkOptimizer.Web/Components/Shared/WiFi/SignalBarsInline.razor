@@ -1,0 +1,23 @@
+@using NetworkOptimizer.WiFi.Helpers
+@using NetworkOptimizer.WiFi.Models
+
+@* Five bars beside a dBm reading: count and color from SignalClassification, as on Client Performance. *@
+@if (Dbm.HasValue)
+{
+    var lit = SignalClassification.GetSignalBars(Dbm.Value, Band);
+    var color = SignalClassification.GetSignalColor(Dbm.Value, Band);
+    <span class="signal-bars-inline" role="img" aria-label="@lit of 5 bars">
+        @for (var i = 0; i < 5; i++)
+        {
+            <span style="@(i < lit ? $"background: {color}" : null)"></span>
+        }
+    </span>
+}
+
+@code {
+    /// <summary>The reading in dBm; nothing renders without one.</summary>
+    [Parameter] public int? Dbm { get; set; }
+
+    /// <summary>The band the reading is on, which sets the scale.</summary>
+    [Parameter] public RadioBand Band { get; set; }
+}

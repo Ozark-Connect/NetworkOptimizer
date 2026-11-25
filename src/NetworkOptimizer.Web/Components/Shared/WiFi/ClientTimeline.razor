@@ -240,6 +240,7 @@
                             <span class="info-label">Signal:</span>
                             <span class="info-value @SignalClassification.GetSignalClass(_selectedClient.Signal, _selectedClient.Band)" style="color: @SignalClassification.GetSignalColor(_selectedClient.Signal, _selectedClient.Band)"
                                   data-tooltip="Signal of the active MLO link">@(_selectedClient.Signal?.ToString() ?? "-") dBm</span>
+                            <SignalBarsInline Dbm="_selectedClient.Signal" Band="_selectedClient.Band" />
                             <span class="band-badge @GetBandCssClass(_selectedClient.Band)">@_selectedClient.Band.ToDisplayString()</span>
                         </div>
                     }
@@ -260,6 +261,7 @@
                             <span class="info-value @SignalClassification.GetSignalClass(_selectedClient.Signal, _selectedClient.Band)" style="color: @SignalClassification.GetSignalColor(_selectedClient.Signal, _selectedClient.Band)">
                                 @(_selectedClient.Signal?.ToString() ?? "-") dBm
                             </span>
+                            <SignalBarsInline Dbm="_selectedClient.Signal" Band="_selectedClient.Band" />
                         </div>
                     }
                     <div class="info-item">
