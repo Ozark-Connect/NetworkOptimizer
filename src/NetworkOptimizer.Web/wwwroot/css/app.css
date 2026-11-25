@@ -19570,7 +19570,11 @@ tr.stats-row-filtered {
     border-radius: 0 0 8px 8px;
     overflow: hidden;
 }
-/* A map armed by touch (wheel-gate.js): one finger moves it, not the page. Above Leaflet's controls, never in the way of a touch. */
+/* A map armed by touch (wheel-gate.js): one finger moves it, not the page. Above Leaflet's controls, never in the way of a touch.
+   The armed host isolates its stacking, so the ring's z-index stays inside the map and never tops the mobile top bar. */
+.map-touch-armed {
+    isolation: isolate;
+}
 .map-touch-ring {
     position: absolute;
     inset: 0;
