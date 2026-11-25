@@ -1208,6 +1208,18 @@
             })
             : null;
         var tabStripObserved = new Set();
+        // A tab change slides the strip as soon as Blazor marks the new tab active, not on the next 1 s scan.
+        var tabActiveObserver = typeof MutationObserver === 'function'
+            ? new MutationObserver(function(records) {
+                var strips = new Set();
+                records.forEach(function(r) {
+                    var tabs = r.target.closest && r.target.closest('.wifi-view-tabs');
+                    if (tabs) strips.add(tabs);
+                });
+                strips.forEach(revealActiveTab);
+            })
+            : null;
+        var tabActiveObserved = new WeakSet();
         function scanTabStrips() {
             if (!tabStripObserver) { updateTabScrollState(); return; }
             // An observed element stays alive until unobserved, so drop the ones a navigation removed.
@@ -1220,6 +1232,10 @@
                     tabStripObserved.add(el);
                     tabStripObserver.observe(el);
                 });
+                if (tabActiveObserver && !tabActiveObserved.has(tabs)) {
+                    tabActiveObserved.add(tabs);
+                    tabActiveObserver.observe(tabs, { attributes: true, attributeFilter: ['class'], subtree: true });
+                }
                 // Reads layout only when the active tab's name changes.
                 revealActiveTab(tabs);
             });
@@ -1243,15 +1259,20 @@
             if (tabs.scrollWidth <= tabs.clientWidth + 1) return;
 
             // Measured from the boxes rather than offsetLeft: the buttons' offsetParent is the
-            // wrapper, whose scroll buttons sit outside the scroller and would skew every reading.
+            // wrapper, not the scroller. A tab under an arrow's fade counts as out of view.
             var strip = tabs.getBoundingClientRect();
             var tab = active.getBoundingClientRect();
-            if (tab.left >= strip.left && tab.right <= strip.right) return;
+            var wrapper = tabs.closest('.wifi-view-tabs-wrapper');
+            var leftArrow = wrapper && wrapper.querySelector('.wifi-tabs-scroll-left');
+            var rightArrow = wrapper && wrapper.querySelector('.wifi-tabs-scroll-right');
+            var furthest = tabs.scrollWidth - tabs.clientWidth;
+            var leftInset = leftArrow && tabs.scrollLeft > 1 ? leftArrow.offsetWidth : 0;
+            var rightInset = rightArrow && tabs.scrollLeft < furthest - 1 ? rightArrow.offsetWidth : 0;
+            if (tab.left >= strip.left + leftInset && tab.right <= strip.right - rightInset) return;
 
             // Centered, then clamped - which is what keeps the first and last tabs flush with their
             // end of the strip instead of stranding a half-width of empty space beside them.
             var centered = tabs.scrollLeft + (tab.left - strip.left) - (strip.width - tab.width) / 2;
-            var furthest = tabs.scrollWidth - tabs.clientWidth;
             tabs.scrollTo({
                 left: Math.max(0, Math.min(centered, furthest)),
                 behavior: arriving ? 'auto' : 'smooth',
