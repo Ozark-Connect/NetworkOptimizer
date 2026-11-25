@@ -1742,22 +1742,16 @@ public class UpstreamTracerService
 
         // Generate labels from PTR hostnames (strip TLD, filter IP-derived junk).
         // Generate "<Org> <PTR-derived>" labels, or "<Org> 1/2/3" when no PTR.
-        var asnIndex = new Dictionary<int, int>();
+        // The numbers are assigned once the saved targets load (AssignFallbackNumbers).
+        var numbered = new List<TransitAsnCandidate>();
         foreach (var c in candidates)
         {
             if (c.Method == DiscoveryMethod.PathProxy) continue;
             var ptrLabel = FormatTransitHopLabel(c.HopHostname, c.HopAddress);
             if (ptrLabel != null)
-            {
                 c.Label = $"{c.AsnName} {ptrLabel}";
-            }
             else
-            {
-                asnIndex.TryGetValue(c.AsnNumber, out var idx);
-                idx++;
-                asnIndex[c.AsnNumber] = idx;
-                c.Label = $"{c.AsnName} {idx}";
-            }
+                numbered.Add(c);
         }
 
         // Path-proxy: for every CDN destination whose ASN appeared anywhere in the
@@ -1890,6 +1884,7 @@ public class UpstreamTracerService
                     c.Label = existing.Name;
             }
         }
+        AssignFallbackNumbers(numbered, allExisting);
         foreach (var hop in State.AccessHops)
         {
             var existing = existingByAddress.TryGetValue(hop.Address, out var rows)
@@ -4147,6 +4142,50 @@ public class UpstreamTracerService
         }
         seen.ExceptWith(grounded);
         return seen;
+    }
+
+    /// <summary>
+    /// Names PTR-less transit hops "&lt;Org&gt; 1/2/3", skipping any name a saved target at another
+    /// address holds, so a new hop never takes the name of an old one that left the path. A hop
+    /// already saved keeps its name unless it is an auto name an older row at another address
+    /// holds: that duplicate is renumbered, so the next discovery repairs it.
+    /// </summary>
+    internal static void AssignFallbackNumbers(IReadOnlyList<TransitAsnCandidate> numbered, IReadOnlyList<MonitoringTarget> existing)
+    {
+        var rowsByName = existing
+            .Where(t => !string.IsNullOrEmpty(t.Name))
+            .ToLookup(t => t.Name!, StringComparer.OrdinalIgnoreCase);
+        var assigned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Saved hops first, so a new hop numbered below never takes a name one of them keeps.
+        var renumber = new List<TransitAsnCandidate>();
+        foreach (var c in numbered.Where(c => c.PreservedFromExisting))
+        {
+            var ownId = existing
+                .Where(t => string.Equals(t.Address, c.HopAddress, StringComparison.OrdinalIgnoreCase))
+                .Select(t => t.Id).DefaultIfEmpty(int.MaxValue).Min();
+            var isAutoName = Regex.IsMatch(c.Label ?? "", $@"^{Regex.Escape(c.AsnName ?? "")} \d+$", RegexOptions.IgnoreCase);
+            var olderHolder = rowsByName[c.Label ?? ""].Any(t =>
+                !string.Equals(t.Address, c.HopAddress, StringComparison.OrdinalIgnoreCase) && t.Id < ownId);
+            if (isAutoName && (olderHolder || assigned.Contains(c.Label!)))
+                renumber.Add(c);
+            else if (!string.IsNullOrEmpty(c.Label))
+                assigned.Add(c.Label);
+        }
+        renumber.AddRange(numbered.Where(c => !c.PreservedFromExisting));
+
+        foreach (var c in renumber)
+        {
+            for (var n = 1; ; n++)
+            {
+                var name = $"{c.AsnName} {n}";
+                if (assigned.Contains(name)) continue;
+                if (rowsByName[name].Any(t => !string.Equals(t.Address, c.HopAddress, StringComparison.OrdinalIgnoreCase))) continue;
+                c.Label = name;
+                assigned.Add(name);
+                break;
+            }
+        }
     }
 
     /// <summary>
