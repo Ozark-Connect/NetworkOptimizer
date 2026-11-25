@@ -459,7 +459,22 @@ async function loadAndRender() {
     }
     renderTabs();
     renderBadges();
-    renderTableNow();
+    renderTableWhenFree();
+}
+
+// A tick waits while the pointer rests on a tooltip in the table: the re-render replaces that element and closes
+// its tooltip. It renders when the pointer leaves. Not on touch, where :hover sticks after a tap.
+let heldRender = false;
+function renderTableWhenFree() {
+    const hovered = !IS_TOUCH && tableEl ? tableEl.querySelector('[data-tooltip]:hover') : null;
+    if (!hovered) { heldRender = false; renderTableNow(); return; }
+    if (heldRender) return;
+    heldRender = true;
+    hovered.addEventListener('mouseleave', () => {
+        if (!heldRender) return;
+        heldRender = false;
+        renderTableNow();
+    }, { once: true });
 }
 
 function startPoll() {
