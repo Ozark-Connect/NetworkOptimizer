@@ -18,8 +18,8 @@ public partial class GatewayFirewallAnalyzer
     /// already reported; they are returned as accepted but raise nothing here.
     /// </summary>
     /// <remarks>
-    /// A rule matching a port set other than <see cref="ConsoleHttpsPortSet"/> is skipped: the set's members are not in
-    /// the snapshot, and a policy's own port set is the policy check's to judge.
+    /// A rule matching any destination set other than <see cref="ConsoleHttpsPortSet"/> is skipped: the set's members are
+    /// not in the snapshot, and a policy's own port or IP group is the policy check's to judge.
     /// </remarks>
     [VendorSpecific("UniFi", "UBIOS_WAN_LOCAL_USER chain and the UBIOS_unifi_console_https_port set")]
     public (List<AuditIssue> Issues, IReadOnlySet<string> AcceptedPorts) AnalyzeWanManagementAccess(
@@ -80,11 +80,12 @@ public partial class GatewayFirewallAnalyzer
         var specs = new List<string>();
         if (DportRegex().Match(rule) is { Success: true } single) specs.Add(single.Groups["spec"].Value);
         if (DportsRegex().Match(rule) is { Success: true } multi) specs.AddRange(multi.Groups["spec"].Value.Split(','));
+        // Group sets carry generic names (UBIOS_fw_group_29 can be a port group), so only the console set is known here
         foreach (Match set in DstSetRegex().Matches(rule))
         {
-            var name = set.Groups["set"].Value;
-            if (name == ConsoleHttpsPortSet) specs.Add("443");
-            else if (name.Contains("port", StringComparison.OrdinalIgnoreCase)) return null;
+            if (set.Groups["set"].Value != ConsoleHttpsPortSet)
+                return null;
+            specs.Add("443");
         }
 
         if (specs.Count == 0)

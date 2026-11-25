@@ -296,6 +296,19 @@ public class WanGatewayExposureTests
     }
 
     [Fact]
+    public void GatewayPolicyWithGroupSet_LeftToPolicyCheck()
+    {
+        // UniFi's predefined Identity Sync policy: all protocols, port group (9543) under a generic fw_group set name
+        const string identitySync =
+            "-A UBIOS_WAN_LOCAL_USER -m set --match-set UBIOS_fw_group_29 dst -m comment --comment 00000001095216670480 -j ACCEPT";
+
+        var (issues, accepted) = Gateway($"{StockWanLocal}\n{identitySync}", $"{Ipv6Stock}\n{identitySync}", explained: []);
+
+        issues.Should().BeEmpty();
+        accepted.Should().BeEmpty();
+    }
+
+    [Fact]
     public void GatewayAcceptOnIpv6Only_TaggedIpv6()
     {
         var (issues, _) = Gateway(StockWanLocal, $"{Ipv6Stock}\n-A UBIOS_WAN_LOCAL_USER -p tcp -m tcp --dport 22 -j ACCEPT", explained: []);
