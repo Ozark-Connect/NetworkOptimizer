@@ -16,20 +16,27 @@ public class WeakSignalPopulationRule : IWiFiOptimizerRule
     /// </summary>
     private const double WeakSignalPctThreshold = 30;
 
+    /// <summary>Below this many clients a share is noise: 2 weak of 5 is two phones, not a deployment problem.</summary>
+    internal const int MinClients = 10;
+
     public HealthIssue? Evaluate(WiFiOptimizerContext ctx)
     {
-        if (ctx.Clients.Count == 0)
-            return null;
-
         var clientsWithSignal = ctx.Clients.Where(c => c.Signal.HasValue).ToList();
-        if (clientsWithSignal.Count == 0)
+        if (clientsWithSignal.Count < MinClients)
             return null;
 
-        var weakClients = clientsWithSignal.Count(c =>
-            SignalClassification.IsWeakSignal(c.Signal!.Value, c.Band));
+        var weak = clientsWithSignal
+            .Where(c => SignalClassification.IsWeakSignal(c.Signal!.Value, c.Band))
+            .ToList();
+        var weakClients = weak.Count;
         var weakPct = (double)weakClients / clientsWithSignal.Count * 100;
 
         if (weakPct < WeakSignalPctThreshold)
+            return null;
+
+        // Coverage Gap already names the APs; this issue adds something only when weak clients are elsewhere too.
+        var gapMacs = CoverageGapRule.GapAps(ctx).Select(x => x.Ap.Mac).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (weak.All(c => gapMacs.Contains(c.ApMac)))
             return null;
 
         return new HealthIssue

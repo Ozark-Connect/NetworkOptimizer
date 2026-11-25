@@ -17,6 +17,12 @@ public class WirelessClientSnapshot
     /// <summary>What kind of device this is (phone, camera, TV), from the Security Audit's detection. Unknown when undetected.</summary>
     public NetworkOptimizer.Core.Enums.ClientDeviceCategory DeviceCategory { get; set; }
 
+    /// <summary>
+    /// The client uses a private (randomized) MAC. Phones, tablets, and laptops do this by default;
+    /// fixed devices mostly keep the maker's address.
+    /// </summary>
+    public bool IsPrivateMac { get; set; }
+
     /// <summary>Client IP address</summary>
     public string? Ip { get; set; }
 

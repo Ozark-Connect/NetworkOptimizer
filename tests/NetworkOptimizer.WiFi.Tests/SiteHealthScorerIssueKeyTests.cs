@@ -49,6 +49,16 @@ public class SiteHealthScorerIssueKeyTests
         score.Issues.Single(i => i.Title == "Weak signal").Recommendation.Should().StartWith(start);
     }
 
+    [Theory]
+    [InlineData(NetworkOptimizer.Core.Enums.ClientDeviceCategory.Unknown, true, "Check this device's Signal history")] // private MAC, nothing else known
+    [InlineData(NetworkOptimizer.Core.Enums.ClientDeviceCategory.Unknown, false, "Consider adding AP coverage where")]
+    [InlineData(NetworkOptimizer.Core.Enums.ClientDeviceCategory.Camera, true, "Stationary device.")] // a known type wins over the MAC
+    public void A_private_mac_reads_as_mobile_only_when_nothing_else_is_known(
+        NetworkOptimizer.Core.Enums.ClientDeviceCategory category, bool privateMac, string start)
+    {
+        SiteHealthScorer.WeakSignalRecommendation(category, privateMac).Should().StartWith(start);
+    }
+
     [Fact]
     public void A_poor_client_raises_a_recommendation_per_client_issue()
     {

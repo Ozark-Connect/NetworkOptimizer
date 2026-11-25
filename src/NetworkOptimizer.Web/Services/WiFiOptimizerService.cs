@@ -59,6 +59,9 @@ public class WiFiOptimizerService : IWiFiScanService
     /// <summary>Vendor for the neighbors an AP Agent's scan adds; the console's rows carry their own.</summary>
     private readonly NetworkOptimizer.Audit.Services.IIeeeOuiDatabase _ouiDatabase;
 
+    /// <summary>UniFi's device catalog, so a device type set by hand in UniFi Network counts.</summary>
+    private readonly FingerprintDatabaseService _fingerprintService;
+
     /// <summary>
     /// Ceiling on the client-rate history query. Client evidence is an enhancement; waiting on it
     /// is never worth making the analysis feel broken.
@@ -105,10 +108,12 @@ public class WiFiOptimizerService : IWiFiScanService
         ApAgent.ApAgentTelemetryRegistry apAgentTelemetry,
         ApAgent.ApAgentInsightsRegistry apAgentInsights,
         NetworkOptimizer.Audit.Services.IIeeeOuiDatabase ouiDatabase,
+        FingerprintDatabaseService fingerprintService,
         ILogger<WiFiOptimizerService> logger,
         ILoggerFactory loggerFactory)
     {
         _ouiDatabase = ouiDatabase;
+        _fingerprintService = fingerprintService;
         _measuredClients = measuredClients;
         _agentPresence = agentPresence;
         _apAgentTelemetry = apAgentTelemetry;
@@ -135,7 +140,7 @@ public class WiFiOptimizerService : IWiFiScanService
     /// <summary>
     /// Creates a UniFiLiveDataProvider with required dependencies.
     /// </summary>
-    private UniFiLiveDataProvider CreateProvider()
+    private UniFiLiveDataProvider CreateProvider(NetworkOptimizer.Audit.Services.DeviceTypeDetectionService? clientDetection = null)
     {
         var discovery = new UniFiDiscovery(
             _connectionService.Client!,
@@ -146,7 +151,29 @@ public class WiFiOptimizerService : IWiFiScanService
             discovery,
             _loggerFactory.CreateLogger<UniFiLiveDataProvider>(),
             _measuredClients,
-            _agentPresence);
+            _agentPresence,
+            clientDetection);
+    }
+
+    /// <summary>
+    /// Device-type detection set up as the Security Audit's: UniFi's fingerprint catalog (so a type
+    /// picked by hand in UniFi Network counts) and the full IEEE OUI list. A catalog that cannot be
+    /// fetched leaves the fingerprint and OUI checks, which still run.
+    /// </summary>
+    private async Task<NetworkOptimizer.Audit.Services.DeviceTypeDetectionService> CreateClientDetectionAsync()
+    {
+        NetworkOptimizer.UniFi.Models.UniFiFingerprintDatabase? fingerprints = null;
+        try
+        {
+            fingerprints = await _fingerprintService.GetDatabaseAsync(_connectionService);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Fingerprint catalog unavailable for Wi-Fi client detection");
+        }
+        return new NetworkOptimizer.Audit.Services.DeviceTypeDetectionService(
+            fingerprintDb: fingerprints,
+            ieeeOuiDb: _ouiDatabase as NetworkOptimizer.Audit.Services.IeeeOuiDatabase);
     }
 
     /// <summary>
@@ -508,7 +535,7 @@ public class WiFiOptimizerService : IWiFiScanService
 
         try
         {
-            var provider = CreateProvider();
+            var provider = CreateProvider(await CreateClientDetectionAsync());
 
             // Fetch data in parallel - use Task.WhenAll to start all tasks,
             // but handle individual failures so one bad task doesn't block everything.

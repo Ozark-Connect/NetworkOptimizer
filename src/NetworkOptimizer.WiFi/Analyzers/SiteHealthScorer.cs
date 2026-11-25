@@ -291,11 +291,13 @@ public class SiteHealthScorer
     /// The Weak signal recommendation for the client's kind of device: a phone may only pass through
     /// a weak spot, a stationary device sits in one.
     /// </summary>
-    internal static string WeakSignalRecommendation(NetworkOptimizer.Core.Enums.ClientDeviceCategory category)
+    internal static string WeakSignalRecommendation(NetworkOptimizer.Core.Enums.ClientDeviceCategory category, bool isPrivateMac = false)
     {
-        if (NetworkOptimizer.Core.Enums.ClientDeviceCategoryExtensions.IsMobile(category))
+        // A private MAC with no other answer is a phone, tablet, or laptop: those randomize, fixed devices mostly do not.
+        var stationary = NetworkOptimizer.Core.Enums.ClientDeviceCategoryExtensions.IsStationary(category);
+        if (NetworkOptimizer.Core.Enums.ClientDeviceCategoryExtensions.IsMobile(category) || (!stationary && isPrivateMac))
             return "Check this device's Signal history on Client Performance. If it drops in the same place every day, plan coverage there with the Signal Map.";
-        if (NetworkOptimizer.Core.Enums.ClientDeviceCategoryExtensions.IsStationary(category))
+        if (stationary)
             return "Stationary device. Consider adding AP coverage.";
         return "Consider adding AP coverage where this device is used, or check its Signal history on Client Performance.";
     }
@@ -584,7 +586,7 @@ public class SiteHealthScorer
                 Description = $"Client has weak signal ({client.Signal} dBm on {client.Band.ToDisplayString()}){apInfo}",
                 AffectedEntity = client.Name,
                 AffectedClientMac = client.Mac,
-                Recommendation = WeakSignalRecommendation(client.DeviceCategory),
+                Recommendation = WeakSignalRecommendation(client.DeviceCategory, client.IsPrivateMac),
                 ScoreImpact = -5
             });
         }

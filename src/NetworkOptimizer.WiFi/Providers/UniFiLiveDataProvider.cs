@@ -30,18 +30,26 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
     /// </summary>
     private readonly NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource? _agentPresence;
 
+    /// <summary>
+    /// Optional: device-type detection set up like the Security Audit's (fingerprint database, IEEE
+    /// OUI list). Without it, a bare detector runs on UniFi's fingerprint, a short OUI list, and the name.
+    /// </summary>
+    private readonly NetworkOptimizer.Audit.Services.DeviceTypeDetectionService? _clientDetection;
+
     public UniFiLiveDataProvider(
         UniFiApiClient client,
         UniFiDiscovery discovery,
         ILogger<UniFiLiveDataProvider> logger,
         IMeasuredWirelessClientSource? measuredClients = null,
-        NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource? agentPresence = null)
+        NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource? agentPresence = null,
+        NetworkOptimizer.Audit.Services.DeviceTypeDetectionService? clientDetection = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _discovery = discovery ?? throw new ArgumentNullException(nameof(discovery));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _measuredClients = measuredClients;
         _agentPresence = agentPresence;
+        _clientDetection = clientDetection;
     }
 
     public string ProviderName => "UniFi Live";
@@ -211,7 +219,8 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     c.IdleTime, c.ApMac, c.Radio, c.Signal,
                     hasMloLinks: c.MloDetails is { Count: > 0 },
                     agent: _agentPresence?.PresenceFor(c.ApMac, c.Mac)
-                        ?? NetworkOptimizer.Core.Helpers.AgentClientPresence.Unknown)))
+                        ?? NetworkOptimizer.Core.Helpers.AgentClientPresence.Unknown),
+                detection: _clientDetection))
             .ToList();
 
         await ApplyMeasuredClientsAsync(result, cancellationToken);
@@ -1305,16 +1314,22 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         }
     }
 
-    // Fingerprint, OUI, and name detection only; nothing here is per site, so one instance serves all.
+    // Fallback when no configured detector is passed: UniFi's fingerprint, a short OUI list, and the name.
     private static readonly NetworkOptimizer.Audit.Services.DeviceTypeDetectionService ClientDetection = new();
 
-    /// <summary>The client's device category, for advice that depends on whether it moves. Unknown on any failure.</summary>
-    private static NetworkOptimizer.Core.Enums.ClientDeviceCategory DetectCategory(UniFiClientResponse client)
+    /// <summary>
+    /// The client's device category, for advice that depends on whether it moves. The display name is
+    /// passed because a client on a private MAC often has no hostname, only the name UniFi shows
+    /// ("iPhone fa:b1"). Unknown on any failure.
+    /// </summary>
+    private static NetworkOptimizer.Core.Enums.ClientDeviceCategory DetectCategory(
+        UniFiClientResponse client, string displayName,
+        NetworkOptimizer.Audit.Services.DeviceTypeDetectionService? detection)
     {
         if (client.IsProtectDevice) return NetworkOptimizer.Core.Enums.ClientDeviceCategory.Camera;
         try
         {
-            return ClientDetection.DetectDeviceType(client).Category;
+            return (detection ?? ClientDetection).DetectDeviceType(client, deviceName: displayName).Category;
         }
         catch (Exception)
         {
@@ -1322,12 +1337,19 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         }
     }
 
+    /// <summary>The MAC's locally administered bit is set: a private (randomized) address, not the maker's.</summary>
+    internal static bool IsLocallyAdministered(string? mac) =>
+        !string.IsNullOrEmpty(mac) && mac.Length >= 2
+        && byte.TryParse(mac.AsSpan(0, 2), System.Globalization.NumberStyles.HexNumber, null, out var first)
+        && (first & 0x02) != 0;
+
     internal static WirelessClientSnapshot MapToWirelessClientSnapshot(
         UniFiClientResponse client,
         Dictionary<string, string> apNames,
         Dictionary<string, string> displayNames,
         DateTimeOffset timestamp,
-        bool isOnline = true)
+        bool isOnline = true,
+        NetworkOptimizer.Audit.Services.DeviceTypeDetectionService? detection = null)
     {
         var apMac = client.ApMac?.ToLowerInvariant() ?? "";
         apNames.TryGetValue(apMac, out var apName);
@@ -1357,14 +1379,16 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         // The console's own top-level fields already report the active link, so they win here; the
         // per-link pick below only covers a console that leaves them empty.
         var activeLink = isMlo && client.Signal is null or 0 ? SelectActiveMloLink(mloLinks) : null;
+        var name = ClientNames.Choose(displayName, client.Name, client.UnifiDeviceInfoFromUcore?.Name, client.Hostname,
+            client.IsUniFiDevice) ?? client.Mac;
 
         return new WirelessClientSnapshot
         {
             Mac = client.Mac,
-            Name = ClientNames.Choose(displayName, client.Name, client.UnifiDeviceInfoFromUcore?.Name, client.Hostname,
-                client.IsUniFiDevice) ?? client.Mac,
+            Name = name,
             IsProtectDevice = client.IsProtectDevice,
-            DeviceCategory = DetectCategory(client),
+            DeviceCategory = DetectCategory(client, name, detection),
+            IsPrivateMac = IsLocallyAdministered(client.Mac),
             Ip = client.Ip,
             FixedIp = client.UseFixedIp && !string.IsNullOrEmpty(client.FixedIp) ? client.FixedIp : null,
             ApMac = client.ApMac ?? "",

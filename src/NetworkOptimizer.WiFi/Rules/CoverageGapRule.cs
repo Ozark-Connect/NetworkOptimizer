@@ -22,7 +22,8 @@ public class CoverageGapRule : IWiFiOptimizerRule
     /// </summary>
     private const double WeakSignalPctThreshold = 40;
 
-    public HealthIssue? Evaluate(WiFiOptimizerContext ctx)
+    /// <summary>The APs this rule flags, with their counts. Weak Signal Population defers to these.</summary>
+    internal static List<(AccessPointSnapshot Ap, int ClientCount, int WeakCount, double WeakPct)> GapAps(WiFiOptimizerContext ctx)
     {
         var coverageGapAps = new List<(AccessPointSnapshot Ap, int ClientCount, int WeakCount, double WeakPct)>();
 
@@ -42,6 +43,12 @@ public class CoverageGapRule : IWiFiOptimizerRule
                 coverageGapAps.Add((ap, clientsWithSignal.Count, weakCount, weakPct));
             }
         }
+        return coverageGapAps;
+    }
+
+    public HealthIssue? Evaluate(WiFiOptimizerContext ctx)
+    {
+        var coverageGapAps = GapAps(ctx);
 
         if (coverageGapAps.Count == 0)
             return null;
