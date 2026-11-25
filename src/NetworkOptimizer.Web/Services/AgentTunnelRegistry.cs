@@ -134,13 +134,15 @@ public class AgentTunnelRegistry
         if (GetForSite(siteSlug).Count > 0) return true;
         if (!_lastDropBySite.TryGetValue(siteSlug, out var dropped)) return false;
         var deadline = dropped + window;
-        while (DateTime.UtcNow < deadline)
+        while (true)
         {
+            // One clock read: checking the deadline and then reading the clock again can leave a negative
+            // delay, which Task.Delay throws on.
             var left = deadline - DateTime.UtcNow;
+            if (left <= TimeSpan.Zero) return false;
             await Task.Delay(left < ReconnectPoll ? left : ReconnectPoll, ct);
             if (GetForSite(siteSlug).Count > 0) return true;
         }
-        return false;
     }
 
     private static readonly TimeSpan ReconnectPoll = TimeSpan.FromMilliseconds(200);
