@@ -6,7 +6,7 @@
 import {
     loadLeaflet, el, createMap, fitPoints, unwrapLongitudes, clearTips, destroyMap, isFullscreen, toggleFullscreen, SOURCE_COLOR,
     SOURCE_TEXT, legText,
-} from './map-core.js?v=4';
+} from './map-core.js?v=5';
 
 const HEALTH = ['unknown', 'normal', 'elevated', 'degraded', 'unreachable'];
 const HEALTH_TEXT = { unknown: 'No baseline yet', normal: 'Normal', elevated: 'Elevated', degraded: 'Degraded', unreachable: 'Unreachable' };

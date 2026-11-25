@@ -19558,6 +19558,20 @@ tr.stats-row-filtered {
     border-radius: 0 0 8px 8px;
     overflow: hidden;
 }
+/* Every map (wheel-gate.js): one finger moves it, not the page. Above Leaflet's controls, never in the way of a touch. */
+.map-touch-ring {
+    position: absolute;
+    inset: 0;
+    border: 2px solid var(--primary-color);
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: 1001;
+}
+/* A press held on a map arms it: iOS must not open its Save Image callout on a tile instead. */
+.leaflet-tile,
+.leaflet-marker-icon {
+    -webkit-touch-callout: none;
+}
 .lan-flow-map-canvas {
     display: block;
     width: 100%;

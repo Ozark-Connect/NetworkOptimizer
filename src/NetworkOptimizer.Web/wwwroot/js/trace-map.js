@@ -3,7 +3,7 @@
 
 import {
     loadLeaflet, el, createMap, fitPoints, unwrapLongitudes, markerTip, clearTips, destroyMap, SOURCE_COLOR, SOURCE_TEXT, legText,
-} from './map-core.js?v=4';
+} from './map-core.js?v=5';
 
 const LEG_COLOR = '#2ba89a';
 const LEG_UNSURE = '#9ca3af';

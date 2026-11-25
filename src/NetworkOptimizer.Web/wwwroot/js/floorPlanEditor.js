@@ -318,9 +318,9 @@ window.fpEditor = {
                 maxZoom: 24, maxNativeZoom: 19, attribution: 'OpenStreetMap', className: 'map-tiles-dark'
             }).addTo(m);
             self._map = m;
-            // The wheel zooms after the pointer rests on the map or a click (wheel-gate.js); always in fullscreen.
+            // The wheel zooms, and one finger pans, after a rest or a tap on the map (wheel-gate.js); always in fullscreen.
             if (window.WheelGate) {
-                window.WheelGate.leaflet(m, { exempt: function () { return !!container.closest('.fp-fullscreen'); } });
+                window.WheelGate.leaflet(m, { exempt: function () { return !!container.closest('.fp-fullscreen'); }, touch: true });
             }
 
             // Dynamic zoom delta: 0.5 at building level (zoom >= 21), 1 otherwise

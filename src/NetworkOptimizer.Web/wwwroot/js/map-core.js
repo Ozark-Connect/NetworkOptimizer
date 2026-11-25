@@ -88,9 +88,9 @@ export function createMap(host, options) {
         className: 'map-tiles-dark',
     }).addTo(map);
     map.attributionControl.setPrefix('<a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
-    // The wheel zooms after the pointer rests on the map or a click (wheel-gate.js).
+    // The wheel zooms, and one finger pans, after a rest or a tap on the map (wheel-gate.js).
     // Always armed in fullscreen, as the 2D LAN map.
-    if (window.WheelGate) window.WheelGate.leaflet(map, { exempt: () => host.classList.contains(FULLSCREEN) });
+    if (window.WheelGate) window.WheelGate.leaflet(map, { exempt: () => host.classList.contains(FULLSCREEN), touch: true });
 
     const state = { host, map, layers: L.layerGroup().addTo(map), tips: [], options };
     state.fsButton = addControls(state);

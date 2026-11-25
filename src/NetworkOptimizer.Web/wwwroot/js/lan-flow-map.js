@@ -393,10 +393,11 @@ export class LanFlowMap {
         this.controls.minDistance = 5;
         this.controls.maxDistance = 220;
         this.controls.target.set(0, 0, 0);
-        // The wheel zooms after the pointer rests on the map or a click (wheel-gate.js); always in fullscreen.
+        // The wheel zooms, and one finger orbits, after a rest or a tap on the map (wheel-gate.js); always in fullscreen.
         this._wheelGate = window.WheelGate?.attach(this.stage, {
             onChange: (armed) => { this.controls.enableZoom = armed; },
             exempt: () => this.stage.classList.contains('lan-flow-map-fullscreen'),
+            touchSurfaces: () => [this.renderer.domElement],
         });
 
         // Restore persisted camera target for fly-in destination.

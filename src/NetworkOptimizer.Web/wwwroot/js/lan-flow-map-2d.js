@@ -474,6 +474,7 @@ class LanFlowMap2D {
 
     dispose(){
         cancelAnimationFrame(this._animId);
+        this._wheelGate?.dispose();
         if(this._healthUnsub){this._healthUnsub();this._healthUnsub=null;}
         this._healthEls=null;
         if(this._unsub)this._unsub();
@@ -793,8 +794,8 @@ class LanFlowMap2D {
 
         // Events
         canvas.addEventListener('wheel',(e)=>this._onWheel(e),{passive:false});
-        // The wheel zooms after the pointer rests on the map or a click (wheel-gate.js); always in fullscreen.
-        this._wheelGate=window.WheelGate?.attach(this._el,{exempt:()=>(this._fsTarget||this._el).classList.contains('lan-flow-map-fullscreen')});
+        // The wheel zooms, and one finger pans, after a rest or a tap on the map (wheel-gate.js); always in fullscreen.
+        this._wheelGate=window.WheelGate?.attach(this._el,{exempt:()=>(this._fsTarget||this._el).classList.contains('lan-flow-map-fullscreen'),touchSurfaces:()=>[canvas]});
         canvas.addEventListener('pointerdown',(e)=>this._onDown(e));
         canvas.addEventListener('pointermove',(e)=>this._onMove(e));
         canvas.addEventListener('pointerup',(e)=>this._onUp(e));
