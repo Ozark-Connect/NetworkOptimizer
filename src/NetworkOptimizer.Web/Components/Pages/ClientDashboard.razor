@@ -6026,6 +6026,11 @@
             align-items: flex-end;
             margin-left: auto;
         }
+        /* A wired client's Port link chip sits left of the live indicator, as on desktop. */
+        .identity-live-group:has(.identity-lan-health) {
+            flex-direction: row;
+            align-items: center;
+        }
         .logging-toggle-mobile {
             display: inline-flex;
         }
