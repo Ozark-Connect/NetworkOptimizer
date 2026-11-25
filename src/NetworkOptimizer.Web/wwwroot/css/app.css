@@ -21017,6 +21017,8 @@ tr.stats-row-filtered {
 .lan-health .lan-health-excluded { opacity: 0.55; }
 .lan-health .lan-health-explained { color: var(--text-muted); }
 .lan-health .lan-health-sub { color: var(--text-muted); font-size: 0.75rem; }
+/* A card's lead line above its table (Speed Tests, What Each Source Saw): room before the table. */
+.lan-health .card-body > p.lan-health-sub { margin: 0 0 0.75rem; }
 .lan-health .lan-health-footer { color: var(--text-secondary); font-size: 0.8125rem; margin: 0.75rem 0 0; }
 .lan-health .lan-health-cards { display: none; flex-direction: column; gap: 0.75rem; }
 .lan-health .lan-health-coverage { min-width: 0; }
