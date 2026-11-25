@@ -325,6 +325,42 @@ public class LanHealthTests
         }
     }
 
+    private static LinkEvent Chip(DateTime hour, int minute, int second, bool up, int? speed = null) =>
+        new(hour.AddMinutes(minute).AddSeconds(second - 3), hour.AddMinutes(minute).AddSeconds(second),
+            up ? LinkEventType.LinkUp : LinkEventType.LinkDown, LinkSource.GatewaySwitchChip, LinkSide.Upstream, SpeedMbps: speed);
+
+    [Fact]
+    public void ChipShowsSleep_ConsoleWakingAndSleepingAgain_IsSleep()
+    {
+        // A game console on a gateway port: down since before the hour, wakes, renegotiates once, sleeps again.
+        var h = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+        LanHealthEvidenceBuilder.ChipShowsSleep(
+            [Chip(h, 43, 31, true, 1000), Chip(h, 43, 34, false), Chip(h, 43, 37, true, 1000), Chip(h, 47, 34, false)], h, h.AddHours(1))
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public void ChipShowsSleep_WakeOnLanLowPowerLink_IsSleep()
+    {
+        var h = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        LanHealthEvidenceBuilder.ChipShowsSleep(
+            [Chip(h, 11, 23, false), Chip(h, 11, 26, true, 10), Chip(h, 11, 32, false), Chip(h, 11, 35, true, 2500)], h, h.AddHours(1))
+            .Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(10, 13)]   // a 3 s flap inside the hour
+    [InlineData(0, 1)]     // a flap across the hour's start: up 1 s in
+    [InlineData(59, 59)]   // down 1 s before the hour's end
+    public void ChipShowsSleep_SecondsLongFlap_IsNotSleep(int downSecond, int upSecond)
+    {
+        var h = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+        List<LinkEvent> events = downSecond == 0
+            ? [Chip(h, 0, upSecond, true, 2500)]
+            : downSecond == 59 ? [Chip(h, 59, 59, false)] : [Chip(h, 20, downSecond, false), Chip(h, 20, upSecond, true, 2500)];
+        LanHealthEvidenceBuilder.ChipShowsSleep(events, h, h.AddHours(1)).Should().BeFalse();
+    }
+
     [Fact]
     public void NeverSleeps_CoversServersCamerasAndHubs_NotPcs()
     {

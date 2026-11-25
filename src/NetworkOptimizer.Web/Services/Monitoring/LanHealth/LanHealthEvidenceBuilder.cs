@@ -179,6 +179,29 @@ public static class LanHealthEvidenceBuilder
         return false;
     }
 
+    /// <summary>
+    /// Whether the switch chip's link events in [<paramref name="from"/>, <paramref name="to"/>) show a client
+    /// asleep: down for minutes per relink (counting a link already down at the hour's start or still down at
+    /// its end), or a 10/100 relink beside a faster one (Wake-on-LAN's low-power link).
+    /// </summary>
+    internal static bool ChipShowsSleep(IEnumerable<LinkEvent> chipEvents, DateTime from, DateTime to)
+    {
+        var list = chipEvents.Where(e => e.Type is LinkEventType.LinkDown or LinkEventType.LinkUp).OrderBy(e => e.End).ToList();
+        if (list.Count == 0) return false;
+        var speeds = list.Where(e => e.Type == LinkEventType.LinkUp && e.SpeedMbps is > 0).Select(e => e.SpeedMbps!.Value).ToList();
+        if (speeds.Count > 0 && speeds.Min() <= 100 && speeds.Max() > 100) return true;
+        double down = 0;
+        var relinks = 0;
+        DateTime? downAt = list[0].Type == LinkEventType.LinkUp ? from : null;
+        foreach (var e in list)
+        {
+            if (e.Type == LinkEventType.LinkDown) { downAt ??= e.End; continue; }
+            if (downAt is DateTime d) { down += (e.End - d).TotalSeconds; relinks++; downAt = null; }
+        }
+        if (downAt is DateTime open) { down += (to - open).TotalSeconds; relinks++; }
+        return relinks > 0 && down / relinks >= AsleepAfter.TotalSeconds;
+    }
+
     /// <summary>The result of one hour on one link.</summary>
     public sealed record LinkHour(LinkEvidence Evidence, List<LinkIncident> Incidents, LanHealthLinkHour Row);
 
@@ -333,6 +356,9 @@ public static class LanHealthEvidenceBuilder
             explain.Add(new ExplainWindow(from, to, link.Upstream.DeviceMac, ExplainReason.DeviceAsleep));
         // A 10/100 relink on an access port is the sleep signature too (Wake-on-LAN's low-power link).
         if (canSleep && speedMin is <= 100 && speedMax is > 100)
+            explain.Add(new ExplainWindow(from, to, link.Upstream.DeviceMac, ExplainReason.DeviceAsleep));
+        // A gateway LAN port has no SNMP oper_status or console speed history; its switch chip's events say the same.
+        if (canSleep && ChipShowsSleep(events.Where(e => e.Source == LinkSource.GatewaySwitchChip), from, to))
             explain.Add(new ExplainWindow(from, to, link.Upstream.DeviceMac, ExplainReason.DeviceAsleep));
 
         // Port Anomalies: an anomaly on the upstream port in the hour counts as having seen that hour's drops.
