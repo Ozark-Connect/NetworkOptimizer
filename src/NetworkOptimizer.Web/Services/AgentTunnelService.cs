@@ -290,8 +290,16 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                         break;
                     case AgentMessage.PayloadOneofCase.SwitchPortLinks:
                         // Acked even when the gateway is not known yet: the next minute's counters replace it,
-                        // and holding it would stall every later frame behind it.
-                        _switchPorts?.Record(siteSlug, message.SwitchPortLinks);
+                        // and holding it would stall every later frame behind it. A throw here must not end the
+                        // tunnel: the agent replays the same frame on reconnect, so it would block every later batch.
+                        try
+                        {
+                            _switchPorts?.Record(siteSlug, message.SwitchPortLinks);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Agent {Id} switch port batch for {Slug} could not be stored; skipping it", agent.Id, siteSlug);
+                        }
                         if (message.Sequence > 0)
                             connection.TrySend(new ServerMessage { ResultAck = new ResultAck { Sequence = message.Sequence } });
                         break;
