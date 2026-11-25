@@ -33,6 +33,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     private readonly AgentIperf3Service _agentIperf3;
     private readonly IAlertEventBus? _alertEventBus;
     private readonly MonitoringInfluxRegistry? _influxRegistry;
+    private readonly SpeedTestResultNotifier? _resultNotifier;
     private readonly string _siteSlug;
     private readonly bool _isDefault;
     private readonly string _siteSuffix;
@@ -67,9 +68,11 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         Licensing.LicenseStateService? licenseState = null,
         IAlertEventBus? alertEventBus = null,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
-        MonitoringInfluxRegistry? influxRegistry = null)
+        MonitoringInfluxRegistry? influxRegistry = null,
+        SpeedTestResultNotifier? resultNotifier = null)
     {
         _licenseState = licenseState;
+        _resultNotifier = resultNotifier;
         _logger = logger;
         _serviceProvider = serviceProvider;
         _dbFactory = dbFactory;
@@ -551,6 +554,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
 
             // Publish alert event for regression detection
             await PublishSpeedTestAlertAsync(result);
+            _resultNotifier?.NotifyResultSaved(_siteSlug, SpeedTestResultKind.Lan);
 
             _logger.LogInformation("Speed test to {Device} completed: {FromDevice:F1} Mbps from / {ToDevice:F1} Mbps to device",
                 device.Name, result.DownloadMbps, result.UploadMbps);

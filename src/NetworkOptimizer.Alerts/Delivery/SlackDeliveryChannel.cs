@@ -35,7 +35,7 @@ public class SlackDeliveryChannel : IAlertDeliveryChannel
         var blocks = new List<object>
         {
             new { type = "header", text = new { type = "plain_text", text = $"{emoji} {alertEvent.Title}" } },
-            new { type = "section", text = new { type = "mrkdwn", text = FormatMessage(alertEvent) } }
+            new { type = "section", text = new { type = "mrkdwn", text = FormatMessage(alertEvent, timeZone, format) } }
         };
 
         // Context block with metadata
@@ -159,7 +159,7 @@ public class SlackDeliveryChannel : IAlertDeliveryChannel
         return false;
     }
 
-    private static string FormatMessage(AlertEvent alertEvent)
+    private static string FormatMessage(AlertEvent alertEvent, TimeZoneInfo timeZone, DisplayFormat format)
     {
         var sb = new StringBuilder();
         if (!string.IsNullOrEmpty(alertEvent.Message))
@@ -172,7 +172,7 @@ public class SlackDeliveryChannel : IAlertDeliveryChannel
             sb.AppendLine($"*IP:* `{alertEvent.DeviceIp}`");
 
         foreach (var ctx in alertEvent.Context)
-            sb.AppendLine($"*{ctx.Key}:* {ctx.Value}");
+            sb.AppendLine($"*{ctx.Key}:* {TimestampFormatter.ContextValue(ctx.Value, timeZone, format)}");
 
         if (!string.IsNullOrEmpty(alertEvent.SourceUrl))
             sb.AppendLine($"*View:* {alertEvent.SourceUrl}");

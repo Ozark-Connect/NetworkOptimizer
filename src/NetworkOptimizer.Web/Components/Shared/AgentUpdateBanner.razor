@@ -96,7 +96,7 @@
             var user = (await AuthState).User;
             var sites = (await SiteManagement.GetSitesAsync()).ToDictionary(s => s.Id);
 
-            // Same rule as the Settings - Multi-Site badges: only a live agent reports a version
+            // Same rule as the Settings - Multi-Site / Agents badges: only a live agent reports a version
             // worth acting on, and the Upgrade button there needs it online.
             var live = (await AgentEnrollment.GetAllAgentsAsync())
                 .Where(a => a.Enabled && a.EnrolledAt != null && TunnelRegistry.IsAgentLive(a));

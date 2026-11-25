@@ -20,6 +20,10 @@ public sealed class UniFiApiClientAuthLockTests : IDisposable
 
     public void Dispose() => _silent.Stop();
 
+    // Dispose ends a queued login at once, but a full parallel test run can starve the thread pool for
+    // seconds. A broken lock waits out AuthLockWait (60 s), so this still fails it.
+    private static readonly TimeSpan DisposeBudget = TimeSpan.FromSeconds(15);
+
     private UniFiApiClient NewClient() =>
         new(NullLogger<UniFiApiClient>.Instance, $"127.0.0.1:{((IPEndPoint)_silent.LocalEndpoint).Port}", "User1", "pw");
 
@@ -37,7 +41,7 @@ public sealed class UniFiApiClientAuthLockTests : IDisposable
 
         client.Dispose();
 
-        var act = () => waiter.WaitAsync(TimeSpan.FromSeconds(3));
+        var act = () => waiter.WaitAsync(DisposeBudget);
         await act.Should().ThrowAsync<ObjectDisposedException>();
         (await holder.WaitAsync(TimeSpan.FromSeconds(15))).Should().BeFalse();
     }
@@ -48,7 +52,7 @@ public sealed class UniFiApiClientAuthLockTests : IDisposable
         var client = NewClient();
         client.Dispose();
 
-        var act = () => client.LoginAsync().WaitAsync(TimeSpan.FromSeconds(3));
+        var act = () => client.LoginAsync().WaitAsync(DisposeBudget);
         await act.Should().ThrowAsync<ObjectDisposedException>();
     }
 

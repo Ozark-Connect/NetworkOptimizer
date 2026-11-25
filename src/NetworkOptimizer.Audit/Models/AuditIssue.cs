@@ -97,6 +97,12 @@ public class AuditIssue
     public string? ClientName { get; init; }
 
     /// <summary>
+    /// <see cref="ClientName"/> is the client's own name, not its type or product ("Smart TV"), so one
+    /// acknowledgement covers the client on any AP, any band, and offline.
+    /// </summary>
+    public bool ClientNamed { get; init; }
+
+    /// <summary>
     /// Access point name (for wireless issues)
     /// </summary>
     public string? AccessPoint { get; init; }

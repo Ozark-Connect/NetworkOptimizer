@@ -530,6 +530,11 @@ public class AlertRepository : IAlertRepository
         CancellationToken cancellationToken = default) =>
         ResolveActiveAlertsCoreAsync(eventTypes, "", anyDevice: true, cancellationToken);
 
+    public Task<List<AlertHistoryEntry>> ResolveOpenAlertsAnyDeviceAsync(
+        IReadOnlyCollection<string> eventTypes,
+        CancellationToken cancellationToken = default) =>
+        ResolveActiveAlertsCoreAsync(eventTypes, "", anyDevice: true, cancellationToken, includeAcknowledged: true);
+
     public Task<List<AlertHistoryEntry>> ResolveActiveAlertsAsync(
         IReadOnlyCollection<string> eventTypes,
         string deviceId,
@@ -540,7 +545,8 @@ public class AlertRepository : IAlertRepository
         IReadOnlyCollection<string> eventTypes,
         string deviceId,
         bool anyDevice,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool includeAcknowledged = false)
     {
         if (eventTypes.Count == 0 || (!anyDevice && string.IsNullOrEmpty(deviceId)))
             return [];
@@ -550,7 +556,7 @@ public class AlertRepository : IAlertRepository
             // Tracked on purpose: these rows are read to be written back in the same call.
             var types = eventTypes.ToList();
             var open = await _context.AlertHistory
-                .Where(a => a.Status == AlertStatus.Active
+                .Where(a => (a.Status == AlertStatus.Active || (includeAcknowledged && a.Status == AlertStatus.Acknowledged))
                     && (anyDevice || a.DeviceId == deviceId)
                     && types.Contains(a.EventType))
                 .ToListAsync(cancellationToken);

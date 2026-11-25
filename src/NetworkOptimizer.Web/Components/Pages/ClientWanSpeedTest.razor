@@ -93,7 +93,7 @@
                                 without the speed-test pages that relay client WAN results back to this server. To
                                 enable client WAN tests here, re-run the gateway installer with
                                 <code>--lan-speed-test</code>, or deploy a Docker or bare-metal Agent on a separate box
-                                at the site (<a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")">Settings &gt; Multi-Site</a>).
+                                at the site (<a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")">Settings &gt; Multi-Site / Agents</a>).
                             </div>
                         }
                         else if (AgentRequiredButOffline)
@@ -102,7 +102,7 @@
                                 <strong>This site's Agent is offline.</strong> WAN speed test results for this site
                                 are attributed through the On-Site Agent, which isn't connected right now. Wait for
                                 the Agent to come back online (or check it under
-                                <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")">Settings &gt; Multi-Site</a>), then
+                                <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")">Settings &gt; Multi-Site / Agents</a>), then
                                 reload this page. Running the test without the agent would record the result
                                 against the wrong site.
                             </div>
@@ -200,10 +200,11 @@
                     @* Latency Chart *@
                     @if (_activeTab == "latency")
                     {
-                        <div class="wan-chart-container">
+                        <div class="wan-chart-container chart-opens-results">
                             <ApexChart @ref="_latencyChart" TItem="ChartPoint"
                                        Options="_latencyChartOptions"
-                                       Height="@("250px")">
+                                       Height="@("250px")"
+                                       OnClick="OnChartClicked">
                                 @foreach (var series in _chartSeries)
                                 {
                                     <ApexPointSeries TItem="ChartPoint"
@@ -221,10 +222,11 @@
                     @* Jitter Chart *@
                     @if (_activeTab == "jitter")
                     {
-                        <div class="wan-chart-container">
+                        <div class="wan-chart-container chart-opens-results">
                             <ApexChart @ref="_jitterChart" TItem="ChartPoint"
                                        Options="_jitterChartOptions"
-                                       Height="@("250px")">
+                                       Height="@("250px")"
+                                       OnClick="OnChartClicked">
                                 @foreach (var series in _chartSeries)
                                 {
                                     <ApexPointSeries TItem="ChartPoint"
@@ -280,8 +282,8 @@
                                             ↓ Mbps
                                             <span class="tooltip-icon">?</span>
                                             <span class="tooltip-content">
-                                                <strong>From Device</strong><br />
-                                                Data transferred from the client device through WAN to the external server.
+                                                <strong>To Device</strong><br />
+                                                Data transferred from the external server through WAN to the client device.
                                             </span>
                                         </span>
                                     </th>
@@ -290,8 +292,8 @@
                                             ↑ Mbps
                                             <span class="tooltip-icon">?</span>
                                             <span class="tooltip-content">
-                                                <strong>To Device</strong><br />
-                                                Data transferred from the external server through WAN to the client device.
+                                                <strong>From Device</strong><br />
+                                                Data transferred from the client device through WAN to the external server.
                                             </span>
                                         </span>
                                     </th>

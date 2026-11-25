@@ -176,7 +176,7 @@ public sealed class ThreatBlockingAdminService(ThreatBlockingOperations ops, Sit
 }
 
 /// <summary>
-/// One site's Automatic Blocking at a glance, for its row in Settings - Multi-Site.
+/// One site's Automatic Blocking at a glance, for its row in Settings - Multi-Site / Agents.
 /// <see cref="ActiveBlocks"/> includes <see cref="SharedBlocks"/>, the sources other sites raised;
 /// <see cref="FeedEntries"/> is null until the site's gateway has had a public list write;
 /// <see cref="WanFloodPending"/> when its gateway agent can run WAN Flood Protection and it is not Protecting.
@@ -185,7 +185,7 @@ public sealed record BlockingSiteSummary(BlockingMode Mode, bool Share, bool Gat
     int SharedBlocks = 0, int? FeedEntries = null, bool WanFloodPending = false);
 
 /// <summary>
-/// Automatic Blocking for a named site, for Settings - Multi-Site, which lists every site rather than
+/// Automatic Blocking for a named site, for Settings - Multi-Site / Agents, which lists every site rather than
 /// the one in context. Each call is gated on the caller's role on THAT site and audited against it,
 /// so "Turn On Recommended for All Sites" is one gated call per site the caller administers.
 /// </summary>

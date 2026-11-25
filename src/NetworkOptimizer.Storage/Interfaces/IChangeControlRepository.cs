@@ -120,6 +120,9 @@ public interface IChangeControlRepository
     /// <summary>Firmware Rollout steps whose device went down before <paramref name="toUtc"/> and was not back before <paramref name="fromUtc"/>. A step its ended plan left down is back when the plan ended.</summary>
     Task<List<FirmwareRolloutStep>> GetRolloutDowntimeAsync(DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default);
 
+    /// <summary>Firmware Rollout plans that started before <paramref name="toUtc"/> and had not completed before <paramref name="fromUtc"/>.</summary>
+    Task<List<FirmwareRolloutPlan>> GetRolloutPlansRunningAsync(DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default);
+
     /// <summary>Fabric monitoring targets that ping a device: target ID to device MAC.</summary>
     Task<Dictionary<string, string>> GetFabricTargetDevicesAsync(CancellationToken cancellationToken = default);
 

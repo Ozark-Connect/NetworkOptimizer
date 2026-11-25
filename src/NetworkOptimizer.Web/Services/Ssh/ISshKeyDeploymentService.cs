@@ -1,7 +1,5 @@
-using System.Text;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Gates;
-using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Web.Services.Ssh;
 
@@ -22,6 +20,13 @@ public sealed record SshKeyDeploymentStatus(
 {
     /// <summary>True when the key is placed and will survive a reboot or firmware upgrade.</summary>
     public bool FullyDeployed => ScriptInstalled && KeyInstalled;
+}
+
+/// <summary>Messages callers of <see cref="ISshKeyDeploymentService"/> compare against.</summary>
+public static class SshKeyDeploymentMessages
+{
+    /// <summary>Remove's message when the key was taken out of authorized_keys; any other success kept it.</summary>
+    public const string Removed = "Key removed from the gateway.";
 }
 
 /// <summary>
@@ -50,8 +55,10 @@ public interface ISshKeyDeploymentService
     Task<(bool success, string message)> DeployAsync();
 
     /// <summary>
-    /// Removes the boot script, the stored copy of the key, and our line from authorized_keys. Other
-    /// keys on the gateway are left alone.
+    /// Removes the boot script and the stored copy of the key, and takes the key out of authorized_keys
+    /// only when Network Optimizer put it there. A key that was already on the gateway before the first
+    /// install, or that Network Optimizer never placed, stays: removing it would lock its owner out.
+    /// Other keys on the gateway are left alone.
     /// </summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, TargetType = "ssh_key_deployment")]
@@ -71,6 +78,27 @@ public sealed class SshKeyDeploymentService : ISshKeyDeploymentService
 
     private const string KeyDir = "/data/netopt";
     private const string KeyPath = KeyDir + "/ssh-key.pub";
+
+    /// <summary>
+    /// Holds the blob of a key that was already in authorized_keys when Network Optimizer first
+    /// installed it. Remove leaves that key in place: it was the operator's before it was ours.
+    /// </summary>
+    private const string PreexistingPath = KeyDir + "/ssh-key.preexisting";
+
+    private const string AuthPath = "/root/.ssh/authorized_keys";
+
+    /// <summary>The gateway paths the shell commands work on. Tests point them at a temp directory.</summary>
+    internal sealed record GatewayPaths(string OnBootDir, string KeyPath, string PreexistingPath, string AuthPath)
+    {
+        public static readonly GatewayPaths Gateway = new(
+            SshKeyDeploymentService.OnBootDir, SshKeyDeploymentService.KeyPath,
+            SshKeyDeploymentService.PreexistingPath, SshKeyDeploymentService.AuthPath);
+
+        public string ScriptPath => $"{OnBootDir}/{ScriptName}";
+
+        /// <summary>The directory part of a gateway path. Not Path.GetDirectoryName: the server may be Windows.</summary>
+        public static string DirOf(string path) => path[..path.LastIndexOf('/')];
+    }
 
     private readonly IGatewaySshService _gatewaySsh;
     private readonly IUdmBootService _udmBoot;
@@ -154,6 +182,9 @@ public sealed class SshKeyDeploymentService : ISshKeyDeploymentService
         var key = await _sshKeys.GetAsync();
         if (key is null)
             return (false, "Generate or upload an SSH key first.");
+        var blob = KeyBlob(key.PublicKey);
+        if (blob is null)
+            return (false, "The stored SSH key is not a valid OpenSSH public key.");
 
         var settings = await _gatewaySsh.GetSettingsAsync();
         if (!CanReachGatewayToday(settings))
@@ -169,15 +200,7 @@ public sealed class SshKeyDeploymentService : ISshKeyDeploymentService
                 return (false, $"Could not install udm-boot on the gateway: {bootMessage}");
         }
 
-        // base64 both payloads so no quoting or newline in a key or script can break the command,
-        // the same way Performance Tweaks ships its scripts.
-        var keyB64 = GatewayFile.ToBase64(key.PublicKey + "\n");
-        var scriptB64 = GatewayFile.ToBase64(BootScript());
-
-        var deploy = await _gatewaySsh.RunCommandAsync(
-            $"mkdir -p {KeyDir} && echo '{keyB64}' | base64 -d > {KeyPath} && chmod 600 {KeyPath} && "
-            + $"echo '{scriptB64}' | base64 -d > {OnBootDir}/{ScriptName} && "
-            + $"chmod +x {OnBootDir}/{ScriptName} && {OnBootDir}/{ScriptName} && echo DEPLOYED");
+        var deploy = await _gatewaySsh.RunCommandAsync(DeployCommand(GatewayPaths.Gateway, key.PublicKey, blob));
 
         if (!deploy.success || !deploy.output.Contains("DEPLOYED"))
         {
@@ -188,7 +211,7 @@ public sealed class SshKeyDeploymentService : ISshKeyDeploymentService
         // Confirm from the gateway rather than trusting the exit code - the whole point is that the
         // key is actually usable now, not that a script ran.
         var verify = await _gatewaySsh.RunCommandAsync(
-            $"grep -qF '{KeyBlob(key.PublicKey)}' /root/.ssh/authorized_keys && echo PRESENT || echo ABSENT");
+            $"grep -qF '{blob}' {AuthPath} && echo PRESENT || echo ABSENT");
 
         if (!verify.success || !verify.output.Contains("PRESENT"))
             return (false, "The script ran but the key is not in authorized_keys. Check the gateway logs.");
@@ -203,57 +226,99 @@ public sealed class SshKeyDeploymentService : ISshKeyDeploymentService
         if (await _gatewaySsh.IsAwaitingAgentTunnelAsync())
             return (false, GatewaySshService.AwaitingAgentMessage);
 
-        var key = await _sshKeys.GetAsync();
-        var blob = KeyBlob(key?.PublicKey);
-        if (blob is null)
-            return (false, "There is no stored SSH key to remove.");
+        var result = await _gatewaySsh.RunCommandAsync(RemoveCommand(GatewayPaths.Gateway));
 
-        var result = await _gatewaySsh.RunCommandAsync(
-            $"rm -f {OnBootDir}/{ScriptName} {KeyPath}; "
-            + $"if [ -f /root/.ssh/authorized_keys ]; then "
-            + $"grep -vF '{blob}' /root/.ssh/authorized_keys > /tmp/netopt-ak.$$ || true; "
-            + $"cat /tmp/netopt-ak.$$ > /root/.ssh/authorized_keys; rm -f /tmp/netopt-ak.$$; fi; echo REMOVED");
-
-        if (!result.success || !result.output.Contains("REMOVED"))
+        if (!result.success || result.output.Contains("FAILED"))
             return (false, $"Could not remove the key from the gateway: {result.output.Trim()}");
-
-        return (true, "Key removed from the gateway.");
+        if (result.output.Contains("KEPT_PREEXISTING"))
+            return (true, "Network Optimizer no longer keeps the key on the gateway. It was there before we installed it, so it stays in authorized_keys.");
+        if (result.output.Contains("NOT_PLACED"))
+            return (true, "Network Optimizer did not put this key on the gateway, so it stays in authorized_keys.");
+        if (result.output.Contains("REMOVED"))
+            return (true, SshKeyDeploymentMessages.Removed);
+        return (false, $"Could not remove the key from the gateway: {result.output.Trim()}");
     }
 
     /// <summary>
-    /// Idempotent and deliberately non-destructive: it strips only the lines carrying this exact key
-    /// and appends it once, so any other key an operator put on the gateway survives. Rebuilding
-    /// authorized_keys wholesale would be simpler and would silently delete their access.
+    /// Writes the key and the boot script, then runs the script. Before the first placement of a key it
+    /// records whether that key is already in authorized_keys, so Remove can leave the operator's own
+    /// copy alone. Re-deploying the same key keeps the record from its first placement; a gateway
+    /// deployed before the record existed has none, and Remove treats its key as ours, as it always did.
     /// </summary>
-    private static string BootScript() => string.Join("\n", new[]
+    internal static string DeployCommand(GatewayPaths p, string publicKeyLine, string blob)
     {
-        "#!/bin/sh",
-        "# Network Optimizer - keep the managed SSH public key in root's authorized_keys.",
-        "# Idempotent and non-destructive: it removes only lines carrying THIS key and appends it",
-        "# once, so any other key an operator placed on the gateway survives untouched.",
-        "",
-        $"KEY_FILE={KeyPath}",
-        "AUTH=/root/.ssh/authorized_keys",
-        "",
-        "[ -f \"$KEY_FILE\" ] || exit 0",
-        "",
-        "# Match on the key material, not the comment: the same key may already be present under a",
-        "# comment its owner chose, and appending ours would leave it in the file twice.",
-        "BLOB=$(awk '{print $2}' \"$KEY_FILE\")",
-        "[ -n \"$BLOB\" ] || exit 0",
-        "",
-        "mkdir -p /root/.ssh",
-        "chmod 700 /root/.ssh",
-        "[ -f \"$AUTH\" ] || : > \"$AUTH\"",
-        "",
-        "TMP=\"$AUTH.netopt.$$\"",
-        "grep -vF \"$BLOB\" \"$AUTH\" > \"$TMP\" 2>/dev/null || true",
-        "cat \"$KEY_FILE\" >> \"$TMP\"",
-        "cat \"$TMP\" > \"$AUTH\"",
-        "rm -f \"$TMP\"",
-        "chmod 600 \"$AUTH\"",
-        "",
-        "echo \"Network Optimizer SSH key placed in $AUTH\"",
-        "",
-    });
+        // base64 both payloads so no quoting or newline in a key or script can break the command,
+        // the same way Performance Tweaks ships its scripts. The blob is base64 itself: no quotes.
+        var keyB64 = GatewayFile.ToBase64(publicKeyLine.Trim() + "\n");
+        var scriptB64 = GatewayFile.ToBase64(BootScript(p));
+        var keyDir = GatewayPaths.DirOf(p.KeyPath);
+        return $"NEW='{blob}'; OLD=''; [ -f '{p.KeyPath}' ] && OLD=$(awk '{{print $2}}' '{p.KeyPath}'); "
+            + $"if [ \"$OLD\" != \"$NEW\" ]; then rm -f '{p.PreexistingPath}'; "
+            + $"if [ -f '{p.AuthPath}' ] && grep -qF \"$NEW\" '{p.AuthPath}'; then mkdir -p '{keyDir}' && printf '%s\\n' \"$NEW\" > '{p.PreexistingPath}'; fi; fi; "
+            + $"mkdir -p '{keyDir}' && echo '{keyB64}' | base64 -d > '{p.KeyPath}' && chmod 600 '{p.KeyPath}' && "
+            + $"echo '{scriptB64}' | base64 -d > '{p.ScriptPath}' && "
+            + $"chmod +x '{p.ScriptPath}' && '{p.ScriptPath}' && echo DEPLOYED";
+    }
+
+    /// <summary>
+    /// Undoes what Network Optimizer did and nothing more. The key taken out of authorized_keys is the
+    /// one in the stored copy on the gateway (what we placed), not the site's current key, and only
+    /// when it was not already there before we placed it. Without a stored copy nothing is taken out:
+    /// a key we never placed is someone's own access. Prints REMOVED, KEPT_PREEXISTING, or NOT_PLACED.
+    /// </summary>
+    internal static string RemoveCommand(GatewayPaths p) =>
+        $"rm -f '{p.ScriptPath}'; PLACED=''; [ -f '{p.KeyPath}' ] && PLACED=$(awk '{{print $2}}' '{p.KeyPath}'); "
+        + $"PRE=''; [ -f '{p.PreexistingPath}' ] && PRE=$(head -n 1 '{p.PreexistingPath}'); "
+        + "if [ -z \"$PLACED\" ]; then RESULT=NOT_PLACED; "
+        + "elif [ \"$PLACED\" = \"$PRE\" ]; then RESULT=KEPT_PREEXISTING; "
+        + $"else RESULT=REMOVED; if [ -f '{p.AuthPath}' ]; then "
+        // grep exits 0 or 1 with a complete copy (1: every line went); 2 is an error, such as a full disk,
+        // and its partial copy must never replace authorized_keys - that would lock every key out.
+        + $"grep -vF \"$PLACED\" '{p.AuthPath}' > '{p.AuthPath}.netopt.'$$; RC=$?; "
+        + $"if [ $RC -le 1 ]; then cat '{p.AuthPath}.netopt.'$$ > '{p.AuthPath}'; else RESULT=FAILED; fi; "
+        + $"rm -f '{p.AuthPath}.netopt.'$$; fi; fi; "
+        + "if [ \"$RESULT\" != FAILED ]; then rm -f "
+        + $"'{p.KeyPath}' '{p.PreexistingPath}'; fi; echo $RESULT";
+
+    /// <summary>
+    /// Idempotent and deliberately non-destructive: it appends the key only when authorized_keys does not
+    /// already carry it, and never rewrites or removes a line. An operator's own copy of the same key,
+    /// under their own comment, survives; stripping and re-adding it would replace their line with ours,
+    /// and a later Remove would then take their access with it.
+    /// </summary>
+    internal static string BootScript(GatewayPaths p)
+    {
+        var authDir = GatewayPaths.DirOf(p.AuthPath);
+        return string.Join("\n", new[]
+        {
+            "#!/bin/sh",
+            "# Network Optimizer - keep the managed SSH public key in root's authorized_keys.",
+            "# Non-destructive: it only appends the key when it is missing, and never rewrites or",
+            "# removes a line, so every key an operator placed on the gateway survives untouched.",
+            "",
+            $"KEY_FILE='{p.KeyPath}'",
+            $"AUTH='{p.AuthPath}'",
+            "",
+            "[ -f \"$KEY_FILE\" ] || exit 0",
+            "",
+            "# Match on the key material, not the comment: the same key may already be present under a",
+            "# comment its owner chose.",
+            "BLOB=$(awk '{print $2}' \"$KEY_FILE\")",
+            "[ -n \"$BLOB\" ] || exit 0",
+            "",
+            $"mkdir -p '{authDir}'",
+            $"chmod 700 '{authDir}'",
+            "[ -f \"$AUTH\" ] || : > \"$AUTH\"",
+            "",
+            "if ! grep -qF \"$BLOB\" \"$AUTH\"; then",
+            "    # A last line without a newline would join our key onto it.",
+            "    if [ -s \"$AUTH\" ] && [ \"$(tail -c 1 \"$AUTH\" | wc -l)\" -eq 0 ]; then echo >> \"$AUTH\"; fi",
+            "    cat \"$KEY_FILE\" >> \"$AUTH\"",
+            "fi",
+            "chmod 600 \"$AUTH\"",
+            "",
+            "echo \"Network Optimizer SSH key placed in $AUTH\"",
+            "",
+        });
+    }
 }

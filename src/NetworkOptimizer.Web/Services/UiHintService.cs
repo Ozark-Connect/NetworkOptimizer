@@ -148,7 +148,7 @@ public static class UiHintKeys
     public const string WanFilterCompare = "wan-filter-compare";
 
     /// <summary>
-    /// Where to go to start monitoring a second WAN, shown on Settings - Multi-Site to a site that
+    /// Where to go to start monitoring a second WAN, shown on Settings - Multi-Site / Agents to a site that
     /// has more than one WAN and no vantage for any of them. Dismissed rather than counted down:
     /// it is a card on the page, not a passing tooltip.
     ///

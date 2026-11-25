@@ -68,7 +68,7 @@
                             The easiest way to monitor your other WANs is to deploy the agent on your
                             UniFi gateway. It reaches each WAN by that WAN's own interface, so there is
                             no routing policy to build. Set one up in
-                            <a href="@($"/settings?tab=multisite&configure={SiteCtx.Slug}")">Settings - Multi-Site</a>.
+                            <a href="@($"/settings?tab=multisite&configure={SiteCtx.Slug}")">Settings - Multi-Site / Agents</a>.
                         </p>
                     </div>
                     <button class="btn btn-sm btn-tertiary" @onclick="DismissGatewayAgentHintAsync">Dismiss</button>
@@ -207,7 +207,7 @@
                                    class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast"
                                    data-tooltip-hover-only>?</a>
                                 <span class="tooltip-content">
-                                    Agents enroll under <a href="@($"/settings?tab=multisite&configure={SiteCtx.Slug}")">Settings - Multi-Site</a>; the ones connected to this site appear here.
+                                    Agents enroll under <a href="@($"/settings?tab=multisite&configure={SiteCtx.Slug}")">Settings - Multi-Site / Agents</a>; the ones connected to this site appear here.
                                 </span>
                             </span>
                         </label>
@@ -258,7 +258,7 @@
                 @if (SelectedAgentOutdated)
                 {
                     <div class="alert alert-warning wc-agent-stale">
-                        This agent is on an older release. Update it from Settings - Multi-Site -
+                        This agent is on an older release. Update it from Settings - Multi-Site / Agents -
                         some of the options here only appear once it has.
                     </div>
                 }
@@ -605,7 +605,7 @@
     }
 
     /// <summary>
-    /// Retires the recommendation for this user, here and on Settings - Multi-Site, which share the
+    /// Retires the recommendation for this user, here and on Settings - Multi-Site / Agents, which share the
     /// key.
     /// </summary>
     private async Task DismissGatewayAgentHintAsync()

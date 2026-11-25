@@ -315,6 +315,12 @@ public class AlertProcessingService : BackgroundService
     internal const string RolloutCompletedEventType = "rollout.completed";
 
     /// <summary>
+    /// Alerts their closing event resolves even when someone acknowledged them: a finished rollout is over whoever
+    /// saw it. Every other type closes only while still active.
+    /// </summary>
+    internal static readonly IReadOnlySet<string> ResolvesWhenAcknowledged = new HashSet<string> { RolloutStartedEventType };
+
+    /// <summary>
     /// Which open rollout alerts an incoming event closes: every open Started alert, for the
     /// Completed event. Empty for every other event.
     /// </summary>
@@ -349,7 +355,9 @@ public class AlertProcessingService : BackgroundService
             foreach (var (eventTypes, deviceId) in targets)
             {
                 var resolved = deviceId == null
-                    ? await repository.ResolveActiveAlertsAnyDeviceAsync(eventTypes, cancellationToken)
+                    ? eventTypes.All(ResolvesWhenAcknowledged.Contains)
+                        ? await repository.ResolveOpenAlertsAnyDeviceAsync(eventTypes, cancellationToken)
+                        : await repository.ResolveActiveAlertsAnyDeviceAsync(eventTypes, cancellationToken)
                     : await repository.ResolveActiveAlertsAsync(eventTypes, deviceId, cancellationToken);
                 if (resolved.Count == 0)
                     continue;

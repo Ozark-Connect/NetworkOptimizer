@@ -43,7 +43,7 @@ public class EmailDeliveryChannel : IAlertDeliveryChannel
             device_name = alertEvent.DeviceName,
             device_ip = alertEvent.DeviceIp,
             timestamp = TimestampFormatter.FormatLocal(alertEvent.Timestamp, timeZone, format),
-            context = alertEvent.Context,
+            context = alertEvent.Context.ToDictionary(kv => kv.Key, kv => TimestampFormatter.ContextValue(kv.Value, timeZone, format)),
             metric_value = alertEvent.MetricValue,
             threshold_value = alertEvent.ThresholdValue,
             source_url = alertEvent.SourceUrl

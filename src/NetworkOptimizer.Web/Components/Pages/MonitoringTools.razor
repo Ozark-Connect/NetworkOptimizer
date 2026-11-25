@@ -375,7 +375,7 @@
                                     <span class="text-muted">* * *</span>
                                 }
                             </td>
-                            <td><NetworkOptimizer.Web.Components.Shared.Monitoring.TextWithCode Text="@TraceNetworkLabel(hop.Address)" /></td>
+                            <td class="path-net-cell"><NetworkOptimizer.Web.Components.Shared.Monitoring.TextWithCode Text="@TraceNetworkLabel(hop.Address)" /></td>
                             @if (showLocation)
                             {
                                 <td>
@@ -1431,7 +1431,25 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         StateHasChanged();
         try
         {
-            var result = await GatewayDiagnostics.RunAsync(_diagInterface.Trim());
+            var interfaceName = _diagInterface.Trim();
+            string? physicalInterfaceName = null;
+            if (NetworkUtilities.IsPppoeInterface(interfaceName))
+            {
+                // The PPP interface name can stay the same when its physical WAN port changes.
+                try
+                {
+                    using var lookupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    physicalInterfaceName = await ConnectionService
+                        .GetWanPhysicalInterfaceAsync(interfaceName, lookupTimeout.Token)
+                        .WaitAsync(lookupTimeout.Token);
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogDebug(ex, "Couldn't resolve the physical WAN port for {Interface}", interfaceName);
+                }
+            }
+
+            var result = await GatewayDiagnostics.RunAsync(interfaceName, physicalInterfaceName: physicalInterfaceName);
             if (!string.IsNullOrEmpty(result.RunError))
                 _diagError = result.RunError;
             else

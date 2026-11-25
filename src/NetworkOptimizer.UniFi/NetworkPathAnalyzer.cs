@@ -836,8 +836,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     Order = 0,
                     Type = targetClient.IsWired ? HopType.Client : HopType.WirelessClient,
                     DeviceMac = targetClient.Mac,
-                    DeviceName = !string.IsNullOrEmpty(targetClient.DisplayName) ? targetClient.DisplayName
-                        : !string.IsNullOrEmpty(targetClient.Name) ? targetClient.Name : targetClient.Hostname,
+                    DeviceName = targetClient.Label,
                     DeviceIp = targetClient.IpAddress,
                     Notes = targetClient.IsWired ? "Client (wired)" : $"Client ({targetClient.ConnectionType})"
                 };
@@ -2093,8 +2092,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 Order = 0,
                 Type = targetClient.IsWired ? HopType.Client : HopType.WirelessClient,
                 DeviceMac = targetClient.Mac,
-                DeviceName = !string.IsNullOrEmpty(targetClient.DisplayName) ? targetClient.DisplayName
-                    : !string.IsNullOrEmpty(targetClient.Name) ? targetClient.Name : targetClient.Hostname,
+                DeviceName = targetClient.Label,
                 DeviceIp = targetClient.IpAddress,
                 Notes = targetClient.IsWired ? "Target client (wired)" : $"Target client ({targetClient.ConnectionType})"
             };

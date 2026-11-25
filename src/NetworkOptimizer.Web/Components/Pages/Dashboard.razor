@@ -20,6 +20,7 @@
 @inject ISiteManagementService SiteManagement
 @inject SiteContextService SiteContext
 @inject IDashboardLayoutAdminService LayoutAdmin
+@inject SpeedTestResultNotifier SpeedTestResults
 @implements IDisposable
 @rendermode InteractiveServer
 @inject IDisplayTimeZone DisplayTime
@@ -222,6 +223,7 @@
 
 @code {
     private string _siteName = "";
+    private string _siteSlug = "";
     private bool _loading = true;
     private bool _wifiLoading = true;
     private bool _speedTestLoading = true;
@@ -265,6 +267,8 @@
         ChartTimeFormat.ApplyTimeAxis(_threatSparklineOptions.Xaxis.Labels, DisplayTime);
         NavigationManager.LocationChanged += OnLocationChanged;
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
+        _siteSlug = SiteContext.Slug;
+        SpeedTestResults.ResultSaved += OnSpeedTestResultSaved;
         PtrState.RefreshCallback = () => Task.WhenAll(
             LoadDashboardData(), LoadSpeedTestData(), LoadWanTestData(), LoadThreatData());
         PtrState.NotifyStateChanged = StateHasChanged;
@@ -1196,23 +1200,46 @@
             await Task.WhenAll(
                 LoadDashboardData(),
                 LoadSpeedTestData(),
+                LoadWanTestData(),
                 LoadThreatData()
             );
             await InvokeAsync(StateHasChanged);
         }
     }
 
+    /// <summary>
+    /// Reloads the LAN Speed Test or WAN Speed Test card when this site saves or enriches a result.
+    /// Runs on the saving thread, so it marshals to the dispatcher and never throws back into the save.
+    /// </summary>
+    private async void OnSpeedTestResultSaved(string siteSlug, SpeedTestResultKind kind)
+    {
+        if (siteSlug != _siteSlug) return;
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                if (kind == SpeedTestResultKind.Wan)
+                    await LoadWanTestData(showLoading: false);
+                else
+                    await LoadSpeedTestData(showLoading: false);
+                StateHasChanged();
+            });
+        }
+        catch { /* component may be disposed */ }
+    }
+
     public void Dispose()
     {
         NavigationManager.LocationChanged -= OnLocationChanged;
         ConnectionService.OnConnectionChanged -= OnConnectionChanged;
+        SpeedTestResults.ResultSaved -= OnSpeedTestResultSaved;
         _toastTimer?.Dispose();
         _deviceRefreshTimer?.Dispose();
     }
 
-    private async Task LoadSpeedTestData()
+    private async Task LoadSpeedTestData(bool showLoading = true)
     {
-        _speedTestLoading = true;
+        if (showLoading) _speedTestLoading = true;
         try
         {
             var results = await SpeedTestService.GetRecentResultsAsync(25);
@@ -1223,9 +1250,9 @@
         finally { _speedTestLoading = false; }
     }
 
-    private async Task LoadWanTestData()
+    private async Task LoadWanTestData(bool showLoading = true)
     {
-        _wanTestLoading = true;
+        if (showLoading) _wanTestLoading = true;
         try
         {
             var serverResults = await WanSpeedTestService.GetResultsAsync(count: 5);

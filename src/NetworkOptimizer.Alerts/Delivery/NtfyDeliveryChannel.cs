@@ -33,7 +33,7 @@ public class NtfyDeliveryChannel : IAlertDeliveryChannel
         var config = JsonSerializer.Deserialize<NtfyChannelConfig>(channel.ConfigJson);
         if (config == null || string.IsNullOrEmpty(config.Topic)) return false;
 
-        var message = FormatMessage(alertEvent);
+        var message = FormatMessage(alertEvent, timeZone, format);
 
         var payload = JsonSerializer.Serialize(new
         {
@@ -164,7 +164,7 @@ public class NtfyDeliveryChannel : IAlertDeliveryChannel
         return false;
     }
 
-    private static string FormatMessage(AlertEvent alertEvent)
+    private static string FormatMessage(AlertEvent alertEvent, TimeZoneInfo timeZone, DisplayFormat format)
     {
         var sb = new StringBuilder();
         if (!string.IsNullOrEmpty(alertEvent.Message))
@@ -183,7 +183,7 @@ public class NtfyDeliveryChannel : IAlertDeliveryChannel
         sb.AppendLine($"**Severity:** {alertEvent.Severity}");
 
         foreach (var ctx in alertEvent.Context)
-            sb.AppendLine($"**{ctx.Key}:** {ctx.Value}");
+            sb.AppendLine($"**{ctx.Key}:** {TimestampFormatter.ContextValue(ctx.Value, timeZone, format)}");
 
         if (!string.IsNullOrEmpty(alertEvent.SourceUrl))
             sb.AppendLine($"**View:** {alertEvent.SourceUrl}");

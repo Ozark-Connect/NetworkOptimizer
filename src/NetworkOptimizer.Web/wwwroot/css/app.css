@@ -9222,7 +9222,7 @@ a.path-hop.hop-clickable:hover {
     margin-top: 0.75rem;
 }
 
-/* Settings - Multi-Site: a site's Automatic Blocking in its Configuration panel */
+/* Settings - Multi-Site / Agents: a site's Automatic Blocking in its Configuration panel */
 .site-blocking .site-blocking-mode {
     display: flex;
     align-items: center;
@@ -21825,6 +21825,16 @@ a.isp-health-hero-speed:hover {
     white-space: nowrap;
 }
 
+/* break-word, not anywhere: anywhere shrinks the cell's min-content, so an auto-layout table on a
+   phone squeezes the network name and AS number into pieces mid-word. */
+.path-episode-hops td.path-net-cell {
+    overflow-wrap: break-word;
+}
+
+.path-episode-hops td.path-net-cell code.text-code {
+    white-space: nowrap;
+}
+
 .path-episode-hops tbody tr:nth-child(even) td {
     background: rgba(255, 255, 255, 0.025);
 }
@@ -30465,6 +30475,21 @@ body:has(.top-bar-hidden) .btn-fit {
    row (a tap, where there is no hover). */
 .hop-loc {
     white-space: nowrap;
+}
+
+/* On mobile a country after a city shows as its code ("Dallas, US"); the tooltip keeps the full name. */
+.hop-loc-short {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .hop-loc-full {
+        display: none;
+    }
+
+    .hop-loc-short {
+        display: inline;
+    }
 }
 
 .hop-loc-set {

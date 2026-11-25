@@ -39,6 +39,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly Tailscale.TailscaleDirectoryRegistry? _tailscale;
     private readonly Tailscale.TailnetFlowObserver? _tailnetObserver;
+    private readonly SpeedTestResultNotifier? _resultNotifier;
 
     /// <summary>
     /// Throws when this site is license-restricted. New client speed test
@@ -68,8 +69,10 @@ public class ClientSpeedTestService : IClientSpeedTestService
         GatewaySshRegistry? gatewaySshRegistry = null,
         Tailscale.TailscaleDirectoryRegistry? tailscale = null,
         Tailscale.TailnetFlowObserver? tailnetObserver = null,
-        string siteSlug = SiteManagementService.DefaultSiteSlug)
+        string siteSlug = SiteManagementService.DefaultSiteSlug,
+        SpeedTestResultNotifier? resultNotifier = null)
     {
+        _resultNotifier = resultNotifier;
         _licenseState = licenseState;
         _dnsResolver = dnsResolver;
         _hostSelector = hostSelector;
@@ -286,6 +289,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
 
         // Publish speed test alert event
         await PublishSpeedTestAlertAsync(result);
+        NotifyResultSaved(result);
 
         // Enrich and analyze in background (client IP is known, trace internal path)
         _ = Task.Run(async () => await EnrichAndAnalyzeInBackgroundAsync(resultId));
@@ -437,6 +441,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
 
             await db.SaveChangesAsync();
             await SpeedTestInfluxExporter.ExportAsync(_influxRegistry, _siteSlug, recentResult, _logger);
+            NotifyResultSaved(recentResult);
 
             _logger.LogInformation(
                 "Merged iperf3 result: {ClientIp} ({ClientName}) - Down: {Download:F1} Mbps, Up: {Upload:F1} Mbps ({Streams} streams)",
@@ -470,6 +475,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
         await db.SaveChangesAsync();
         var resultId = result.Id;
         await SpeedTestInfluxExporter.ExportAsync(_influxRegistry, _siteSlug, result, _logger);
+        NotifyResultSaved(result);
 
         _logger.LogInformation(
             "Recorded iperf3 client result: {ClientIp} - Down: {Download:F1} Mbps, Up: {Upload:F1} Mbps ({Streams} streams)",
@@ -1213,6 +1219,9 @@ public class ClientSpeedTestService : IClientSpeedTestService
 
             await SpeedTestInfluxExporter.ExportMetadataAsync(_influxRegistry, _siteSlug, result, _logger);
 
+            // Enrichment fills the device name, MAC, and WAN that the Dashboard cards show.
+            NotifyResultSaved(result);
+
             _logger.LogDebug("Background enrichment complete for result {Id}: {DeviceName}",
                 resultId, result.DeviceName ?? result.DeviceHost);
         }
@@ -1221,6 +1230,10 @@ public class ClientSpeedTestService : IClientSpeedTestService
             _logger.LogWarning(ex, "Failed to enrich result {Id} in background", resultId);
         }
     }
+
+    private void NotifyResultSaved(Iperf3Result result) =>
+        _resultNotifier?.NotifyResultSaved(_siteSlug,
+            result.Direction == SpeedTestDirection.OpenSpeedTestWan ? SpeedTestResultKind.Wan : SpeedTestResultKind.Lan);
 
     private async Task PublishSpeedTestAlertAsync(Iperf3Result result)
     {

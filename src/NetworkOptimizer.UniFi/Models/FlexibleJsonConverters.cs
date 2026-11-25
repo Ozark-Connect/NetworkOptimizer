@@ -4,7 +4,22 @@ using System.Text.Json.Serialization;
 namespace NetworkOptimizer.UniFi.Models;
 
 // Tolerant System.Text.Json converters for vendor fields that arrive in more than one shape.
-// Name new ones Flexible* and add them here.
+// Name new ones Flexible* and add them here. Skip a value with FlexibleJson.SkipValue, never reader.Skip().
+
+/// <summary>Helpers shared by the Flexible* converters.</summary>
+internal static class FlexibleJson
+{
+    /// <summary>
+    /// Skips the current value. Never <see cref="Utf8JsonReader.Skip"/>: a response read from a stream
+    /// reaches a converter as a partial buffer, where Skip() throws and fails the whole response. The
+    /// serializer buffers the whole value before it calls a converter, so TrySkip succeeds here.
+    /// </summary>
+    public static void SkipValue(ref Utf8JsonReader reader)
+    {
+        if (!reader.TrySkip())
+            throw new JsonException("A value the serializer should have buffered could not be skipped.");
+    }
+}
 
 /// <summary>
 /// JSON converter that handles bool values that may come as strings ("true"/"false") instead of native booleans.
@@ -179,11 +194,11 @@ public class FlexibleStringListConverter : JsonConverter<List<string>?>
                 while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
                 {
                     if (reader.TokenType == JsonTokenType.String) list.Add(reader.GetString()!);
-                    else reader.Skip();
+                    else FlexibleJson.SkipValue(ref reader);
                 }
                 return list;
             default:
-                reader.Skip();
+                FlexibleJson.SkipValue(ref reader);
                 return null;
         }
     }
@@ -241,7 +256,7 @@ public sealed class FlexibleScalarStringConverter : JsonConverter<string?>
 
     private static string? SkipAndNull(ref Utf8JsonReader reader)
     {
-        reader.Skip();
+        FlexibleJson.SkipValue(ref reader);
         return null;
     }
 
@@ -264,7 +279,7 @@ public class FlexibleDateTimeOffsetConverter : JsonConverter<DateTimeOffset?>
     {
         if (reader.TokenType != JsonTokenType.String)
         {
-            reader.Skip();
+            FlexibleJson.SkipValue(ref reader);
             return null;
         }
 

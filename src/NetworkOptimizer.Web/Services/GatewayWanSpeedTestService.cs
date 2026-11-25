@@ -33,6 +33,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
     private readonly IAlertEventBus? _alertEventBus;
     private readonly MonitoringInfluxRegistry? _influxRegistry;
     private readonly IServiceProvider _serviceProvider;
+    private readonly SpeedTestResultNotifier? _resultNotifier;
     private readonly string _siteSlug;
     private readonly bool _isDefault;
 
@@ -87,8 +88,10 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         Licensing.LicenseStateService? licenseState = null,
         IAlertEventBus? alertEventBus = null,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
-        MonitoringInfluxRegistry? influxRegistry = null)
+        MonitoringInfluxRegistry? influxRegistry = null,
+        SpeedTestResultNotifier? resultNotifier = null)
     {
+        _resultNotifier = resultNotifier;
         _licenseState = licenseState;
         _logger = logger;
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
@@ -663,6 +666,9 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         }
 
         _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId, resolvedWanGroup), CancellationToken.None);
+
+        if (testResult.Success)
+            _resultNotifier?.NotifyResultSaved(_siteSlug, SpeedTestResultKind.Wan);
 
         return testResult;
     }

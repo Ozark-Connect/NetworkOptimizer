@@ -357,10 +357,11 @@
                 @* Latency Chart *@
                 @if (_activeHistoryTab == "latency")
                 {
-                    <div class="wan-chart-container">
+                    <div class="wan-chart-container chart-opens-results">
                         <ApexChart @ref="_latencyChart" TItem="WanChartDataPoint"
                                    Options="_latencyChartOptions"
-                                   Height="@("250px")">
+                                   Height="@("250px")"
+                                   OnClick="OnChartClicked">
                             @foreach (var wan in _wanSeries)
                             {
                                 <ApexPointSeries TItem="WanChartDataPoint"
@@ -378,7 +379,7 @@
                 @* Loaded Latency Chart *@
                 @if (_activeHistoryTab == "loaded-latency")
                 {
-                    <div class="wan-chart-container loaded-latency-chart-wrapper">
+                    <div class="wan-chart-container loaded-latency-chart-wrapper chart-opens-results">
                         <div class="loaded-latency-legend">
                             <span class="loaded-latency-legend-item">
                                 <svg width="28" height="10"><line x1="0" y1="5" x2="28" y2="5" stroke="var(--text-secondary)" stroke-width="2" /></svg> Base
@@ -392,7 +393,8 @@
                         </div>
                         <ApexChart @ref="_loadedLatencyChart" TItem="WanChartDataPoint"
                                    Options="_loadedLatencyChartOptions"
-                                   Height="@("250px")">
+                                   Height="@("250px")"
+                                   OnClick="OnChartClicked">
                             @foreach (var wan in _wanSeries)
                             {
                                 <ApexPointSeries TItem="WanChartDataPoint"
@@ -424,10 +426,11 @@
                 @* Jitter Chart *@
                 @if (_activeHistoryTab == "jitter")
                 {
-                    <div class="wan-chart-container">
+                    <div class="wan-chart-container chart-opens-results">
                         <ApexChart @ref="_jitterChart" TItem="WanChartDataPoint"
                                    Options="_jitterChartOptions"
-                                   Height="@("250px")">
+                                   Height="@("250px")"
+                                   OnClick="OnChartClicked">
                             @foreach (var wan in _wanSeries)
                             {
                                 <ApexPointSeries TItem="WanChartDataPoint"
@@ -445,7 +448,7 @@
                 @* Packet Loss Chart *@
                 @if (_activeHistoryTab == "packet-loss")
                 {
-                    <div class="wan-chart-container loaded-latency-chart-wrapper">
+                    <div class="wan-chart-container loaded-latency-chart-wrapper chart-opens-results">
                         <div class="loaded-latency-legend">
                             <span class="loaded-latency-legend-item">
                                 <svg width="28" height="10"><line x1="0" y1="5" x2="28" y2="5" stroke="var(--text-secondary)" stroke-width="2" /></svg> Idle
@@ -459,7 +462,8 @@
                         </div>
                         <ApexChart @ref="_packetLossChart" TItem="WanChartDataPoint"
                                    Options="_packetLossChartOptions"
-                                   Height="@("250px")">
+                                   Height="@("250px")"
+                                   OnClick="OnChartClicked">
                             @foreach (var wan in _wanSeries)
                             {
                                 <ApexPointSeries TItem="WanChartDataPoint"
@@ -804,7 +808,7 @@
 
     private const string NoAgentReason =
         "WAN speed tests on a managed site run from its On-Site Agent, and this site has none online. " +
-        "Set up the site's Agent under Settings > Multi-Site to enable them.";
+        "Set up the site's Agent under Settings > Multi-Site / Agents to enable them.";
 
     // Progress interpolation for smooth bar during long phases
     private DateTime _interpStart;
@@ -1131,7 +1135,7 @@
             _gatewaySettingsHref = _siteAgentOffline
                 ? null
                 : $"/settings?tab=multisite&configure={SiteContext.Slug}";
-            _gatewaySettingsLinkText = _siteAgentOffline ? null : "Settings > Multi-Site";
+            _gatewaySettingsLinkText = _siteAgentOffline ? null : "Settings > Multi-Site / Agents";
         }
         else
         {

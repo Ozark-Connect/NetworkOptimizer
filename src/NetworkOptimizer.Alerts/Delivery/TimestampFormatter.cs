@@ -27,4 +27,14 @@ internal static class TimestampFormatter
         var local = DateTimeUtilities.ToZone(utcTime, zone);
         return $"{local.ToString(format.Time, DisplayFormat.Culture)} {DateTimeUtilities.ZoneAbbreviation(zone, utcTime)}";
     }
+
+    /// <summary>
+    /// A context value as a channel shows it. Context keeps instants round-trip ("o"), since evaluators read
+    /// them back after a restart; a reader gets one as <see cref="FormatLocal"/>. Anything else is unchanged.
+    /// </summary>
+    internal static string ContextValue(string value, TimeZoneInfo zone, DisplayFormat format) =>
+        DateTimeOffset.TryParseExact(value, "o", System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None, out var instant)
+            ? FormatLocal(instant.UtcDateTime, zone, format)
+            : value;
 }

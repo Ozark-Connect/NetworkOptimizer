@@ -793,7 +793,8 @@
 
                 @if (_showSshKeyUpload)
                 {
-                    <div class="ssh-key-upload">
+                    @* data-autosave: Upload key commits these fields, not a card Save. *@
+                    <div class="ssh-key-upload" data-autosave>
                         <div class="form-group">
                             <label class="form-label">Private key</label>
                             @* No accept filter: the usual names are id_rsa and id_ed25519, with no
@@ -2786,14 +2787,22 @@
 
             <div class="form-group" style="margin-top: 1.5rem;">
                 <label class="form-label">Unused port grace period (days)</label>
-                <input type="number" class="form-control" @bind="unusedPortInactivityDays" @bind:event="oninput" min="1" max="365" style="width: 120px;" />
+                <input type="number" class="form-control" @bind="unusedPortInactivityDays" @bind:event="oninput" @bind:after="() => auditFieldErrors.Remove(AuditSettingsValidation.UnusedPortDaysKey)" min="1" max="365" style="width: 120px;" />
                 <small class="form-help">Days to wait after a device disconnects before flagging an unnamed port for disabling. Default: 15 days.</small>
+                @if (auditFieldErrors.TryGetValue(AuditSettingsValidation.UnusedPortDaysKey, out var unusedPortDaysError))
+                {
+                    <div class="form-error">@unusedPortDaysError</div>
+                }
             </div>
 
             <div class="form-group">
                 <label class="form-label">Named port grace period (days)</label>
-                <input type="number" class="form-control" @bind="namedPortInactivityDays" @bind:event="oninput" min="1" max="365" style="width: 120px;" />
+                <input type="number" class="form-control" @bind="namedPortInactivityDays" @bind:event="oninput" @bind:after="() => auditFieldErrors.Remove(AuditSettingsValidation.NamedPortDaysKey)" min="1" max="365" style="width: 120px;" />
                 <small class="form-help">Days to wait for ports with custom names (like "Printer" or "Camera"). Longer grace period since these devices may be intentionally offline. Default: 45 days.</small>
+                @if (auditFieldErrors.TryGetValue(AuditSettingsValidation.NamedPortDaysKey, out var namedPortDaysError))
+                {
+                    <div class="form-error">@namedPortDaysError</div>
+                }
             </div>
 
             <div class="form-group" style="margin-top: 1.5rem;">
@@ -2818,20 +2827,32 @@
 
             <div class="form-group" style="margin-top: 1.5rem;">
                 <label class="form-label">DNAT DNS Coverage: Excluded VLANs (optional)</label>
-                <input type="text" class="form-control" @bind="dnatExcludedVlans" @bind:event="oninput" placeholder="e.g., 100, 200" style="width: 240px;" />
+                <input type="text" class="form-control" @bind="dnatExcludedVlans" @bind:event="oninput" @bind:after="() => auditFieldErrors.Remove(AuditSettingsValidation.DnatExcludedVlansKey)" placeholder="e.g., 100, 200" style="width: 240px;" />
                 <small class="form-help">Comma-separated VLAN IDs to exclude from DNAT DNS coverage checks. Use this for networks that intentionally bypass DNS redirection (e.g., management VLANs).</small>
+                @if (auditFieldErrors.TryGetValue(AuditSettingsValidation.DnatExcludedVlansKey, out var dnatExcludedVlansError))
+                {
+                    <div class="form-error">@dnatExcludedVlansError</div>
+                }
             </div>
 
             <div class="form-group" style="margin-top: 1.5rem;">
                 <label class="form-label">Trusted DNS Redirect Targets (optional)</label>
-                <input type="text" class="form-control" @bind="trustedDnsRedirectTargets" @bind:event="oninput" placeholder="e.g., 10.0.100.248" style="width: 320px;" />
+                <input type="text" class="form-control" @bind="trustedDnsRedirectTargets" @bind:event="oninput" @bind:after="() => auditFieldErrors.Remove(AuditSettingsValidation.TrustedDnsRedirectTargetsKey)" placeholder="e.g., 10.0.100.248" style="width: 320px;" />
                 <small class="form-help">Comma-separated IPs to accept as valid DNAT translated targets. Use for DNS VIPs (keepalived, HAProxy) or anycast addresses that are not in your LAN DNS configuration.</small>
+                @if (auditFieldErrors.TryGetValue(AuditSettingsValidation.TrustedDnsRedirectTargetsKey, out var trustedDnsRedirectTargetsError))
+                {
+                    <div class="form-error">@trustedDnsRedirectTargetsError</div>
+                }
             </div>
 
             <div class="form-group" style="margin-top: 1.5rem;">
                 <label class="form-label">Third-Party DNS Management (optional)</label>
-                <input type="text" class="form-control" @bind="piholeManagementEndpoint" @bind:event="oninput" placeholder="Port number or URL" style="width: 240px;" />
+                <input type="text" class="form-control" @bind="piholeManagementEndpoint" @bind:event="oninput" @bind:after="() => auditFieldErrors.Remove(AuditSettingsValidation.DnsManagementEndpointKey)" placeholder="Port number or URL" style="width: 240px;" />
                 <small class="form-help">Custom port (e.g., 5380 or 8080) or full URL (e.g., https://dns.local) for the admin interface. Leave empty to auto-probe common Pi-hole, AdGuard Home, and Technitium DNS ports on each detected resolver IP.</small>
+                @if (auditFieldErrors.TryGetValue(AuditSettingsValidation.DnsManagementEndpointKey, out var dnsManagementEndpointError))
+                {
+                    <div class="form-error">@dnsManagementEndpointError</div>
+                }
             </div>
 
             <div class="action-buttons">
@@ -3781,14 +3802,14 @@
             @if (_multiSiteLoaded && !_multiSiteEnabled)
             {
                 <p class="section-description">
-                    Multi-WAN monitoring needs this on as well: its agent enrolls here, including on
-                    the main site.
+                    Gateway Agent capabilities and multi-WAN monitoring need this on as well: agent(s)
+                    get set up here, even for single sites.
                 </p>
                 <AdminOnly>
                     <div class="form-group">
                         <label class="checkbox-label">
                             <input type="checkbox" checked="@_multiSiteEnabled" @onchange="OnMultiSiteEnabledChanged" />
-                            <span>Enable multi-site management</span>
+                            <span>Enable multi-site / agent management</span>
                         </label>
                     </div>
                 </AdminOnly>
@@ -3808,7 +3829,7 @@
                         {
                             <text>
                                 One agent on the UniFi gateway covers them all: turn on
-                                <strong>Enable multi-site management</strong> above to add it.
+                                <strong>Enable multi-site / agent management</strong> above to add it.
                             </text>
                         }
                         else if (_hintSiteHasGatewayAgent)
@@ -4081,7 +4102,7 @@
                                                         {
                                                             <p class="site-config-empty">
                                                                 @(site.IsDefault
-                                                                    ? "This site is monitored directly by this server. Add an agent only if this server runs off-site."
+                                                                    ? "This site is monitored directly by this server. Add a Gateway Agent for extended capabilities, or an On-Site Agent on any site host if this server runs outside of the actual site."
                                                                     : "No On-Site Agent for this site yet. Set one up to reach it without a VPN.")
                                                             </p>
                                                             <div class="site-agent-actions">
@@ -4274,15 +4295,19 @@
 
                 <AdminOnly>
                 <details class="setup-guide multisite-disable">
-                    <summary>Disable multi-site management</summary>
+                    <summary>Disable multi-site / agent management</summary>
                     <div class="setup-guide-content">
                         <div class="alert alert-warning">
-                            Multi-site management is enabled with @_sites.Count sites. Turning it off hides every
+                            Multi-site management is enabled with @TimeFormatHelper.Pluralize(_sites.Count, "site"). Turning it off hides every
                             managed site and returns to single-site mode (no site data is deleted). Do this from the
                             main site, and only on purpose.
+                            @if (EnrolledAgentCount > 0)
+                            {
+                                <strong>@EnrolledAgentWarning</strong>
+                            }
                         </div>
                         <button type="button" class="btn btn-danger btn-sm" @onclick="DisableMultiSiteAsync">
-                            Disable multi-site management
+                            Disable multi-site / agent management
                         </button>
                     </div>
                 </details>
@@ -4419,7 +4444,7 @@
     /// loaded on the next render - SetActiveTab does it for a click, nothing did it for a deep link.</summary>
     private bool _pendingAuditLoad;
 
-    // The Multi-Site tab's teaching card: where to go to start monitoring a second WAN. Three
+    // The Multi-Site / Agents tab's teaching card: where to go to start monitoring a second WAN. Three
     // conditions, and all three have to hold. More than one WAN on this site, or there is nothing to
     // say. No vantage configured yet, because a site that has one has already been through this and
     // does not need telling. And the user has not dismissed it, which is remembered per user.
@@ -4491,6 +4516,33 @@
         _hintSiteHasGatewayAgent = SiteHasGatewayAgent(site.Id);
     }
 
+    private bool _singleSiteAutoOpened;
+
+    /// <summary>
+    /// With one site there is no row to choose, so its Configuration (where its agents live) opens on
+    /// arriving at the tab or turning multi-site on. Once per visit: a reader who closes it keeps it closed.
+    /// </summary>
+    private async Task AutoOpenSingleSiteConfigurationAsync()
+    {
+        if (_activeTab != "multisite")
+        {
+            _singleSiteAutoOpened = false;
+            return;
+        }
+
+        if (_singleSiteAutoOpened || !_multiSiteEnabled || _sites.Count != 1
+            || _expandedSiteId != null || _usersSiteId != null || !string.IsNullOrWhiteSpace(ConfigureSiteParam))
+            return;
+
+        _singleSiteAutoOpened = true;
+        var site = _sites[0];
+        if (AuthState is null
+            || !(await Authz.AuthorizeAsync((await AuthState).User, site.Slug, Policies.SiteAdmin)).Succeeded)
+            return;
+
+        await ToggleAgents(site.Id);
+    }
+
     /// <summary>The card's Configuration link: opens the current site's panel in place.</summary>
     private async Task OpenHintSiteConfigurationAsync()
     {
@@ -4530,7 +4582,11 @@
         // opened from a #card link has no tab param, so a later ?tab= link must still switch from null.
         if (TabParam != _lastTabParam)
         {
-            var newTab = ResolveTab(TabParam);
+            // Back to a #card link names no tab, only the card: its tab comes from the anchor, and
+            // scroll restoration returns to the card.
+            var newTab = TabParam == null && TryAnchorTab(new Uri(NavigationManager.Uri).Fragment, out _, out var anchorTab)
+                ? ResolveTab(anchorTab)
+                : ResolveTab(TabParam);
             if (newTab != _activeTab)
             {
                 _activeTab = newTab;
@@ -4551,17 +4607,28 @@
 
     private string? _lastConfigureSiteParam;
 
+    /// <summary>
+    /// Maps a URL fragment (with or without the #) to its card anchor and the tab that card lives on.
+    /// </summary>
+    private static bool TryAnchorTab(string? fragment, out string anchor, out string tab)
+    {
+        anchor = (fragment ?? "").TrimStart('#');
+        if (anchor.Equals("unifi-ssh", StringComparison.OrdinalIgnoreCase))
+            anchor = "device-ssh";
+        if (anchor.Length > 0 && AnchorTabMap.TryGetValue(anchor, out var mapped))
+        {
+            tab = mapped;
+            return true;
+        }
+        tab = "";
+        return false;
+    }
+
     private async Task HandleFragmentNavigationAsync()
     {
         // The fragment is not part of the HTTP request, so it is only readable client-side.
         var hash = await JS.InvokeAsync<string>("eval", "window.location.hash");
-        if (string.IsNullOrEmpty(hash))
-            return;
-
-        var anchor = hash.TrimStart('#');
-        if (anchor.Equals("unifi-ssh", StringComparison.OrdinalIgnoreCase))
-            anchor = "device-ssh";
-        if (!AnchorTabMap.TryGetValue(anchor, out var tab))
+        if (!TryAnchorTab(hash, out var anchor, out var tab))
             return;
 
         if (_activeTab != tab)
@@ -4694,7 +4761,7 @@
     // Multi-Site
     private RenderFragment MultiSiteTabButton => @<button class="wifi-view-tab @(_activeTab == "multisite" ? "active" : "")"
                                                           @onclick="@(() => SetActiveTab("multisite"))">
-        Multi-Site
+        Multi-Site / Agents
     </button>;
 
     private bool _multiSiteEnabled = false;
@@ -4827,11 +4894,18 @@
 
     private async Task<bool> ConfirmDisableMultiSiteAsync()
     {
-        var count = _sites.Count;
+        var agents = EnrolledAgentCount > 0 ? EnrolledAgentWarning + " " : "";
         return await JS.InvokeAsync<bool>("confirm",
-            $"Disable multi-site management? This hides all {count} site(s) and returns to single-site mode. " +
-            "No site data is deleted and you can re-enable it later. Continue?");
+            $"Disable multi-site / agent management? This hides {TimeFormatHelper.Pluralize(_sites.Count, "site")} and returns to single-site mode. " +
+            agents + "No site data is deleted and you can re-enable it later. Continue?");
     }
+
+    // Agents keep running with multi-site off; only their management UI (Upgrade, Configuration) goes away.
+    private int EnrolledAgentCount => _agentsBySite.Values.Sum(list => list.Count(a => a.EnrolledAt != null));
+
+    private string EnrolledAgentWarning => EnrolledAgentCount == 1
+        ? "An On-Site Agent is enrolled. It keeps running, but you cannot upgrade or configure it until this is turned back on."
+        : $"{EnrolledAgentCount} On-Site Agents are enrolled. They keep running, but you cannot upgrade or configure them until this is turned back on.";
 
     private async Task RefreshSites()
     {
@@ -5704,6 +5778,7 @@
     private string dnatExcludedVlans = "";
     private string? piholeManagementEndpoint;
     private string trustedDnsRedirectTargets = "";
+    private readonly Dictionary<string, string> auditFieldErrors = new();
     private bool allowGuestPublicDns = false;
     private int unusedPortInactivityDays = 15;
     private int namedPortInactivityDays = 45;
@@ -5871,6 +5946,8 @@
             }
         }
 
+        await AutoOpenSingleSiteConfigurationAsync();
+
         // Landing on ?tab=auditlog does not go through SetActiveTab, which is what asks the deferred
         // panel to load - a deep link (the guided tour is one) would have shown the empty state on a
         // tab whose whole point is the rows. Done here rather than in OnInitialized because the @ref
@@ -5985,6 +6062,8 @@
         savingIperf3Settings = true;
         iperf3Message = "";
         StateHasChanged();
+        // Sends the busy render first, so a save that finishes in one render still shows the floating Save its result.
+        await Task.Yield();
 
         try
         {
@@ -6507,7 +6586,7 @@
     {
         _sshKey = null;
         _showSshKeyUpload = false;
-        _sshKeyMessage = _keyDeployStatus?.KeyInstalled == true
+        _sshKeyMessage = _keyDeployStatus?.ScriptInstalled == true
             ? "Generate or upload a new key. The current one is taken off the gateway when you do."
             : "Generate or upload a new key. The current one keeps working until you do.";
         _sshKeyMessageClass = "info";
@@ -6531,9 +6610,16 @@
             _sshKeyMessage = $"{message} The stored key was kept, so you can try again.";
             _sshKeyMessageClass = "danger";
         }
+        else if (message != SshKeyDeploymentMessages.Removed)
+        {
+            // The key stayed in authorized_keys (it was the operator's own): say so after the removal.
+            _gatewayKeyKeptNote = message;
+        }
 
         return success;
     }
+
+    private string? _gatewayKeyKeptNote;
 
     /// <summary>
     /// Names of this site's modems that authenticate with the stored key alone, read fresh so a modem
@@ -6557,7 +6643,8 @@
 
     private async Task RemoveSshKey()
     {
-        var installed = _keyDeployStatus?.KeyInstalled == true || _keyDeployStatus?.ScriptInstalled == true;
+        // Only a key Network Optimizer installed is taken off the gateway; promise nothing else.
+        var installed = _keyDeployStatus?.ScriptInstalled == true;
         var prompt = installed
             ? "Remove the stored SSH key and take it off the gateway? Connections will fall back to the "
               + "password or key file configured for each."
@@ -6578,13 +6665,14 @@
 
         try
         {
+            _gatewayKeyKeptNote = null;
             if (!await ClearKeyFromGatewayIfInstalled())
                 return;
 
             await SshKeyService.RemoveAsync();
             _keyDeployStatus = await SshKeyDeployment.GetStatusAsync();
             _sshKey = null;
-            _sshKeyMessage = "SSH key removed.";
+            _sshKeyMessage = _gatewayKeyKeptNote is { } note ? $"SSH key removed. {note}" : "SSH key removed.";
             _sshKeyMessageClass = "info";
             await RefreshSshSettingsAfterKeyChange();
         }
@@ -8888,24 +8976,17 @@
         savingAuditSettings = true;
         auditSettingsMessage = "";
         StateHasChanged();
+        // Sends the busy render before the save runs: a save that finishes in one render repeats its last message
+        // unchanged, so settings-section-save.js would see nothing happen and the floating Save shows no result.
+        await Task.Yield();
 
         try
         {
-            // Validate DNS endpoint: must be empty, a port number, or a valid absolute URL
             var endpoint = piholeManagementEndpoint?.Trim();
-            if (!string.IsNullOrEmpty(endpoint) &&
-                !(int.TryParse(endpoint, out var validPort) && validPort > 0 && validPort <= 65535) &&
-                !Uri.TryCreate(endpoint, UriKind.Absolute, out _))
-            {
-                auditSettingsMessage = "Invalid DNS endpoint. Enter a port number (e.g., 8080) or full URL (e.g., https://pihole.local).";
-                auditSettingsMessageClass = "danger";
-                savingAuditSettings = false;
-                return;
-            }
             pdfTopSourcesRows = Math.Clamp(pdfTopSourcesRows, 1, NetworkOptimizer.Reports.ThreatSummaryData.MaxRows);
             pdfCategoryRows = Math.Clamp(pdfCategoryRows, 1, NetworkOptimizer.Reports.ThreatSummaryData.MaxRows);
 
-            await SiteSettingsAdmin.SaveAuditOptionsAsync(new Dictionary<string, string?>
+            var values = new Dictionary<string, string?>
             {
                 ["audit:allowAppleStreamingOnMainNetwork"] = allowAppleStreamingOnMainNetwork.ToString().ToLower(),
                 ["audit:allowAllStreamingOnMainNetwork"] = allowAllStreamingOnMainNetwork.ToString().ToLower(),
@@ -8921,7 +9002,23 @@
                 ["audit:namedPortInactivityDays"] = namedPortInactivityDays.ToString(),
                 [ThreatReportRows.TopSourcesSettingKey] = pdfTopSourcesRows.ToString(),
                 [ThreatReportRows.CategoryRowsSettingKey] = pdfCategoryRows.ToString(),
-            });
+            };
+
+            // Each error shows under its field; the line by the button says why nothing saved.
+            auditFieldErrors.Clear();
+            foreach (var (key, value) in values)
+            {
+                if (AuditSettingsValidation.ErrorFor(key, value) is { } error)
+                    auditFieldErrors[key] = error;
+            }
+            if (auditFieldErrors.Count > 0)
+            {
+                auditSettingsMessage = "Fix the errors before saving.";
+                auditSettingsMessageClass = "danger";
+                return;
+            }
+
+            await SiteSettingsAdmin.SaveAuditOptionsAsync(values);
 
             auditSettingsMessage = "Audit settings saved successfully";
             auditSettingsMessageClass = "success";
@@ -9532,6 +9629,8 @@
         savingThreatSettings = true;
         threatSettingsMessage = "";
         StateHasChanged();
+        // Sends the busy render first, so a save that finishes in one render still shows the floating Save its result.
+        await Task.Yield();
 
         try
         {
