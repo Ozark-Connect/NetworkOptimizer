@@ -292,6 +292,8 @@ public sealed class LinkRecord
     public string? MeshRadio { get; init; }
     /// <summary>The mesh uplink's channel, and its rate parent toward child (TX is child toward parent).</summary>
     public int? MeshChannel { get; init; }
+    /// <summary>The parent's end of a mesh backhaul: its signal for the child by radio (ng, na, 6e), from its downlink_table.</summary>
+    public Dictionary<string, int> MeshParentSignals { get; init; } = [];
     public long? MeshRxRateKbps { get; init; }
     public int? UplinkDepth { get; init; }
     /// <summary>The device on the neighbouring port the swap step names, when that port is in use.</summary>

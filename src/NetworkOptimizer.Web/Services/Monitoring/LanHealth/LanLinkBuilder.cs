@@ -90,6 +90,9 @@ public static class LanLinkBuilder
                     MeshTxRateKbps = up.TxRate > 0 ? up.TxRate : null,
                     MeshRxRateKbps = up.RxRate > 0 ? up.RxRate : null,
                     MeshChannel = up.Channel,
+                    MeshParentSignals = MeshDownlinks.For(upDevice.DownlinkTable, downMac).Entries
+                        .Where(e => e.Active != false && e.Signal != null && !string.IsNullOrEmpty(e.Radio))
+                        .GroupBy(e => e.Radio!).ToDictionary(g => g.Key, g => g.First().Signal!.Value),
                     UplinkDepth = d.UplinkDepth,
                 });
                 continue;

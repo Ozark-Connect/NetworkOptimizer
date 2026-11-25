@@ -398,7 +398,7 @@ else
 
     private static int? Round(double? v) => v is double d ? (int)Math.Round(d) : null;
 
-    private static string FormatScore(double? v) => v is double d ? Math.Round(d).ToString("0") : "--";
+    private static string FormatScore(double? v) => v is double d ? Math.Round(d).ToString("0") : "-";
 
     internal static string ScoreClass(double? score) => score switch
     {
@@ -427,7 +427,7 @@ else
         _ => "Access",
     };
 
-    internal static string SpeedLabel(LinkRecord link) => link.SpeedMbps is int s && s > 0 ? DisplayFormatters.FormatLinkSpeed(s) : "--";
+    internal static string SpeedLabel(LinkRecord link) => link.SpeedMbps is int s && s > 0 ? DisplayFormatters.FormatLinkSpeed(s) : "-";
 
     /// <summary>lanh-21.</summary>
     internal static string StatusLabel(LinkStatus s) => s switch
@@ -633,9 +633,9 @@ else
         _ => ""
     };
 
-    private static string Kbps(long? kbps) => kbps is > 0 ? DisplayFormatters.FormatRate(kbps.Value * 1000.0) : "--";
+    private static string Kbps(long? kbps) => kbps is > 0 ? DisplayFormatters.FormatRate(kbps.Value * 1000.0) : "-";
 
-    private static string Pct(double? pct) => pct is double p ? $"{p:0.#}%" : "--";
+    private static string Pct(double? pct) => pct is double p ? $"{p:0.#}%" : "-";
 
     /// <summary>
     /// A mesh backhaul (an AP's or a UDB's): each band's signal, link speed, and channel now, then the window's
@@ -651,9 +651,17 @@ else
         var downTip = $"{link.Upstream.DeviceName} to {link.Downstream.DeviceName}";
         var upTip = $"{link.Downstream.DeviceName} to {link.Upstream.DeviceName}";
         var nowTip = $"As {link.Downstream.DeviceName} reads it now";
-        var avg = mlo && bands.Where(b => b.SignalDbm != null && b.Band != NetworkOptimizer.WiFi.Models.RadioBand.Band2_4GHz).ToList() is { Count: > 0 } graded
-            ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetAverageSignal(graded.Select(b => (b.SignalDbm!.Value, (string?)(b.Band == NetworkOptimizer.WiFi.Models.RadioBand.Band6GHz ? "6" : "5"))).ToList())
-            : ((int Bars, string Color)?)null;
+        // Each end's reading per band: the child's own, and the parent's from its downlink_table.
+        var ends = new List<(string Name, Func<MeshBand, int?> Signal)>
+        {
+            (link.Downstream.DeviceName, b => b.SignalDbm),
+            (link.Upstream.DeviceName, b => link.MeshParentSignals.TryGetValue(b.Radio, out var p) ? p : null),
+        };
+        if (bands.All(b => ends[1].Signal(b) == null)) ends.RemoveAt(1);
+        (int Bars, string Color)? Average(Func<MeshBand, int?> signal) =>
+            mlo && bands.Where(b => signal(b) != null && b.Band != RadioBand.Band2_4GHz).ToList() is { Count: > 0 } graded
+                ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetAverageSignal(graded.Select(b => (signal(b)!.Value, (string?)(b.Band == RadioBand.Band6GHz ? "6" : "5"))).ToList())
+                : null;
         RenderFragment WindowRow(string label, RenderFragment value) => @<tr>
             <td>@label</td>
             @for (var i = 1; i < lastCol; i++) { <td></td> }
@@ -678,28 +686,32 @@ else
                         <tbody>
                             @if (bands.Count > 0)
                             {
-                                <tr>
-                                    <td><span data-tooltip="@nowTip">Signal</span></td>
-                                    @foreach (var b in bands)
-                                    {
-                                        <td><span class="lan-health-signal">@(b.SignalDbm is int s ? $"{s} dBm" : "--")<SignalBarsInline Dbm="b.SignalDbm" Band="b.Band" /></span></td>
-                                    }
-                                    @if (mlo)
-                                    {
-                                        <td>
-                                            @if (avg is { } a)
-                                            {
-                                                <span class="lan-health-signal">
-                                                    <span class="signal-bars-inline" role="img" aria-label="@a.Bars of 5 bars">
-                                                        @for (var i = 0; i < 5; i++) { <span style="@(i < a.Bars ? $"background: {a.Color}" : null)"></span> }
+                                @foreach (var end in ends)
+                                {
+                                    <tr>
+                                        <td><span data-tooltip="@($"As {end.Name} reads it now")">Signal at @end.Name</span></td>
+                                        @foreach (var b in bands)
+                                        {
+                                            var s = end.Signal(b);
+                                            <td><span class="lan-health-signal">@(s is int dbm ? $"{dbm} dBm" : "-")<SignalBarsInline Dbm="s" Band="b.Band" /></span></td>
+                                        }
+                                        @if (mlo)
+                                        {
+                                            <td>
+                                                @if (Average(end.Signal) is { } a)
+                                                {
+                                                    <span class="lan-health-signal">
+                                                        <span class="signal-bars-inline" role="img" aria-label="@a.Bars of 5 bars">
+                                                            @for (var i = 0; i < 5; i++) { <span style="@(i < a.Bars ? $"background: {a.Color}" : null)"></span> }
+                                                        </span>
+                                                        <span class="lan-health-sub">average</span>
                                                     </span>
-                                                    <span class="lan-health-sub">average</span>
-                                                </span>
-                                            }
-                                            else { <text>--</text> }
-                                        </td>
-                                    }
-                                </tr>
+                                                }
+                                                else { <text>-</text> }
+                                            </td>
+                                        }
+                                    </tr>
+                                }
                                 <tr>
                                     <td><span data-tooltip="@nowTip">Link speed</span></td>
                                     @foreach (var b in bands)
@@ -715,17 +727,17 @@ else
                                 </tr>
                                 <tr>
                                     <td><span data-tooltip="@nowTip">Channel</span></td>
-                                    @foreach (var b in bands) { <td>@(b.Channel?.ToString() ?? "--")</td> }
-                                    @if (mlo) { <td>--</td> }
+                                    @foreach (var b in bands) { <td>@(b.Channel?.ToString() ?? "-")</td> }
+                                    @if (mlo) { <td>-</td> }
                                 </tr>
                             }
                             @WindowRow($"TX retries ({RangeLabel})", @<text><span class="speed-down" data-tooltip="@downTip">↓ @Pct(l.MeshRetryPct)</span> <span class="speed-up" data-tooltip="@upTip">↑ @Pct(l.MeshChildRetryPct)</span></text>)
-                            @WindowRow($"TX dropped ({RangeLabel})", @<text><span class="speed-down" data-tooltip="@downTip">↓ @(l.MeshTxDropped is double d ? $"{d:N0}" : "--")</span> <span class="speed-up" data-tooltip="@upTip">↑ @(l.MeshChildTxDropped is double c ? $"{c:N0}" : "--")</span></text>)
-                            @WindowRow($"Re-associations ({RangeLabel})", @<text>@(l.MeshReassociations?.ToString() ?? "--")</text>)
+                            @WindowRow($"TX dropped ({RangeLabel})", @<text><span class="speed-down" data-tooltip="@downTip">↓ @(l.MeshTxDropped is double d ? $"{d:N0}" : "-")</span> <span class="speed-up" data-tooltip="@upTip">↑ @(l.MeshChildTxDropped is double c ? $"{c:N0}" : "-")</span></text>)
+                            @WindowRow($"Re-associations ({RangeLabel})", @<text>@(l.MeshReassociations?.ToString() ?? "-")</text>)
                             @if (l.MeshWorstSignalDbm is int worst && l.MeshWorstSignalRadio is { } wr)
                             {
                                 var wb = LanHealthDetectors.SignalBand(wr);
-                                @WindowRow($"Weakest signal ({RangeLabel})", @<text><span class="lan-health-signal">@worst dBm<SignalBarsInline Dbm="worst" Band="wb" /></span> <span class="lan-health-sub">on @wb.ToDisplayString(), at the @(l.MeshWorstSignalAtParent ? "parent" : "child")</span></text>)
+                                @WindowRow($"Weakest signal ({RangeLabel})", @<text><span class="lan-health-signal">@worst dBm<SignalBarsInline Dbm="worst" Band="wb" /><span class="lan-health-sub">on @wb.ToDisplayString(), at @(l.MeshWorstSignalAtParent ? link.Upstream.DeviceName : link.Downstream.DeviceName)</span></span></text>)
                             }
                         </tbody>
                     </table>
@@ -817,10 +829,10 @@ else
                             <thead><tr><th></th><th>@EndNameLink(link.Upstream, link.UpstreamName)</th><th>@EndNameLink(link.Downstream, link.Downstream.DeviceName, link.ClientIp)</th></tr></thead>
                             <tbody>
                                 <tr><td>Link drops recorded</td><td>@DropCount(link.Upstream, l.UpLinkDownCount, null)</td><td>@DropCount(link.Downstream, l.DownLinkDownCount, l.DownCarrierChanges)</td></tr>
-                                <tr><td>Receive errors</td><td>@($"{l.ErrorsUpstreamRx:0}")</td><td>@(link.Downstream.IsUniFi ? $"{l.ErrorsDownstreamRx:0}" : "--")</td></tr>
-                                <tr><td>Transmit discards</td><td>@($"{l.DiscardsUpstreamTx:N0}")</td><td>@(link.Downstream.IsUniFi ? $"{l.DiscardsDownstreamTx:N0}" : "--")</td></tr>
-                                <tr><td>Speed / negotiation</td><td>@SpeedLabel(link), @(link.Forced ? "forced" : "auto")</td><td>@(link.DownstreamPort != null ? $"{SpeedLabel(link)}, {(link.DownstreamPort.Autoneg ? "auto" : "forced")}" : "--")</td></tr>
-                                <tr><td>Power</td><td>@PowerText(l)</td><td>--</td></tr>
+                                <tr><td>Receive errors</td><td>@($"{l.ErrorsUpstreamRx:0}")</td><td>@(link.Downstream.IsUniFi ? $"{l.ErrorsDownstreamRx:0}" : "-")</td></tr>
+                                <tr><td>Transmit discards</td><td>@($"{l.DiscardsUpstreamTx:N0}")</td><td>@(link.Downstream.IsUniFi ? $"{l.DiscardsDownstreamTx:N0}" : "-")</td></tr>
+                                <tr><td>Speed / negotiation</td><td>@SpeedLabel(link), @(link.Forced ? "forced" : "auto")</td><td>@(link.DownstreamPort != null ? $"{SpeedLabel(link)}, {(link.DownstreamPort.Autoneg ? "auto" : "forced")}" : "-")</td></tr>
+                                <tr><td>Power</td><td>@PowerText(l)</td><td>-</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -1002,7 +1014,7 @@ else
 
     private static string DropCount(LinkEnd end, double? linkDownCount, double? carrier)
     {
-        if (!end.IsUniFi) return "--";
+        if (!end.IsUniFi) return "-";
         if (carrier is double c) return $"{Math.Max(0, (c - 1) / 2):0} since boot (kernel log)";
         if (linkDownCount is double n) return $"{n:0} since boot";
         return $"None ({end.DeviceName} keeps no count)";
