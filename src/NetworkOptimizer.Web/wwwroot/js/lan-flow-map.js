@@ -468,7 +468,7 @@ export class LanFlowMap {
         this._visibilityObserver.observe(this.canvas);
 
         this.canvas.addEventListener('pointermove', (e) => this._onPointerMove(e));
-        this.canvas.addEventListener('pointerleave', () => { this._clearHover(); this._hoverLinkAt(null); });
+        this.canvas.addEventListener('pointerleave', () => { this._clearHover(); this._hoverLinkAt(null); this.canvas.style.cursor = ''; });
         this.canvas.addEventListener('dblclick', (e) => this._onDoubleClick(e));
         this.canvas.addEventListener('contextmenu', (e) => this._onContextMenu(e));
         this.canvas.addEventListener('pointerdown', (e) => {
@@ -4415,6 +4415,7 @@ export class LanFlowMap {
         if (hits.length === 0) {
             if (this._hoverTarget) this._clearHover();
             this._hoverLinkAt(this._linkPipeAt());
+            this.canvas.style.cursor = this._hoverLink ? 'pointer' : '';
             return;
         }
         this._hoverLinkAt(null);
@@ -4422,8 +4423,17 @@ export class LanFlowMap {
         // Walk up to find the group with userData.node.
         let g = hit;
         while (g && !(g.userData && g.userData.node)) g = g.parent;
-        if (!g) { this._clearHover(); return; }
+        if (!g) { this._clearHover(); this.canvas.style.cursor = ''; return; }
         this._showHover(g.userData.node);
+        // A pointer over anything a double-click opens.
+        this.canvas.style.cursor = this._opens(g.userData.node) ? 'pointer' : '';
+    }
+
+    // Whether a double-click on this node opens anything (mirrors _onDoubleClick).
+    _opens(node) {
+        if (node.cellularModemId != null && node.kind !== NODE_KIND.Gateway) return true;
+        if (node.kind === NODE_KIND.AccessPoint || node.kind === NODE_KIND.Switch || node.kind === NODE_KIND.Gateway) return !!node.mac;
+        return (node.kind === NODE_KIND.WifiClient || node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.VirtualHub) && !!node.ip;
     }
 
     // The link LAN Health has a page for under the pointer: its pipe, from the raycaster's last aim.
@@ -4447,7 +4457,6 @@ export class LanFlowMap {
         clearTimeout(this._linkHintTimer);
         if (this._linkHintShown) { this._tooltipEl?.classList.remove('is-visible'); this._linkHintShown = false; }
         this._hoverLink = lm;
-        this.canvas.style.cursor = lm ? 'pointer' : '';
         if (!lm) return;
         this._swellPipe(lm.pipe, LINK_HOVER_SWELL);
         this._linkHintTimer = setTimeout(() => {

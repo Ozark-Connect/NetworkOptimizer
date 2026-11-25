@@ -1292,6 +1292,16 @@ class LanFlowMap2D {
         const w=this._screenToWorld(sx,sy);
         this._hoverCloud=!hit&&this._isCloudVisible()?this._clouds.find(c=>Math.hypot(w.x-c.x,w.y-c.y)<=G.cloudR)||null:null;
         this._hoverLinkAt(hit||this._hoverCloud?null:this._linkAt(sx,sy),sx,sy);
+        // A pointer over anything a double-click opens; the hand otherwise, for panning.
+        if(!this._dragging)this._canvas.style.cursor=(hit&&this._opens(hit.d))||this._hoverCloud||this._hoverLink?'pointer':'grab';
+    }
+
+    // Whether a double-click on this node opens anything (mirrors _onDoubleClick).
+    _opens(d){
+        if(d.cellularModemId!=null&&d.kind!==NK.Gateway)return true;
+        if(d.kind===NK.AP)return !!d.mac;
+        if(d.kind===NK.Switch||d.kind===NK.Gateway)return !!d.mac&&!!(window.__portStatsTable||this._liveOnly);
+        return (d.kind===NK.WifiClient||d.kind===NK.WiredClient||d.kind===NK.VirtualHub)&&!!d.ip;
     }
 
     // A link LAN Health has a page for, within a few pixels of its drawn path: what a double-click opens.
@@ -1318,7 +1328,6 @@ class LanFlowMap2D {
         if(link!==this._hoverLink){
             this._hoverLink=link;
             clearTimeout(this._linkHintTimer);
-            if(!this._dragging)this._canvas.style.cursor=link?'pointer':'grab';
             if(!link){if(!this._hoverNode)this._hideTooltip();return;}
             this._linkHintTimer=setTimeout(()=>{
                 if(this._hoverLink!==link||this._hoverNode)return;
