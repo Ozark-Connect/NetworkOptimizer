@@ -549,19 +549,19 @@ public class SiteHealthScorer
         RoamingTopology? roamingData,
         IReadOnlyList<string> fastRoamingOff)
     {
-        // Signal issues (band-aware thresholds)
-        var weakSignalClients = clients
-            .Where(c => c.Signal.HasValue && SignalClassification.IsWeakSignal(c.Signal.Value, c.Band))
+        // Per-client signal issues fire only on poor signal for the band. A weak-but-not-poor client
+        // often still holds a high PHY rate; it counts in Signal Quality and the population rule instead.
+        var poorSignalClients = clients
+            .Where(c => c.Signal.HasValue && SignalClassification.IsCriticalSignal(c.Signal.Value, c.Band))
             .ToList();
-        foreach (var client in weakSignalClients.Take(5))
+        foreach (var client in poorSignalClients.Take(5))
         {
             var apInfo = !string.IsNullOrEmpty(client.ApName) ? $" on {client.ApName}" : "";
-            var isCritical = SignalClassification.IsCriticalSignal(client.Signal!.Value, client.Band);
             // Keyed by the client alone: a weak device is the same issue on whichever AP or band
             // it roams to, so one acknowledgment covers it until it is restored.
             score.Issues.Add(new HealthIssue
             {
-                Severity = isCritical ? HealthIssueSeverity.Critical : HealthIssueSeverity.Warning,
+                Severity = HealthIssueSeverity.Critical,
                 Dimensions = { HealthDimension.SignalQuality },
                 RuleId = "WIFI-WEAK-SIGNAL-001",
                 Class = HealthIssueClass.Measured,

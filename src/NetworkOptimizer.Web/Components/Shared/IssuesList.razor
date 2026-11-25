@@ -181,7 +181,8 @@
             .OrderByDescending(i => i.Severity)
             .ThenBy(i => i.Title)
             .ThenBy(i => i.Dimensions.FirstOrDefault())
-            .GroupBy(i => i.Title);
+            // Severity is part of the key: the header badge speaks for every item under it.
+            .GroupBy(i => $"{i.Severity}|{i.Title}");
     }
 
     private void ToggleGroup(string key)
