@@ -80,7 +80,7 @@ public static class DashboardStatItems
     /// <summary>Display names for stat items</summary>
     public static string GetDisplayName(string statId) => statId switch
     {
-        TotalDevices => "Total Devices",
+        TotalDevices => "UniFi Devices",
         SecurityScore => "Security Score",
         SqmStatus => "Adaptive SQM",
         ActiveAlerts => "Security Findings",

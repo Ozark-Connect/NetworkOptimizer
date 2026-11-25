@@ -20,7 +20,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 ## Dashboard
 
 - **Edit Layout** - move, show or hide, resize (full or half width), and stack cards
-- **Quick Stats** - Total Devices, Security Score, Adaptive SQM Status, Security Findings, Threat Events (24h), Wi-Fi Health
+- **Quick Stats** - UniFi Devices, Security Score, Adaptive SQM Status, Security Findings, Threat Events (24h), Wi-Fi Health
 - **Active Alerts** - top three open alerts, with Acknowledge and Resolve in place; click one to open it on Alerts & Schedule
 - **Security Posture**, **Adaptive SQM**, **Threat Trends**, and **Recent Security Findings** cards
 - **WAN Speed Test**, **LAN Speed Test**, and **Wi-Fi Optimizer** summary cards
