@@ -13934,6 +13934,8 @@ h3 > .tooltip-icon-sm {
     margin-top: 0.5rem;
     padding-bottom: 0.5rem;
     overflow-x: auto;
+    /* No rubber-band at the ends: the arrow beside it collapses there, and a bounce caught by that left a gap. */
+    overscroll-behavior-x: none;
     flex: 1;
     min-width: 0;
     -webkit-overflow-scrolling: touch;

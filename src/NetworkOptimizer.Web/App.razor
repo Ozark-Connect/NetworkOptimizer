@@ -1169,6 +1169,16 @@
         });
         observer.observe(document.body, { childList: true, subtree: true });
 
+        // The tab strip's arrow buttons: a page of tabs that way, clamped to the strip's ends. An unclamped
+        // scrollBy asks iOS for more than is left, it rubber-bands, and the arrow collapsing mid-bounce
+        // strands the strip with a gap before its first tab.
+        window.scrollTabStrip = function(button, direction) {
+            var tabs = button.parentElement.querySelector('.wifi-view-tabs');
+            if (!tabs) return;
+            var furthest = tabs.scrollWidth - tabs.clientWidth;
+            tabs.scrollTo({ left: Math.max(0, Math.min(furthest, tabs.scrollLeft + direction * 200)), behavior: 'smooth' });
+        };
+
         // Scrollable tab bar overflow detection
         function applyTabScrollState(wrapper, tabs) {
             var hasOverflow = tabs.scrollWidth > tabs.clientWidth + 1;
