@@ -20,6 +20,13 @@ public class TourDefinitionService
         _logger = logger;
     }
 
+    /// <summary>A fixed tour set instead of the files on disk, for tests.</summary>
+    internal TourDefinitionService(IEnumerable<TourDefinition> tours, ILogger<TourDefinitionService> logger)
+        : this(logger)
+    {
+        _tours = tours.OrderBy(t => t.ParsedVersion).ThenBy(t => t.Id, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
     /// <summary>All valid tours, ordered by release version ascending.</summary>
     public IReadOnlyList<TourDefinition> GetTours()
     {

@@ -30,6 +30,13 @@ public class SettingsSearchIndexTests
     }
 
     [Fact]
+    public void The_account_guided_tours_entry_lands_on_its_card()
+    {
+        ElementIdsInComponents().Should().Contain(AccountSearchProvider.GuidedTours.Anchor!);
+        AccountSearchProvider.GuidedTours.Route.Should().Be("/account/security");
+    }
+
+    [Fact]
     public void Every_anchor_exists_in_the_markup()
     {
         var ids = ElementIdsInComponents();

@@ -879,6 +879,7 @@ Requires Gateway SSH.
 - Authenticator app (TOTP), recovery codes, and passkeys per user; sign out everywhere
 - Signing out ends that login on the server, so a copy of its cookie stops working too; a login stays signed in while used, and ends after 30 days unused
 - Each user's own time zone, time format, and date format, on the account **Security** page
+- Guided tours per user: each user is offered, replays, and turns off tours for themselves, on the account **Security** page
 - Account lockout after 5 failed sign-ins; sign-in attempts rate-limited per address
 - Disabling a user ends their open sessions
 - **Audit Log** - every configuration and device change, filterable, exportable to CSV or JSON
