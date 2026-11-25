@@ -182,7 +182,7 @@
                         <thead>
                             <tr>
                                 <th class="sortable @GetSortClass("ssid")" @onclick='() => SetSort("ssid")'>SSID</th>
-                                <th class="sortable @GetSortClass("bssid")" @onclick='() => SetSort("bssid")'>BSSID</th>
+                                <th class="sortable hide-mobile @GetSortClass("bssid")" @onclick='() => SetSort("bssid")'>BSSID</th>
                                 <th class="sortable @GetSortClass("vendor")" @onclick='() => SetSort("vendor")'>Vendor</th>
                                 <th class="sortable @GetSortClass("channel")" @onclick='() => SetSort("channel")'>Channel</th>
                                 <th class="sortable @GetSortClass("width")" @onclick='() => SetSort("width")'>Width</th>
@@ -205,7 +205,7 @@
                                             @item.Network.Ssid
                                         }
                                     </td>
-                                    <td class="monospace">@item.Network.Bssid</td>
+                                    <td class="monospace hide-mobile">@item.Network.Bssid</td>
                                     <td class="vendor-col">@(item.Network.Oui ?? "")</td>
                                     <td>
                                         <span class="channel-badge @GetBandClass(item.Band) @(IsDfsChannel(item.Network.Channel, item.Band) ? "dfs" : "")">
@@ -254,7 +254,7 @@
                             <thead>
                                 <tr>
                                     <th>SSID</th>
-                                    <th>BSSID</th>
+                                    <th class="hide-mobile">BSSID</th>
                                     <th>Access Point</th>
                                     <th>Channel</th>
                                     <th>Width</th>
@@ -289,7 +289,7 @@
                                                 <span class="hidden-ssid">@BssidIdentifier.GetDisplayName(null, item.Network.Bssid)</span>
                                             }
                                         </td>
-                                        <td class="monospace">@item.Network.Bssid</td>
+                                        <td class="monospace hide-mobile">@item.Network.Bssid</td>
                                         <td>
                                             @if (!string.IsNullOrEmpty(item.SiteAp?.ApMac))
                                             {
