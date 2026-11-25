@@ -302,6 +302,8 @@ public sealed class LinkRecord
     public bool AlwaysOnClient { get; set; }
     /// <summary>The end-device client MAC on an access port, when known.</summary>
     public string? ClientMac { get; init; }
+    /// <summary>That client's IP, online or its last one, which opens it on Client Performance.</summary>
+    public string? ClientIp { get; set; }
 
     public bool IsFabric => Kind != LinkKind.Access;
     public bool IsMesh => Kind is LinkKind.FabricMesh or LinkKind.FabricMeshMlo;

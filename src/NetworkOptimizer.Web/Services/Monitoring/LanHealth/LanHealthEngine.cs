@@ -240,6 +240,9 @@ public sealed class LanHealthEngine
                 categories.Add(detection.DetectDeviceType(h).Category);
                 ouis.Add(h.Oui);
             }
+            if (l.ClientMac is { } mac)
+                l.ClientIp = onPort.FirstOrDefault(c => LanLinkBuilder.Mac(c.Mac) == mac && !string.IsNullOrEmpty(c.Ip))?.Ip
+                    ?? (historyByMac.TryGetValue(mac, out var last) ? last.LastIp ?? last.Ip : null);
             l.ServerOnPort = categories.Any(IsServer);
             l.AlwaysOnClient = categories.Any(LanHealthEvidenceBuilder.NeverSleeps) || ouis.Any(LanHealthEvidenceBuilder.IsUbiquitiOui)
                 || l.UpstreamPort.PoePowerW is > 0.5;
