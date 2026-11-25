@@ -12997,6 +12997,11 @@ h3 > .tooltip-icon-sm {
     font-variant-numeric: tabular-nums;
 }
 
+/* ApexCharts' built-in legend sets its marker 1px from the series name; give the name room. */
+.apexcharts-legend-marker {
+    margin-right: 6px !important;
+}
+
 .apexcharts-gridline {
     stroke: var(--border-color) !important;
 }
