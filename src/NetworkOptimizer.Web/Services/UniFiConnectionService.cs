@@ -1867,7 +1867,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     {
         if (string.IsNullOrEmpty(networkGroup) || _client == null) return null;
         var rawDevices = await _client.GetDevicesAsync(ct);
-        var gw = rawDevices.FirstOrDefault(d => d.Type is "ugw" or "udm" or "uxg" && d.DeviceType == DeviceType.Gateway);
+        var gw = FindWanGateway(rawDevices);
         if (gw == null) return null;
 
         var wanInterfaces = gw.GetWanInterfaces();
@@ -1910,23 +1910,30 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         return FindWanPhysicalInterface(devices, uplinkInterface);
     }
 
+    /// <summary>
+    /// The physical port behind a WAN uplink ("ppp0" to "eth6") on the site's WAN gateway, or null
+    /// when no WAN has that uplink.
+    /// </summary>
     internal static string? FindWanPhysicalInterface(IEnumerable<UniFiDeviceResponse> devices, string uplinkInterface)
     {
-        var gateways = devices.Where(d => d.DeviceType == DeviceType.Gateway &&
-            d.DeviceModeOverride != "managed_shadow_gateway");
-        foreach (var gateway in gateways)
-        {
-            var wan = gateway.GetWanInterfaces().FirstOrDefault(w => w.UplinkIfName == uplinkInterface);
-            if (wan == null) continue;
-            if (!string.IsNullOrEmpty(wan.IfName)) return wan.IfName;
+        var gateway = FindWanGateway(devices);
+        var wan = gateway?.GetWanInterfaces().FirstOrDefault(w => w.UplinkIfName == uplinkInterface);
+        if (gateway == null || wan == null) return null;
+        if (!string.IsNullOrEmpty(wan.IfName)) return wan.IfName;
 
-            // Older gateway payloads may omit ifname from the WAN object.
-            var port = gateway.PortTable?.FirstOrDefault(p => p.PortIdx == wan.PortIdx);
-            return port?.IfName ?? wan.Name;
-        }
-
-        return null;
+        // Older gateway payloads may omit ifname from the WAN object.
+        var port = gateway.PortTable?.FirstOrDefault(p => p.PortIdx == wan.PortIdx);
+        return port?.IfName ?? wan.Name;
     }
+
+    /// <summary>
+    /// The gateway whose wan1..wan6 objects the WAN lookups read: a ugw, udm, or uxg in the
+    /// gateway role. An HA pair lists two, and the active one wins over the shadow gateway.
+    /// </summary>
+    internal static UniFiDeviceResponse? FindWanGateway(IEnumerable<UniFiDeviceResponse> devices) =>
+        devices.Where(d => d.Type is "ugw" or "udm" or "uxg" && d.DeviceType == DeviceType.Gateway)
+            .OrderBy(d => d.DeviceModeOverride == "managed_shadow_gateway")
+            .FirstOrDefault();
 
     /// <summary>
     /// Every WAN's interface forms from the cached device call, one entry per wan1..wan6 object
@@ -1940,7 +1947,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         var results = new List<PrimaryWanInterfaces>();
         if (_client == null) return results;
         var rawDevices = await _client.GetDevicesAsync(ct);
-        var gw = rawDevices.FirstOrDefault(d => d.Type is "ugw" or "udm" or "uxg" && d.DeviceType == DeviceType.Gateway);
+        var gw = FindWanGateway(rawDevices);
         if (gw == null) return results;
 
         var wanInterfaces = gw.GetWanInterfaces();

@@ -39,7 +39,7 @@ public class GatewayDiagnosticsService
     /// section reports its own error so an interface with no SFP still returns its lease.
     /// </summary>
     public async Task<GatewayDiagnosticsResult> RunAsync(
-        string interfaceName, CancellationToken ct = default, string? physicalInterfaceName = null)
+        string interfaceName, string? physicalInterfaceName = null, CancellationToken ct = default)
     {
         var result = new GatewayDiagnosticsResult { Interface = interfaceName };
 
