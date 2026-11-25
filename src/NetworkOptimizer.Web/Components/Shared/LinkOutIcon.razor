@@ -1,0 +1,12 @@
+@* The app's link-out mark, beside a link that opens another page or a site outside the app. One drawing, so
+   every link reads the same; App.razor's tooltip script carries the same path for its JS-built links. *@
+<svg class="@Class" xmlns="http://www.w3.org/2000/svg" width="@Size" height="@Size" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+     stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
+
+@code {
+    /// <summary>Width and height in pixels.</summary>
+    [Parameter] public int Size { get; set; } = 14;
+
+    /// <summary>Extra classes for the svg element.</summary>
+    [Parameter] public string? Class { get; set; }
+}
