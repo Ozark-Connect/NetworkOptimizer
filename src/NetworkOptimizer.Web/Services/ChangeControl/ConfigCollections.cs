@@ -335,6 +335,15 @@ public static class ConfigCollections
         && DeviceField(device, "type") is "ugw" or "udm" or "uxg"
         && !NetworkOptimizer.UniFi.UniFiProductDatabase.IsAccessPointMode(DeviceField(device, "device_mode_override"));
 
+    /// <summary>
+    /// Whether a device object is a Managed Shadow Gateway. UniFi copies the primary's name and
+    /// port and ethernet overrides onto it and blocks edits on it, so no plan writes it.
+    /// </summary>
+    public static bool IsShadowGateway(JsonObject? device) =>
+        IsGateway(device)
+        && string.Equals(DeviceField(device!, "device_mode_override"), NetworkOptimizer.UniFi.GatewayHa.ShadowModeOverride,
+            StringComparison.OrdinalIgnoreCase);
+
     /// <summary>A device's string field, from the top level or else from <see cref="DeviceMetaField"/>.</summary>
     public static string? DeviceField(JsonObject device, string field) =>
         StringOf(device[field]) ?? StringOf(device[DeviceMetaField]?[field]);

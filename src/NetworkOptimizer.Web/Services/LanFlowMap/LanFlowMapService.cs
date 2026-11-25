@@ -1650,7 +1650,7 @@ public class LanFlowMapService
             var h = host?.Trim() ?? "";
             if (CellularModemProviders.ModemProviderKeys.UsesGatewaySsh(provider) && gateways.Count > 0)
             {
-                // An HA pair has two gateways: the one the host names, else the first.
+                // An HA pair has two gateways: the one the host names, else the first (the active one).
                 result[id] = gateways.FirstOrDefault(g => string.Equals(g.Ip, h, StringComparison.OrdinalIgnoreCase)).Id
                     ?? gateways[0].Id;
                 continue;
@@ -1719,8 +1719,11 @@ public class LanFlowMapService
         // Built before the node pass because MLO node rates read it too.
         var meshParentByChild = NetworkOptimizer.UniFi.UniFiDiscovery.BuildMeshParentByChild(topology.Devices);
 
-        // First pass: emit nodes for every device.
-        foreach (var d in topology.Devices)
+        // First pass: emit nodes for every device. The active gateway goes first: the 2D and 3D
+        // maps and history playback root on the first gateway node, and on an HA pair that must be
+        // the VRRP master.
+        var activeGateway = GatewayHa.Active(topology.Devices);
+        foreach (var d in topology.Devices.OrderBy(d => ReferenceEquals(d, activeGateway) ? 0 : 1))
         {
             var mac = NormalizeMac(d.Mac);
             anchors.TryGetValue(mac, out var anchor);

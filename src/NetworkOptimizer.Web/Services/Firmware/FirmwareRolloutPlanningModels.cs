@@ -56,6 +56,12 @@ public class PlannerDevice
     public DeviceType Type { get; init; }
 
     /// <summary>
+    /// The gateway carrying the site's traffic. On an HA pair the standby upgrades first, so
+    /// the active unit's reboot fails over to a unit already on the new firmware.
+    /// </summary>
+    public bool IsActiveGateway { get; init; }
+
+    /// <summary>
     /// Disconnected from the Console at plan time, so it covers nothing while others upgrade.
     /// Opt-in rather than "connected" so a snapshot that never set it counts the device as up.
     /// </summary>

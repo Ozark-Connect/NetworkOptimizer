@@ -106,6 +106,22 @@ public class UniFiNetworkConfig
     [JsonPropertyName("ip_subnet")]
     public string? IpSubnet { get; set; }
 
+    /// <summary>
+    /// Per-network VRRP: the primary unit's own address on this network, as CIDR. Unset means
+    /// the gateway address + 1.
+    /// </summary>
+    [JsonPropertyName("vrrp_ip_subnet_gw1")]
+    [JsonConverter(typeof(FlexibleScalarStringConverter))]
+    public string? VrrpIpSubnetGw1 { get; set; }
+
+    /// <summary>
+    /// Per-network VRRP: the secondary unit's own address on this network, as CIDR. Unset means
+    /// the gateway address + 2.
+    /// </summary>
+    [JsonPropertyName("vrrp_ip_subnet_gw2")]
+    [JsonConverter(typeof(FlexibleScalarStringConverter))]
+    public string? VrrpIpSubnetGw2 { get; set; }
+
     [JsonPropertyName("ipv6_interface_type")]
     public string? Ipv6InterfaceType { get; set; }
 

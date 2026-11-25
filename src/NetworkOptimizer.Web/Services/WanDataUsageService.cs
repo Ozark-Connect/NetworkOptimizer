@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -530,7 +531,7 @@ public class WanDataUsageService : BackgroundService
             if (client == null) return (null, 0);
 
             var devices = await client.GetDevicesAsync(ct, useCache: false);
-            var gateway = devices?.FirstOrDefault(d => d.DeviceType == DeviceType.Gateway);
+            var gateway = GatewayHa.Active(devices);
             if (gateway == null) return (null, 0);
 
             return (gateway.GetWanInterfaces(), gateway.Uptime);

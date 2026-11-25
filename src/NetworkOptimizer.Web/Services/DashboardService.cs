@@ -92,6 +92,8 @@ public class DashboardService : IDashboardService
                         Name = d.Name ?? d.Mac ?? "Unknown",
                         Mac = d.Mac ?? string.Empty,
                         Type = d.Type,
+                        HaRole = d.HaRole,
+                        IsHaStandby = d.HaRole != NetworkOptimizer.UniFi.GatewayHaRole.None && !d.IsActiveGateway,
                         StatusInfo = UniFiDeviceStateMap.ToStatus(d.State),
                         IpAddress = d.DisplayIpAddress ?? "",
                         Model = d.FriendlyModelName,
@@ -324,8 +326,22 @@ public class DeviceInfo
     /// </summary>
     public bool SuricataUpgradeAvailable { get; set; }
 
+    /// <summary>This gateway's place in a high-availability pair.</summary>
+    public NetworkOptimizer.UniFi.GatewayHaRole HaRole { get; set; }
+
+    /// <summary>A pair member that is not carrying the site's traffic right now.</summary>
+    public bool IsHaStandby { get; set; }
+
     /// <summary>
-    /// Get display name for the device type
+    /// Get display name for the device type. A pair member says which one it is, in UniFi's words:
+    /// "Shadow Gateway", and " · Standby" on whichever member is not carrying traffic.
     /// </summary>
-    public string TypeDisplayName => Type.ToDisplayName();
+    public string TypeDisplayName
+    {
+        get
+        {
+            var name = HaRole == NetworkOptimizer.UniFi.GatewayHaRole.Shadow ? "Shadow Gateway" : Type.ToDisplayName();
+            return IsHaStandby ? $"{name} · Standby" : name;
+        }
+    }
 }

@@ -1197,8 +1197,8 @@ public class AgentProbeResultSink
                 }
 
                 var devices = await siteConnection.Client.GetDevicesAsync(ct) ?? new();
-                string? gatewayLanIp = null;
-                try { gatewayLanIp = await Monitoring.SnmpDeviceRules.ResolveGatewayLanIpAsync(siteConnection.Client, ct); }
+                NetworkOptimizer.UniFi.GatewayLanAddress? gatewayLanIp = null;
+                try { gatewayLanIp = await Monitoring.SnmpDeviceRules.ResolveGatewayLanAsync(siteConnection.Client, ct); }
                 catch (Exception ex) { _logger.LogDebug(ex, "Gateway LAN IP resolution failed for site {Slug}", connection.SiteSlug); }
 
                 var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -1215,7 +1215,7 @@ public class AgentProbeResultSink
                         if (string.IsNullOrEmpty(device.Mac)) continue;
                         profiles[NormalizeMac(device.Mac)] = new DeviceProbeProfile(
                             device.Name,
-                            Monitoring.SnmpDeviceRules.ResolvePollAddress(device, devices, gatewayLanIp),
+                            Monitoring.SnmpDeviceRules.ResolveUnitPollAddress(device, devices, gatewayLanIp),
                             device.Version,
                             device.DeviceType);
                     }
@@ -1229,10 +1229,13 @@ public class AgentProbeResultSink
                 foreach (var device in devices.Where(d =>
                              Monitoring.SnmpDeviceRules.IsMonitorable(d) && Monitoring.SnmpDeviceRules.HasSnmpEnabled(d)))
                 {
+                    // Empty for the backup of a Managed Shadow pair: no LAN address reaches it.
+                    var pollIp = Monitoring.SnmpDeviceRules.ResolveUnitPollAddress(device, devices, gatewayLanIp);
+                    if (string.IsNullOrEmpty(pollIp)) continue;
                     config.Devices.Add(new SnmpDeviceSpec
                     {
                         Mac = device.Mac,
-                        Ip = Monitoring.SnmpDeviceRules.ResolvePollAddress(device, devices, gatewayLanIp),
+                        Ip = pollIp,
                         Name = device.Name ?? "",
                         // The agent echoes this string straight back into the device_health tag, so
                         // it has to be the same label the server's own writes use. ToString() is not:

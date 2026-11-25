@@ -730,10 +730,16 @@ public class UpstreamTracerService
                 ? root
                 : root.TryGetProperty("data", out var data) ? data : root;
 
+            var haFacts = devices.EnumerateArray().Select(NetworkOptimizer.UniFi.GatewayHa.FromJson).ToList();
+            var deviceIndex = -1;
             foreach (var device in devices.EnumerateArray())
             {
+                deviceIndex++;
                 var deviceType = device.TryGetProperty("type", out var typeProp) ? typeProp.GetString() : null;
                 if (deviceType != "ugw" && deviceType != "udm" && deviceType != "uxg")
+                    continue;
+                // Traces leave through the VRRP master; the HA standby's WANs carry no traffic.
+                if (NetworkOptimizer.UniFi.GatewayHa.IsStandby(haFacts[deviceIndex], haFacts))
                     continue;
 
                 // Collect every IP the gateway carries so we can filter our own

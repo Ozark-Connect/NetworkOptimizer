@@ -310,7 +310,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             // (e.g. Docker's 172.17.0.1) that could coincide with a site subnet,
             // and a transient client-list miss must stay a retryable error there,
             // never a cached gateway anchor.
-            var gatewayDevice = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
+            var gatewayDevice = GatewayHa.Active(topology.Devices);
             if (gatewayDevice != null && !string.IsNullOrEmpty(sourceIp))
             {
                 var lanGatewayIps = topology.Networks
@@ -487,7 +487,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 var ipToCheck = resolvedIp ?? targetHost;
                 if (IsExternalIp(ipToCheck, topology))
                 {
-                    targetDevice = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
+                    targetDevice = GatewayHa.Active(topology.Devices);
                     path.IsExternalPath = true;
                     // Update DestinationHost to the resolved IP so DetectAndCreateVpnHop()
                     // can parse it (it requires a valid IP address, not a hostname)
@@ -556,7 +556,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             if (differentVlans || differentNetworks || differentSubnets)
             {
                 path.RequiresRouting = true;
-                var gateway = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
+                var gateway = GatewayHa.Active(topology.Devices);
                 if (gateway != null)
                 {
                     path.GatewayDevice = gateway.Name;
@@ -638,7 +638,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 return path;
             }
 
-            var gateway = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
+            var gateway = GatewayHa.Active(topology.Devices);
             if (gateway == null)
             {
                 path.IsValid = false;
@@ -774,7 +774,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             }
 
             // Find gateway
-            var gateway = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
+            var gateway = GatewayHa.Active(topology.Devices);
             if (gateway == null)
             {
                 path.IsValid = false;
@@ -1874,7 +1874,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             // Check for common gateway patterns: x.x.x.1 (last octet = 1)
             if (bytes.Length == 4 && bytes[3] == 1)
             {
-                var gateway = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
+                var gateway = GatewayHa.Active(topology.Devices);
                 if (gateway != null)
                     return gateway;
             }
@@ -2884,7 +2884,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
         var rawDevices = await GetRawDevicesAsync(cancellationToken);
 
-        var gateway = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
+        var gateway = GatewayHa.Active(topology.Devices);
         UniFiDeviceResponse? gatewayDevice = null;
         if (gateway != null && !string.IsNullOrEmpty(gateway.Mac))
             rawDevices.TryGetValue(gateway.Mac, out gatewayDevice);
@@ -3061,7 +3061,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             }
         }
 
-        var gateway = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
+        var gateway = GatewayHa.Active(topology.Devices);
         UniFiDeviceResponse? gatewayDevice = null;
         if (gateway != null && !string.IsNullOrEmpty(gateway.Mac))
             rawDevices.TryGetValue(gateway.Mac, out gatewayDevice);

@@ -416,10 +416,15 @@ public class RolloutPlanner
         var gateways = new List<PlannerDevice>();
 
         // An offline canary proves nothing, so the first online device of each family is picked,
-        // and the first device only when none is online.
+        // and the first device only when none is online. An HA pair's active gateway is never the
+        // canary while its standby can be.
         var canaryOf = level
             .GroupBy(d => d.ModelFamily, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.FirstOrDefault(d => !d.Offline) ?? g.First(), StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(g => g.Key, g =>
+            {
+                var ordered = g.OrderBy(d => d.IsActiveGateway ? 1 : 0).ToList();
+                return ordered.FirstOrDefault(d => !d.Offline) ?? ordered[0];
+            }, StringComparer.OrdinalIgnoreCase);
 
         foreach (var d in level)
         {
@@ -446,7 +451,8 @@ public class RolloutPlanner
                 || wave.Count(w => SameUplink(w.Item1, d)) < SwitchApLimit(switchApLimits, d));
         foreach (var d in solo) waves.Add([(d, false, Held(d))]);
         Pack(waves, packableSwitches, spacing.MaxSwitchParallelism, (_, _) => true, Held);
-        foreach (var d in gateways) waves.Add([(d, false, Held(d))]);
+        // One gateway per wave, so an HA pair never reboots together; the standby goes first.
+        foreach (var d in gateways.OrderBy(g => g.IsActiveGateway ? 1 : 0)) waves.Add([(d, false, Held(d))]);
 
         return waves;
     }

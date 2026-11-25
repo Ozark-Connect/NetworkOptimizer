@@ -1959,6 +1959,9 @@ public class MonitoringCollectionAgent : BackgroundService
             if (string.IsNullOrEmpty(d.Ip) || string.IsNullOrEmpty(d.Mac)) continue;
             var mac = NormalizeMac(d.Mac);
             var address = ResolveSnmpAddress(d, devices, gatewayLanIp);
+            // The backup of a Managed Shadow pair has no LAN address: leave its target as it is, so
+            // it is back in place the moment a failover makes it master.
+            if (string.IsNullOrEmpty(address)) continue;
             var siblings = liveByMac.TryGetValue(mac, out var rows) ? rows : new List<MonitoringTarget>();
             var current = siblings.FirstOrDefault(
                 t => string.Equals(t.Address, address, StringComparison.OrdinalIgnoreCase));
@@ -2470,6 +2473,7 @@ public class MonitoringCollectionAgent : BackgroundService
     // changes and the API call is heavy.
     private static readonly TimeSpan GatewayLanIpTtl = TimeSpan.FromHours(1);
     private string? _gatewayLanIp;
+    private GatewayLanAddress? _gatewayLan;
     private DateTime _gatewayLanIpAt = DateTime.MinValue;
     private readonly SemaphoreSlim _gatewayLanIpLock = new(1, 1);
 
@@ -2491,11 +2495,12 @@ public class MonitoringCollectionAgent : BackgroundService
 
             try
             {
-                var ip = await Monitoring.SnmpDeviceRules.ResolveGatewayLanIpAsync(_connectionService.Client, ct);
+                var lan = await Monitoring.SnmpDeviceRules.ResolveGatewayLanAsync(_connectionService.Client, ct);
 
-                _gatewayLanIp = ip;
+                _gatewayLan = lan;
+                _gatewayLanIp = lan?.Vip;
                 _gatewayLanIpAt = DateTime.UtcNow;
-                return ip;
+                return _gatewayLanIp;
             }
             catch (Exception ex)
             {
@@ -2513,9 +2518,12 @@ public class MonitoringCollectionAgent : BackgroundService
     /// Poll address for a device (SNMP and fabric latency targets). Rule shared
     /// with the agent-tunnel SNMP config push via SnmpDeviceRules.
     /// </summary>
-    private static string ResolveSnmpAddress(
+    private string ResolveSnmpAddress(
         UniFiDeviceResponse device, IEnumerable<UniFiDeviceResponse> devices, string? gatewayLanIp) =>
-        Monitoring.SnmpDeviceRules.ResolvePollAddress(device, devices, gatewayLanIp);
+        Monitoring.SnmpDeviceRules.ResolveUnitPollAddress(device, devices,
+            string.IsNullOrEmpty(gatewayLanIp) ? null
+            : _gatewayLan?.Vip == gatewayLanIp ? _gatewayLan
+            : new GatewayLanAddress(gatewayLanIp, null, null));
 
     /// <summary>
     /// Feeds upgrade/provisioning state and offline/recovered alerting for every adopted device.

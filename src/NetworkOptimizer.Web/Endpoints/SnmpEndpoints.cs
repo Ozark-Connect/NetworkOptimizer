@@ -197,19 +197,12 @@ public static class SnmpEndpoints
                 string.Equals(d.Mac, deviceMac, StringComparison.OrdinalIgnoreCase));
             if (device == null) return null;
 
-            if (device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway)
-            {
-                var networks = await connectionService.Client.GetNetworkConfigsAsync(ct);
-                var defaultLan = networks
-                    .Where(n => n.Purpose == "corporate" && n.Enabled)
-                    .OrderBy(n => n.Vlan ?? 0)
-                    .FirstOrDefault();
-                if (!string.IsNullOrEmpty(defaultLan?.DhcpdGateway))
-                    return defaultLan!.DhcpdGateway;
-                if (!string.IsNullOrEmpty(defaultLan?.IpSubnet))
-                    return defaultLan!.IpSubnet.Split('/')[0];
-            }
-            return device.Ip;
+            var lan = device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway
+                ? await Services.Monitoring.SnmpDeviceRules.ResolveGatewayLanAsync(connectionService.Client, ct)
+                : null;
+            // Empty for the backup of a Managed Shadow pair: no LAN address reaches it.
+            var address = Services.Monitoring.SnmpDeviceRules.ResolveUnitPollAddress(device, devices, lan);
+            return string.IsNullOrEmpty(address) ? null : address;
         }
         catch
         {

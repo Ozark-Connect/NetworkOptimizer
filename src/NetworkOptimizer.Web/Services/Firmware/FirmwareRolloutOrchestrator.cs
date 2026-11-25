@@ -4273,7 +4273,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             dark.Devices.UnionWith(RolloutDarkSet.DevicesDarkenedBy(step.DeviceMac, wiredInfrastructure, devices, positions));
 
             var parents = RolloutDarkSet.ParentMap(devices);
-            var gatewayMac = devices.FirstOrDefault(d => d.IsGateway)?.Mac;
+            var gatewayMac = RolloutDeviceObservation.ActiveGatewayMac(devices);
             foreach (var (vantage, attach) in positions.VantageAttachMacs)
             {
                 if (RolloutDarkSet.VantageDarkenedBy(step.DeviceMac, wiredInfrastructure, attach, gatewayMac, parents))
@@ -4329,7 +4329,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 ? RolloutObserverPositions.ConsoleAtRoot
                 : await _observerLocator.LocateAsync(devices, cancellationToken);
             var parents = RolloutDarkSet.ParentMap(devices);
-            var gatewayMac = devices.FirstOrDefault(d => d.IsGateway)?.Mac;
+            var gatewayMac = RolloutDeviceObservation.ActiveGatewayMac(devices);
             var names = devices.ToDictionary(d => d.Mac, d => d.Name, StringComparer.OrdinalIgnoreCase);
             string Label(string mac) => names.TryGetValue(mac, out var name) && !string.IsNullOrEmpty(name) ? name : mac;
 

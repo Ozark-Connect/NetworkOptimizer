@@ -96,7 +96,7 @@ public class RolloutObserverLocator : IRolloutObserverLocator
 
         try
         {
-            var gatewayMac = devices.FirstOrDefault(d => d.IsGateway)?.Mac;
+            var gatewayMac = RolloutDeviceObservation.ActiveGatewayMac(devices);
             var analyzer = _speedTests.GetFor(_siteSlug).PathAnalyzer;
             var topology = await analyzer.GetTopologyAsync(cancellationToken);
             if (topology == null || _connection.Client == null)

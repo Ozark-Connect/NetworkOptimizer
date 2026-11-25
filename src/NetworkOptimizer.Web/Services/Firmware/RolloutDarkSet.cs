@@ -125,7 +125,7 @@ public static class RolloutDarkSet
 
         var parents = ParentMap(devices);
         var consoleAt = positions.ConsoleAttachMac
-            ?? devices.FirstOrDefault(d => d.IsGateway)?.Mac;
+            ?? RolloutDeviceObservation.ActiveGatewayMac(devices);
 
         foreach (var d in others)
         {

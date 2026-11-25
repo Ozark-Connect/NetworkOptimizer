@@ -24,6 +24,7 @@ public static class RolloutSnapshotBuilder
                 Model = d.Model,
                 DisplayModel = d.FriendlyModelName,
                 Type = d.Type,
+                IsActiveGateway = d.IsActiveGateway,
                 Offline = d.State == (int)NetworkOptimizer.UniFi.Models.UniFiDeviceState.Disconnected,
                 Upgradable = d.Upgradable,
                 FromVersion = string.IsNullOrEmpty(d.Firmware) ? null : d.Firmware,
