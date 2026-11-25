@@ -4,7 +4,22 @@ using System.Text.Json.Serialization;
 namespace NetworkOptimizer.UniFi.Models;
 
 // Tolerant System.Text.Json converters for vendor fields that arrive in more than one shape.
-// Name new ones Flexible* and add them here.
+// Name new ones Flexible* and add them here. Skip a value with FlexibleJson.SkipValue, never reader.Skip().
+
+/// <summary>Helpers shared by the Flexible* converters.</summary>
+internal static class FlexibleJson
+{
+    /// <summary>
+    /// Skips the current value. Never <see cref="Utf8JsonReader.Skip"/>: a response read from a stream
+    /// reaches a converter as a partial buffer, where Skip() throws and fails the whole response. The
+    /// serializer buffers the whole value before it calls a converter, so TrySkip succeeds here.
+    /// </summary>
+    public static void SkipValue(ref Utf8JsonReader reader)
+    {
+        if (!reader.TrySkip())
+            throw new JsonException("A value the serializer should have buffered could not be skipped.");
+    }
+}
 
 /// <summary>
 /// JSON converter that handles bool values that may come as strings ("true"/"false") instead of native booleans.
@@ -205,11 +220,11 @@ public class FlexibleStringListConverter : JsonConverter<List<string>?>
                 while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
                 {
                     if (reader.TokenType == JsonTokenType.String) list.Add(reader.GetString()!);
-                    else reader.Skip();
+                    else FlexibleJson.SkipValue(ref reader);
                 }
                 return list;
             default:
-                reader.Skip();
+                FlexibleJson.SkipValue(ref reader);
                 return null;
         }
     }
@@ -237,7 +252,7 @@ public sealed class FlexibleScalarStringListConverter : JsonConverter<List<strin
     {
         if (reader.TokenType != JsonTokenType.StartArray)
         {
-            reader.Skip();
+            FlexibleJson.SkipValue(ref reader);
             return null;
         }
         var list = new List<string>();
@@ -245,7 +260,7 @@ public sealed class FlexibleScalarStringListConverter : JsonConverter<List<strin
         {
             if (reader.TokenType == JsonTokenType.String) list.Add(reader.GetString()!);
             else if (reader.TokenType == JsonTokenType.Number) list.Add(System.Text.Encoding.UTF8.GetString(reader.ValueSpan));
-            else reader.Skip();
+            else FlexibleJson.SkipValue(ref reader);
         }
         return list;
     }
@@ -273,7 +288,7 @@ public sealed class FlexibleObjectConverter<T> : JsonConverter<T?> where T : cla
     {
         if (reader.TokenType != JsonTokenType.StartObject)
         {
-            reader.Skip();
+            FlexibleJson.SkipValue(ref reader);
             return null;
         }
         using var doc = JsonDocument.ParseValue(ref reader);
@@ -334,7 +349,7 @@ public sealed class FlexibleScalarStringConverter : JsonConverter<string?>
 
     private static string? SkipAndNull(ref Utf8JsonReader reader)
     {
-        reader.Skip();
+        FlexibleJson.SkipValue(ref reader);
         return null;
     }
 
@@ -357,7 +372,7 @@ public class FlexibleDateTimeOffsetConverter : JsonConverter<DateTimeOffset?>
     {
         if (reader.TokenType != JsonTokenType.String)
         {
-            reader.Skip();
+            FlexibleJson.SkipValue(ref reader);
             return null;
         }
 
@@ -381,16 +396,29 @@ public class FlexibleDateTimeOffsetConverter : JsonConverter<DateTimeOffset?>
 }
 
 /// <summary>
-/// Tolerant list of objects: an array reads item by item, an item that fails is skipped, and any
-/// other token reads as null instead of failing the whole object it sits in.
+/// Tolerant list of objects: an array reads item by item, an item that fails is skipped, a lone
+/// object reads as a one-item list (some firmware sends one entry without the array), and any other
+/// token reads as null instead of failing the whole object it sits in.
 /// </summary>
 public sealed class FlexibleObjectListConverter<T> : JsonConverter<List<T>?>
 {
     public override List<T>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
+        if (reader.TokenType == JsonTokenType.StartObject)
+        {
+            using var one = JsonDocument.ParseValue(ref reader);
+            try
+            {
+                return one.RootElement.Deserialize<T>(options) is { } single ? [single] : null;
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
         if (reader.TokenType != JsonTokenType.StartArray)
         {
-            reader.Skip();
+            FlexibleJson.SkipValue(ref reader);
             return null;
         }
         using var doc = JsonDocument.ParseValue(ref reader);

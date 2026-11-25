@@ -162,7 +162,9 @@ public class LanHealthInputsTests
     public void FlexibleObjectList_SkipsABadItemOrANonArray()
     {
         JsonSerializer.Deserialize<Counters>("""{"items":[{"id":1},{"id":"x"},{"id":3}]}""")!.Items!.Select(i => i.Id).Should().Equal(1, 3);
-        JsonSerializer.Deserialize<Counters>("""{"items":{"id":1},"n":5}""")!.Should().Match<Counters>(c => c.Items == null && c.N == 5);
+        // A lone object is one entry (some firmware drops the array); a scalar is no list at all.
+        JsonSerializer.Deserialize<Counters>("""{"items":{"id":1},"n":5}""")!.Should().Match<Counters>(c => c.Items!.Single().Id == 1 && c.N == 5);
+        JsonSerializer.Deserialize<Counters>("""{"items":"x","n":5}""")!.Should().Match<Counters>(c => c.Items == null && c.N == 5);
     }
 
     [Theory]

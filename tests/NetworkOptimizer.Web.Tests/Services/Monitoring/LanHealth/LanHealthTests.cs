@@ -402,7 +402,7 @@ public class LanHealthTests
         port.RxErrors.Should().BeNull("an empty string is not reported, never 0");
         port.StpState.Should().Be("4");
         port.PoeClass.Should().Be("4");
-        port.StpStateChangeCount.Should().BeNull();
+        port.StpStateChangeCount.Should().ContainSingle().Which.ChangeCount.Should().Be(1, "a lone object is one entry");
         port.LacpState.Should().BeNull();
         port.LastConnection!.ConnectedAt.Should().Be(1766591870);
         PortSpeedCaps.MaxMbps(port.SpeedCaps).Should().Be(1000);
