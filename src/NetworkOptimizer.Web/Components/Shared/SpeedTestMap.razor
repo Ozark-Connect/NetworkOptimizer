@@ -1587,7 +1587,8 @@ else
 
     /// <summary>Source label for a result: Tailscale, VPN, Teleport, WAN, or null for the LAN.</summary>
     private string? DetectVpnType(Iperf3Result result) =>
-        SpeedTestClientSource.Detect(result.DeviceHost, _networks, result.ClientMac, _tailnet.IsPeer);
+        SpeedTestClientSource.Detect(result.DeviceHost, _networks, result.ClientMac, _tailnet.IsPeer,
+            result.PathAnalysis?.Path?.Hops?.Select(h => h.Type).ToList());
 
     /// <summary>Channel and its width, or nothing when the channel is unknown.</summary>
     private static string FormatChannelForTooltip(int? channel, int? widthMhz)

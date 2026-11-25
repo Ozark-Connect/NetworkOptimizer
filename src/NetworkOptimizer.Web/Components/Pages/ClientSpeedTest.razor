@@ -1049,7 +1049,8 @@
 
     /// <summary>Source label for a result: Tailscale, VPN, Teleport, WAN, or null for the LAN.</summary>
     private string? DetectVpnType(Iperf3Result result) =>
-        SpeedTestClientSource.Detect(result.DeviceHost, _networks, result.ClientMac, _tailnet.IsPeer);
+        SpeedTestClientSource.Detect(result.DeviceHost, _networks, result.ClientMac, _tailnet.IsPeer,
+            result.PathAnalysis?.Path?.Hops?.Select(h => h.Type).ToList());
 
     /// <summary>The site's tailnet, which names a Tailscale result that has no device name of its own.</summary>
     private TailnetSnapshot _tailnet = TailnetSnapshot.Empty;

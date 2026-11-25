@@ -58,6 +58,20 @@ public class SpeedTestClientSourceTests
         SpeedTestClientSource.Detect("192.168.50.10", []).Should().BeNull();
     }
 
+    [Fact]
+    public void StoredTrace_DecidesTeleport()
+    {
+        const string ip = "192.168.77.10";
+        // A LAN the site has since renumbered away from: the trace stored with the test has no Teleport hop.
+        SpeedTestClientSource.Detect(ip, Networks,
+            pathHops: [NetworkOptimizer.UniFi.Models.HopType.Gateway, NetworkOptimizer.UniFi.Models.HopType.Client]).Should().BeNull();
+        // A real Teleport test keeps its label.
+        SpeedTestClientSource.Detect(ip, Networks,
+            pathHops: [NetworkOptimizer.UniFi.Models.HopType.Teleport, NetworkOptimizer.UniFi.Models.HopType.Gateway]).Should().Be("Teleport");
+        // No trace: the address guess stands.
+        SpeedTestClientSource.Detect(ip, Networks, pathHops: []).Should().Be("Teleport");
+    }
+
     [Theory]
     [InlineData("fd00:10::20", null, null)]                         // ULA: never the internet
     [InlineData("fe80::1", null, null)]                             // Link-local

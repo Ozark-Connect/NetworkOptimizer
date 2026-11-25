@@ -19,8 +19,20 @@ public static class SpeedTestClientSource
     /// <param name="clientMac">The device the result was tied to, if any. An IPv6 source tied to a device
     /// is on the LAN even when its prefix is not a configured subnet (a delegated prefix usually is not).</param>
     /// <param name="tailnetPeer">Whether the site's tailnet device list holds an address, for a custom IP pool.</param>
+    /// <param name="pathHops">The hop types of the trace stored with the result, when it has one. A Teleport label
+    /// needs a Teleport hop there: the address guess reads today's networks, so a test from a 192.168.x.x LAN
+    /// the site has since renumbered away from would otherwise read as Teleport.</param>
     public static string? Detect(string? clientIp, IReadOnlyCollection<NetworkInfo>? networks, string? clientMac = null,
-        Func<string, bool>? tailnetPeer = null)
+        Func<string, bool>? tailnetPeer = null, IReadOnlyCollection<NetworkOptimizer.UniFi.Models.HopType>? pathHops = null)
+    {
+        var label = DetectByAddress(clientIp, networks, clientMac, tailnetPeer);
+        if (label == "Teleport" && pathHops is { Count: > 0 } && !pathHops.Contains(NetworkOptimizer.UniFi.Models.HopType.Teleport))
+            return null;
+        return label;
+    }
+
+    private static string? DetectByAddress(string? clientIp, IReadOnlyCollection<NetworkInfo>? networks, string? clientMac,
+        Func<string, bool>? tailnetPeer)
     {
         if (string.IsNullOrEmpty(clientIp) || !IPAddress.TryParse(clientIp, out var address))
             return null;
