@@ -42,6 +42,7 @@ public static class PortStatsEndpoints
             SiteDbContextFactory siteDbFactory,
             SiteContextService siteContext,
             UniFiConnectionService connectionService,
+            NetworkOptimizer.Web.Services.Monitoring.LanHealth.ILanHealthService lanHealth,
             string? macs,
             DateTime? at,
             CancellationToken ct) =>
@@ -94,6 +95,15 @@ public static class PortStatsEndpoints
             var poeByPort = at.HasValue
                 ? await HistoricPoeAsync(influx, at.Value, mapByKey, ct)
                 : await LivePoeAsync(connectionService, ct);
+
+            // Each port's LAN Health link (today's), so a row opens its link page. Empty when LAN Health has none yet.
+            var lanByPort = new Dictionary<(string Mac, int Port), NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkHealth>();
+            try
+            {
+                var report = await lanHealth.GetReportAsync(48, TimeZoneInfo.Utc, NetworkOptimizer.Core.Helpers.DisplayFormat.Fallback, ct);
+                lanByPort = NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanHealthLinkMatch.ByPort(report.Links);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException) { /* The table renders without the links. */ }
 
             string? ResolveFriendly(string mac, string ifName)
             {
@@ -162,6 +172,9 @@ public static class PortStatsEndpoints
                                     connectedIp = clientIp,
                                     connectedName = clientName,
                                     // The port's own number, as the client: a VLAN sub-interface draws no power.
+                                    // The port's own number: a VLAN sub-interface is not a link.
+                                    lanHealthHref = nm?.PortNumber is int lp && lanByPort.TryGetValue((mac, lp), out var lh)
+                                        ? NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanHealthLinks.Link(lh.Link.Id) : null,
                                     poeWatts = nm?.PortNumber is int pp && poeByPort.TryGetValue((mac, pp), out var watts) ? watts : (double?)null,
                                     // Agent-resolved WAN/carrier label wins (e.g. gre1 ->
                                     // "WAN3 - AT&T Wireless"); otherwise the port_table /

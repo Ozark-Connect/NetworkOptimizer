@@ -47,6 +47,21 @@ public class LanHealthLinkMatchTests
         LanHealthLinkMatch.ForClient(Links, Pc)!.Link.Id.Should().Be($"{Sw}|7-access");
 
     [Fact]
+    public void ByPort_BothFabricEndsAndAccessPorts()
+    {
+        var uplink = new LinkHealth
+        {
+            Link = new LinkRecord { Id = "up", Kind = LinkKind.FabricWired,
+                Upstream = new LinkEnd { DeviceMac = Gw, PortIdx = 3 }, Downstream = new LinkEnd { DeviceMac = Sw, PortIdx = 1 } },
+        };
+        var map = LanHealthLinkMatch.ByPort([uplink, Access(Sw, 7, Pc)]);
+        map[(Gw, 3)].Link.Id.Should().Be("up");
+        map[(Sw, 1)].Link.Id.Should().Be("up");
+        map[(Sw, 7)].Link.Id.Should().Be($"{Sw}|7-access");
+        map.Should().HaveCount(3);
+    }
+
+    [Fact]
     public void SharedPort_EveryOccupantFindsIt()
     {
         const string host = "aa:bb:cc:00:00:10", vm = "aa:bb:cc:00:00:11";

@@ -28,6 +28,19 @@ public static class LanHealthLinkMatch
         return mac.Length == 0 ? null : links.FirstOrDefault(l => !l.Link.IsFabric && On(l.Link, mac));
     }
 
+    /// <summary>
+    /// Each device port's link, keyed (device MAC, port number): either end of a fabric link, or an access port.
+    /// </summary>
+    public static Dictionary<(string Mac, int Port), LinkHealth> ByPort(IEnumerable<LinkHealth> links)
+    {
+        var map = new Dictionary<(string, int), LinkHealth>();
+        foreach (var l in links)
+            foreach (var end in new[] { l.Link.Upstream, l.Link.Downstream })
+                if (end.PortIdx is int p && end.DeviceMac.Length > 0)
+                    map.TryAdd((LanLinkBuilder.Mac(end.DeviceMac), p), l);
+        return map;
+    }
+
     /// <summary>Whether a client is on an access port: its named client, or any of the port's occupants.</summary>
     private static bool On(LinkRecord link, string clientMac) =>
         link.ClientMac == clientMac || link.OccupantMacs.Contains(clientMac);
