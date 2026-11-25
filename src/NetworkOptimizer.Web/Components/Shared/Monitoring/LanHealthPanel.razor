@@ -600,8 +600,8 @@ else
     {
         if (end.IsUniFi && !string.IsNullOrEmpty(end.DeviceMac))
             return end.IsAccessPoint
-                ? new($"/wifi-optimizer?tab=client&ap={Uri.EscapeDataString(end.DeviceMac)}", "View in Client Stats")
-                : new("/monitoring?tab=live", "View in Port Statistics", PortStats: true);
+                ? new($"/wifi-optimizer?tab=client&ap={Uri.EscapeDataString(end.DeviceMac)}", "View Clients")
+                : new("/monitoring?tab=live", "View Port Statistics", PortStats: true);
         return !end.IsUniFi && !string.IsNullOrEmpty(clientIp)
             ? new($"/client-dashboard?ip={Uri.EscapeDataString(clientIp)}", "View in Client Performance")
             : null;
