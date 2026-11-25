@@ -117,9 +117,12 @@ public static class PortStatsEndpoints
                     friendlyByMacIf[k] = m.FriendlyName!;
             }
 
-            var poeByPort = at.HasValue
-                ? await HistoricPoeAsync(influx, at.Value, mapByKey, ct)
-                : await LivePoeAsync(connectionService, ct);
+            Dictionary<(string Mac, int Port), double> poeByPort;
+            var lastClientByPort = new Dictionary<(string Mac, int Port), string>();
+            if (at.HasValue)
+                poeByPort = await HistoricPoeAsync(influx, at.Value, mapByKey, ct);
+            else
+                (poeByPort, lastClientByPort) = await LivePortTableAsync(connectionService, ct);
 
             // Each port's LAN Health link (today's), so a row opens its link page. Empty when LAN Health has none yet.
             var lanByPort = new Dictionary<(string Mac, int Port), NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkHealth>();
@@ -191,6 +194,10 @@ public static class PortStatsEndpoints
                                     {
                                         (clientMac, clientIp, clientName) = Fill(present.ClientMac, present.Ip, present.Name);
                                     }
+                                    else if (!liveStats.IsSharedPort(mac, pnum) && lastClientByPort.TryGetValue((mac, pnum), out var lastMac))
+                                    {
+                                        (clientMac, clientIp, clientName) = Fill(lastMac, null, null);
+                                    }
                                 }
                                 return new
                                 {
@@ -248,24 +255,35 @@ public static class PortStatsEndpoints
     /// UniFi Network shows, for every switch and gateway whether SNMP reads it or not. Empty when the console
     /// is not answering. A port with PoE turned off (<c>poe_mode</c> "off") is left out, so it reads as no PoE.
     /// </summary>
-    private static async Task<Dictionary<(string Mac, int Port), double>> LivePoeAsync(UniFiConnectionService connection, CancellationToken ct)
+    private static async Task<(Dictionary<(string Mac, int Port), double> Poe, Dictionary<(string Mac, int Port), string> LastClient)> LivePortTableAsync(
+        UniFiConnectionService connection, CancellationToken ct)
     {
         var poe = new Dictionary<(string, int), double>();
-        if (connection.Client is not { } client) return poe;
+        var lastClient = new Dictionary<(string, int), string>();
+        if (connection.Client is not { } client) return (poe, lastClient);
         try
         {
-            foreach (var device in await client.GetDevicesAsync(ct))
+            var devices = await client.GetDevicesAsync(ct);
+            var deviceMacs = devices.Where(d => !string.IsNullOrEmpty(d.Mac)).Select(d => Norm(d.Mac)).ToHashSet();
+            foreach (var device in devices)
                 foreach (var port in device.PortTable ?? [])
-                    if (port.PortPoe && port.PortIdx > 0
+                {
+                    if (port.PortIdx <= 0) continue;
+                    var key = (Norm(device.Mac ?? ""), port.PortIdx);
+                    if (port.PortPoe
                         && !string.Equals(port.PoeMode, "off", StringComparison.OrdinalIgnoreCase)
                         && double.TryParse(port.PoePower, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var w))
-                        poe[(Norm(device.Mac ?? ""), port.PortIdx)] = w;
+                        poe[key] = w;
+                    // The console's last client on the port, as LAN Health names an access port. A UniFi device there is fabric.
+                    if (port.LastConnection?.Mac is { Length: > 0 } lc && !deviceMacs.Contains(Norm(lc)))
+                        lastClient[key] = Norm(lc);
+                }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // The column is a detail: the table renders without it.
+            // PoE and the last client are details: the table renders without them.
         }
-        return poe;
+        return (poe, lastClient);
     }
 
     /// <summary>
