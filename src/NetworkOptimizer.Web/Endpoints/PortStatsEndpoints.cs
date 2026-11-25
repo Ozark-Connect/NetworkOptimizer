@@ -29,6 +29,10 @@ public static class PortStatsEndpoints
         @"^(Port-Channel\d+|Logical-int \d+|User Defined Port \d+|stack-port|tunnel\d+|OpenVPN|\d+)$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    // How far back a historic scrub looks for a port's last client: wired port presence's lookback, so a WoL NIC
+    // listed only when its host last woke still names its port. last() is pushed down, so the span costs little.
+    private static readonly TimeSpan HistoricLastClientLookback = NetworkOptimizer.Web.Services.WiredPortPresence.WiredPortPresenceRule.Lookback;
+
     public static void Map(WebApplication app)
     {
         // Gate 2 (design doc 06): the whole group carries authorization metadata, which is what
@@ -64,10 +68,12 @@ public static class PortStatsEndpoints
             // points at the same instant; live keeps the in-memory map. Pre-2.0 history
             // has no port tag and simply yields no client labels.
             Dictionary<(string Mac, int Port), MonitoringInfluxClient.WiredPortClientPoint>? histClients = null;
+            IReadOnlySet<(string DeviceMac, int Port)> histShared = new HashSet<(string, int)>();
             if (at.HasValue)
             {
-                histClients = (await influx.QueryWiredPortClientsAsync(filterMacs, at.Value.ToUniversalTime(), ct))
-                    .ToDictionary(p => (Norm(p.DeviceMac), p.Port));
+                var window = await influx.QueryWiredPortClientsWindowAsync(filterMacs, at.Value.ToUniversalTime(), ct);
+                histClients = window.Clients.ToDictionary(p => (Norm(p.DeviceMac), p.Port));
+                histShared = window.SharedPorts;
             }
 
             // Live: a client the console dropped while its port stayed up, as the LAN map draws it on that port.
@@ -107,6 +113,22 @@ public static class PortStatsEndpoints
                 mapByKey[k] = m;
                 if (!string.IsNullOrWhiteSpace(m.FriendlyName))
                     friendlyByMacIf[k] = m.FriendlyName!;
+            }
+
+            // Historic: a port with no client at the instant (asleep, unlisted) shows the last one recorded on it
+            // before then, as the live table shows the port's last client. A port shared at the instant stays empty.
+            if (histClients != null && at.HasValue)
+            {
+                var empty = points
+                    .Select(p => (Mac: Norm(p.DeviceMac), Port: mapByKey.GetValueOrDefault((Norm(p.DeviceMac), p.IfName))?.PortNumber))
+                    .Where(p => p.Port is int n && !histClients.ContainsKey((p.Mac, n)) && !histShared.Contains((p.Mac, n)))
+                    .Select(p => (p.Mac, p.Port!.Value)).Distinct().ToList();
+                try
+                {
+                    foreach (var last in await influx.QueryLastWiredPortClientsAsync(empty, at.Value.ToUniversalTime(), HistoricLastClientLookback, ct))
+                        histClients.TryAdd((Norm(last.DeviceMac), last.Port), last);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException) { /* The column shows the instant's clients only. */ }
             }
 
             var poeByPort = at.HasValue

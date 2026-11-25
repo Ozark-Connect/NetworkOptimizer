@@ -1724,9 +1724,20 @@ public partial class MonitoringInfluxClient : IAsyncDisposable
     public async Task<IReadOnlyList<WiredPortClientPoint>> QueryWiredPortClientsAsync(
         IReadOnlyList<string>? deviceMacs,
         DateTime at,
+        CancellationToken ct = default) =>
+        (await QueryWiredPortClientsWindowAsync(deviceMacs, at, ct)).Clients;
+
+    /// <summary>The clients around a historic instant, and the ports more than one client shared in that window.</summary>
+    public sealed record WiredPortClientWindow(IReadOnlyList<WiredPortClientPoint> Clients, IReadOnlySet<(string DeviceMac, int Port)> SharedPorts);
+
+    /// <summary><see cref="QueryWiredPortClientsAsync"/>, with the shared ports it leaves out.</summary>
+    public async Task<WiredPortClientWindow> QueryWiredPortClientsWindowAsync(
+        IReadOnlyList<string>? deviceMacs,
+        DateTime at,
         CancellationToken ct = default)
     {
-        if (!IsConfigured) return Array.Empty<WiredPortClientPoint>();
+        var shared = new HashSet<(string, int)>();
+        if (!IsConfigured) return new WiredPortClientWindow(Array.Empty<WiredPortClientPoint>(), shared);
 
         // Same snapshot window as QueryPortStatsAsync so the Client column lines up
         // with the counters shown at the same scrub point.
@@ -1769,7 +1780,10 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
         foreach (var group in rows.GroupBy(r => (r.DeviceMac, r.Port)))
         {
             if (group.Select(r => r.ClientMac).Distinct(StringComparer.OrdinalIgnoreCase).Count() != 1)
-                continue; // multiple clients in the window - trunk/uplink, never label
+            {
+                shared.Add(group.Key); // multiple clients in the window - trunk/uplink, never label
+                continue;
+            }
             // Nearest to the scrub instant, matching the counter selection in
             // QueryPortStatsAsync (name/IP can change across the window).
             var nearest = group.OrderBy(r => Math.Abs((r.Time - center).Ticks)).First();
@@ -1780,6 +1794,80 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
                 ClientMac = nearest.ClientMac,
                 ClientIp = nearest.Ip,
                 ClientName = nearest.Name,
+            });
+        }
+        return new WiredPortClientWindow(result, shared);
+    }
+
+    /// <summary>
+    /// The last wired client recorded on each of <paramref name="ports"/> before a historic instant, within
+    /// <paramref name="lookback"/>: the playback counterpart of a port's last connection, for a port whose
+    /// client was asleep or unlisted at the instant. A port that carried more than one client in the pass
+    /// it was last written in (a hypervisor's VMs) is omitted, as <see cref="QueryWiredPortClientsAsync"/> omits it.
+    /// </summary>
+    public async Task<IReadOnlyList<WiredPortClientPoint>> QueryLastWiredPortClientsAsync(
+        IReadOnlyCollection<(string DeviceMac, int Port)> ports,
+        DateTime at,
+        TimeSpan lookback,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured || ports.Count == 0) return Array.Empty<WiredPortClientPoint>();
+        var wanted = ports.Select(p => (NormalizeMac(p.DeviceMac), p.Port)).ToHashSet();
+        var macFilter = string.Join(" or ", wanted.Select(p => p.Item1).Distinct().Select(m => $"r.device_mac == {FluxLiteral.Quote(m)}"));
+        var portFilter = string.Join(" or ", wanted.Select(p => p.Port).Distinct().Select(p => $"r.port == {FluxLiteral.Quote(p.ToString())}"));
+        var stop = at.ToUniversalTime();
+
+        // One series per (device, port), so last() is pushed down: the newest point on each port.
+        var lastFlux = $@"
+from(bucket: {FluxLiteral.Quote(_bucket)})
+  |> range(start: {ToFluxInstant(stop - lookback)}, stop: {ToFluxInstant(stop)})
+  |> filter(fn: (r) => r._measurement == ""wired_client"" and r._field == ""client_mac"")
+  |> filter(fn: (r) => {macFilter})
+  |> filter(fn: (r) => {portFilter})
+  |> last()
+";
+        var lastSeen = new Dictionary<(string, int), DateTime>();
+        await foreach (var record in QueryFluxAsync(lastFlux, ct))
+        {
+            var deviceMac = NormalizeMac(record.GetValueByKey("device_mac") as string ?? "");
+            if (!int.TryParse(record.GetValueByKey("port") as string, out var port) || !wanted.Contains((deviceMac, port))) continue;
+            if (record.GetTimeInDateTime() is { } t) lastSeen[(deviceMac, port)] = ToUtc(t);
+        }
+        if (lastSeen.Count == 0) return Array.Empty<WiredPortClientPoint>();
+
+        // That last pass on each port: every client written in it, so a shared port names no one. A pass writes
+        // its clients nanoseconds apart, and passes are tens of seconds apart, so a few seconds holds exactly one.
+        // One small range per port, unioned into a single round trip.
+        var streams = lastSeen.Select(kv => $@"from(bucket: {FluxLiteral.Quote(_bucket)})
+  |> range(start: {ToFluxInstant(kv.Value - TimeSpan.FromSeconds(5))}, stop: {ToFluxInstant(kv.Value.AddSeconds(1))})
+  |> filter(fn: (r) => r._measurement == ""wired_client"" and r.device_mac == {FluxLiteral.Quote(kv.Key.Item1)} and r.port == {FluxLiteral.Quote(kv.Key.Item2.ToString())})
+  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""client_ip"" or r._field == ""client_name"")").ToList();
+        var passFlux = streams.Count == 1
+            ? streams[0] + "\n  |> pivot(rowKey:[\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")"
+            : $"union(tables: [\n{string.Join(",\n", streams)}\n])\n  |> pivot(rowKey:[\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")";
+        var rows = new List<(string DeviceMac, int Port, DateTime Time, string ClientMac, string? Ip, string? Name)>();
+        await foreach (var record in QueryFluxAsync(passFlux, ct))
+        {
+            var deviceMac = NormalizeMac(record.GetValueByKey("device_mac") as string ?? "");
+            var clientMac = record.GetValueByKey("client_mac") as string ?? "";
+            if (clientMac.Length == 0 || !int.TryParse(record.GetValueByKey("port") as string, out var port)) continue;
+            if (!lastSeen.TryGetValue((deviceMac, port), out var last)) continue;
+            rows.Add((deviceMac, port, ToUtc(record.GetTimeInDateTime() ?? last), clientMac,
+                record.GetValueByKey("client_ip") as string, record.GetValueByKey("client_name") as string));
+        }
+
+        var result = new List<WiredPortClientPoint>();
+        foreach (var group in rows.GroupBy(r => (r.DeviceMac, r.Port)))
+        {
+            if (group.Select(r => r.ClientMac).Distinct(StringComparer.OrdinalIgnoreCase).Count() != 1) continue;
+            var newest = group.OrderByDescending(r => r.Time).First();
+            result.Add(new WiredPortClientPoint
+            {
+                DeviceMac = newest.DeviceMac,
+                Port = newest.Port,
+                ClientMac = newest.ClientMac,
+                ClientIp = newest.Ip,
+                ClientName = newest.Name,
             });
         }
         return result;
