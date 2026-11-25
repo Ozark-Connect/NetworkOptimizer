@@ -5,13 +5,15 @@
 // wait runs out and the wheel zooms.
 //
 // Touch gate (opts.touchSurfaces): the same idea for a finger. A one-finger drag scrolls the page
-// until the map is armed by a tap, by a press held still for REST_MS, or by two fingers; a touch
+// until the map is armed by a tap, by a press held still for HOLD_MS, or by two fingers; a touch
 // outside the map disarms it. Armed by touch, the map shows a ring.
 // A classic script, so the eval-built and global maps can use it as well as the ES modules.
 (function () {
     'use strict';
 
     var REST_MS = 350;
+    // A held press arms touch sooner than the wheel's rest: well clear of iOS's text selection (~500 ms).
+    var HOLD_MS = 200;
     // Matches the maps' own tap tolerance: a press that moves further is a drag, not a hold or a tap.
     var SLOP_PX = 8;
 
@@ -77,7 +79,7 @@
             press = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false,
                 claimed: !!(e.target.closest && e.target.closest('.leaflet-marker-draggable')) };
             clearTimeout(hold);
-            if (!press.claimed) hold = setTimeout(function () { if (press && !press.moved) arm(); }, REST_MS);
+            if (!press.claimed) hold = setTimeout(function () { if (press && !press.moved) arm(); }, HOLD_MS);
         }
         // Bubble, after the target's own handler: one that cancels its touchstart has taken the gesture.
         function onTouchStart(e) {
