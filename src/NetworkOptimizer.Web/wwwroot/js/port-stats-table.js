@@ -445,7 +445,7 @@ async function loadAndRender() {
     rebuildMeta(tabDevices());
     if (pendingSelect) {
         const match = deviceMeta.find(d => d.mac.toLowerCase() === pendingSelect.toLowerCase());
-        if (match) { deviceMeta.forEach(d => visibility[d.mac] = d.mac === match.mac); savePrefs(); }
+        if (match) deviceMeta.forEach(d => visibility[d.mac] = d.mac === match.mac);
         pendingSelect = null;
     }
     updateCardVisibility();
@@ -492,6 +492,8 @@ const api = {
         paused = false;
         if (!currentAt) { loadAndRender(); startPoll(); }
     },
+    // A jump to one device (map double-click, Dashboard or LAN Health hand-off) is for this visit, as Device
+    // Stats' is: the user's saved filter and tab stay saved and return next time. A chip they change saves.
     selectDevice(mac) {
         if (!mac) return;
         // Map double-click only fires for switches/gateways, so land on that tab.
@@ -507,7 +509,6 @@ const api = {
             pendingSelect = mac;
             loadAndRender();
         }
-        savePrefs();
         if (typeof opts.onDeviceSelected === 'function') opts.onDeviceSelected(mac);
     },
     updateDeviceMeta(meta) {
