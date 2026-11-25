@@ -6586,7 +6586,7 @@
     {
         _sshKey = null;
         _showSshKeyUpload = false;
-        _sshKeyMessage = _keyDeployStatus?.KeyInstalled == true
+        _sshKeyMessage = _keyDeployStatus?.ScriptInstalled == true
             ? "Generate or upload a new key. The current one is taken off the gateway when you do."
             : "Generate or upload a new key. The current one keeps working until you do.";
         _sshKeyMessageClass = "info";
@@ -6610,9 +6610,16 @@
             _sshKeyMessage = $"{message} The stored key was kept, so you can try again.";
             _sshKeyMessageClass = "danger";
         }
+        else if (message != SshKeyDeploymentMessages.Removed)
+        {
+            // The key stayed in authorized_keys (it was the operator's own): say so after the removal.
+            _gatewayKeyKeptNote = message;
+        }
 
         return success;
     }
+
+    private string? _gatewayKeyKeptNote;
 
     /// <summary>
     /// Names of this site's modems that authenticate with the stored key alone, read fresh so a modem
@@ -6636,7 +6643,8 @@
 
     private async Task RemoveSshKey()
     {
-        var installed = _keyDeployStatus?.KeyInstalled == true || _keyDeployStatus?.ScriptInstalled == true;
+        // Only a key Network Optimizer installed is taken off the gateway; promise nothing else.
+        var installed = _keyDeployStatus?.ScriptInstalled == true;
         var prompt = installed
             ? "Remove the stored SSH key and take it off the gateway? Connections will fall back to the "
               + "password or key file configured for each."
@@ -6657,13 +6665,14 @@
 
         try
         {
+            _gatewayKeyKeptNote = null;
             if (!await ClearKeyFromGatewayIfInstalled())
                 return;
 
             await SshKeyService.RemoveAsync();
             _keyDeployStatus = await SshKeyDeployment.GetStatusAsync();
             _sshKey = null;
-            _sshKeyMessage = "SSH key removed.";
+            _sshKeyMessage = _gatewayKeyKeptNote is { } note ? $"SSH key removed. {note}" : "SSH key removed.";
             _sshKeyMessageClass = "info";
             await RefreshSshSettingsAfterKeyChange();
         }
