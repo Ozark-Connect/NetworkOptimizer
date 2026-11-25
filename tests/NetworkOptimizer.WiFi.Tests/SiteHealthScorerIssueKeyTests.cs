@@ -34,14 +34,14 @@ public class SiteHealthScorerIssueKeyTests
     }
 
     [Fact]
-    public void A_poor_client_raises_a_critical_per_client_issue()
+    public void A_poor_client_raises_a_recommendation_per_client_issue()
     {
         var scorer = new SiteHealthScorer();
         var aps = new List<AccessPointSnapshot> { Ap("aa:bb:cc:dd:ee:01", "AP-1") };
 
         var score = scorer.Calculate(aps, new List<WirelessClientSnapshot> { Client("cc:00:00:00:00:01", aps[0].Mac, "AP-1", -88, RadioBand.Band5GHz) }, null);
 
-        score.Issues.Single(i => i.Title == "Weak signal").Severity.Should().Be(HealthIssueSeverity.Critical);
+        score.Issues.Single(i => i.Title == "Weak signal").Severity.Should().Be(HealthIssueSeverity.Warning);
     }
 
     [Fact]

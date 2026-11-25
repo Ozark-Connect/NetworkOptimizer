@@ -561,7 +561,8 @@ public class SiteHealthScorer
             // it roams to, so one acknowledgment covers it until it is restored.
             score.Issues.Add(new HealthIssue
             {
-                Severity = HealthIssueSeverity.Critical,
+                // One client's signal is its own problem, often passing (walking out of range), not a site failure.
+                Severity = HealthIssueSeverity.Warning,
                 Dimensions = { HealthDimension.SignalQuality },
                 RuleId = "WIFI-WEAK-SIGNAL-001",
                 Class = HealthIssueClass.Measured,
