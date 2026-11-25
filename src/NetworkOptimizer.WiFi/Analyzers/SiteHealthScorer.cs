@@ -286,7 +286,6 @@ public class SiteHealthScorer
             ? "Check for coverage gaps between these APs."
             : $"Check for coverage gaps between these APs. Fast roaming is off on {string.Join(", ", fastRoamingOff)}; turning it on can help, except where IoT or older devices need it off.";
 
-    /// <summary>The Roaming failures recommendation when one device made every failure on the AP pair.</summary>
     /// <summary>
     /// The Weak signal recommendation for the client's kind of device: a phone may only pass through
     /// a weak spot, a stationary device sits in one.
@@ -302,6 +301,7 @@ public class SiteHealthScorer
         return "Consider adding AP coverage where this device is used, or check its Signal history on Client Performance.";
     }
 
+    /// <summary>The Roaming failures recommendation when one device made every failure on the AP pair.</summary>
     internal const string SingleDeviceRoamFailureRecommendation =
         "The APs look fine for other clients. Check this client's Wi-Fi driver or roaming settings.";
 

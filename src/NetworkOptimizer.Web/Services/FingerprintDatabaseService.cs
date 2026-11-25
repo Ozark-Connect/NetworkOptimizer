@@ -22,6 +22,9 @@ public class FingerprintDatabaseService : IFingerprintDatabaseService
         _logger = logger;
     }
 
+    /// <summary>The last fetched database, stale or not, without fetching. Null until a fetch has succeeded.</summary>
+    public UniFiFingerprintDatabase? Cached => _database;
+
     /// <summary>
     /// Gets the cached fingerprint database, fetching from the controller if the cache is expired or empty.
     /// </summary>

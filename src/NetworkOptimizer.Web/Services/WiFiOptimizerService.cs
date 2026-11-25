@@ -155,25 +155,50 @@ public class WiFiOptimizerService : IWiFiScanService
             clientDetection);
     }
 
+    // Last background catalog fetch started from here, instance-wide: one try per window at most.
+    private static long _lastCatalogFetchTicks;
+    private static readonly TimeSpan CatalogFetchRetry = TimeSpan.FromMinutes(10);
+
     /// <summary>
     /// Device-type detection set up as the Security Audit's: UniFi's fingerprint catalog (so a type
-    /// picked by hand in UniFi Network counts) and the full IEEE OUI list. A catalog that cannot be
-    /// fetched leaves the fingerprint and OUI checks, which still run.
+    /// picked by hand in UniFi Network counts) and the full IEEE OUI list. Uses the catalog only when
+    /// it is already cached: a refresh never waits on it, because a Console that cannot reach ui.com
+    /// fails the fetch and the catalog service retries on every call. A missing catalog starts one
+    /// background fetch; until it lands, the fingerprint category, OUI, and name checks still run.
     /// </summary>
-    private async Task<NetworkOptimizer.Audit.Services.DeviceTypeDetectionService> CreateClientDetectionAsync()
+    private NetworkOptimizer.Audit.Services.DeviceTypeDetectionService CreateClientDetection()
     {
-        NetworkOptimizer.UniFi.Models.UniFiFingerprintDatabase? fingerprints = null;
-        try
-        {
-            fingerprints = await _fingerprintService.GetDatabaseAsync(_connectionService);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Fingerprint catalog unavailable for Wi-Fi client detection");
-        }
+        var fingerprints = _fingerprintService.Cached;
+        if (fingerprints == null)
+            StartCatalogFetch();
         return new NetworkOptimizer.Audit.Services.DeviceTypeDetectionService(
             fingerprintDb: fingerprints,
             ieeeOuiDb: _ouiDatabase as NetworkOptimizer.Audit.Services.IeeeOuiDatabase);
+    }
+
+    private void StartCatalogFetch()
+    {
+        var now = DateTime.UtcNow.Ticks;
+        var last = Interlocked.Read(ref _lastCatalogFetchTicks);
+        if (now - last < CatalogFetchRetry.Ticks
+            || Interlocked.CompareExchange(ref _lastCatalogFetchTicks, now, last) != last)
+            return;
+
+        var connection = _connectionService;
+        var service = _fingerprintService;
+        var logger = _logger;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                await service.GetDatabaseAsync(connection, timeout.Token);
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(ex, "Fingerprint catalog unavailable for Wi-Fi client detection");
+            }
+        });
     }
 
     /// <summary>
@@ -535,7 +560,7 @@ public class WiFiOptimizerService : IWiFiScanService
 
         try
         {
-            var provider = CreateProvider(await CreateClientDetectionAsync());
+            var provider = CreateProvider(CreateClientDetection());
 
             // Fetch data in parallel - use Task.WhenAll to start all tasks,
             // but handle individual failures so one bad task doesn't block everything.
