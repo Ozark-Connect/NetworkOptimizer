@@ -54,9 +54,8 @@ let lastDevices = [];       // raw devices from the most recent fetch
 let pendingSelect = null;   // mac to isolate once data arrives
 let pendingScroll = false;  // bring the card into view once it has data (a hand-off from another page)
 
-// A map double-click on a page without this table (the Dashboard's Live View card), or a LAN Health
-// link end, leaves the device here and opens Live View. Session storage, not the URL: Live View
-// rewrites its URL.
+// A map double-click on a page without this table (the Dashboard's Live View card) leaves the
+// device here and opens Live View. Session storage, not the URL: Live View rewrites its URL.
 export const HANDOFF_KEY = 'portStatsSelect';
 
 let currentAt = null;       // ISO timestamp for historic playback, null = live
@@ -493,10 +492,10 @@ const api = {
         paused = false;
         if (!currentAt) { loadAndRender(); startPoll(); }
     },
-    selectDevice(mac, tab) {
+    selectDevice(mac) {
         if (!mac) return;
-        // Map double-click only fires for switches/gateways, so that tab unless the caller names APs.
-        activeTab = tab === 'aps' ? 'aps' : 'infra';
+        // Map double-click only fires for switches/gateways, so land on that tab.
+        activeTab = 'infra';
         rebuildMeta(tabDevices());
         renderTabs();
         const match = deviceMeta.find(d => d.mac.toLowerCase() === mac.toLowerCase());
@@ -567,9 +566,7 @@ export function mount(el, mountOpts = {}) {
     } catch (e) { console.debug('[port-stats-table] session storage unavailable', e); }
     if (handoff) {
         pendingScroll = true;
-        // "mac" or "mac|aps": LAN Health hands off an AP, which lives on the APs tab.
-        const [handoffMac, handoffTab] = handoff.split('|');
-        api.selectDevice(handoffMac, handoffTab);   // loads, isolates the device, and scrolls once data is in
+        api.selectDevice(handoff);   // loads, isolates the device, and scrolls once data is in
     } else {
         loadAndRender();
     }

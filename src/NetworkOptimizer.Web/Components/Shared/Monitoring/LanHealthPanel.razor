@@ -540,41 +540,42 @@ else
                 <div class="lan-health-sub">Port @p</div>
             }
         </text>;
+        var target = EndTarget(end, clientIp);
         <div class="lan-health-end">
             @* The restart button stays outside the link: a control inside an anchor would navigate too. *@
-            @if (device)
+            @if (target is { PortStats: true })
             {
-                <a class="lan-health-end-link" href="/monitoring?tab=live" data-tooltip="View in Port Statistics"
+                <a class="lan-health-end-link" href="@target.Href" data-tooltip="@target.Tooltip"
                    @onclick="() => OpenPortStatsAsync(end)" @onclick:preventDefault>@body</a>
-                <DeviceRestartButton Mac="@end.DeviceMac" Name="@end.DeviceName" OnChanged="LoadRestartBadgesAsync"
-                                     Restart="@_restartBadges.GetValueOrDefault(NetworkOptimizer.Web.Services.Firmware.MacNormalizer.Normalize(end.DeviceMac))" />
             }
-            else if (!end.IsUniFi && !string.IsNullOrEmpty(clientIp))
+            else if (target != null)
             {
-                <a class="lan-health-end-link" href="@($"/client-dashboard?ip={Uri.EscapeDataString(clientIp)}")" data-tooltip="View in Client Performance">@body</a>
+                <a class="lan-health-end-link" href="@target.Href" data-tooltip="@target.Tooltip">@body</a>
             }
             else
             {
                 <div class="lan-health-end-link">@body</div>
             }
+            @if (device)
+            {
+                <DeviceRestartButton Mac="@end.DeviceMac" Name="@end.DeviceName" OnChanged="LoadRestartBadgesAsync"
+                                     Restart="@_restartBadges.GetValueOrDefault(NetworkOptimizer.Web.Services.Firmware.MacNormalizer.Normalize(end.DeviceMac))" />
+            }
         </div>
     };
 
-    /// <summary>
-    /// An end's name as a link with a link icon: a network device to its Port Statistics, a client to Client
-    /// Performance. Plain text when neither applies.
-    /// </summary>
+    /// <summary>An end's name as a link with a link icon, to where its icon goes; plain text when it goes nowhere.</summary>
     private RenderFragment EndNameLink(LinkEnd end, string name, string? clientIp = null) => __builder =>
     {
-        if (end.IsUniFi && !string.IsNullOrEmpty(end.DeviceMac))
+        var target = EndTarget(end, clientIp);
+        if (target is { PortStats: true })
         {
-            <a class="lan-health-device-link" href="/monitoring?tab=live" data-tooltip="View in Port Statistics"
+            <a class="lan-health-device-link" href="@target.Href" data-tooltip="@target.Tooltip"
                @onclick="() => OpenPortStatsAsync(end)" @onclick:preventDefault>@name<AppIcon Name="link" /></a>
         }
-        else if (!end.IsUniFi && !string.IsNullOrEmpty(clientIp))
+        else if (target != null)
         {
-            <a class="lan-health-device-link" href="@($"/client-dashboard?ip={Uri.EscapeDataString(clientIp)}")"
-               data-tooltip="View in Client Performance">@name<AppIcon Name="link" /></a>
+            <a class="lan-health-device-link" href="@target.Href" data-tooltip="@target.Tooltip">@name<AppIcon Name="link" /></a>
         }
         else
         {
@@ -582,12 +583,28 @@ else
         }
     };
 
+    private sealed record EndLink(string Href, string Tooltip, bool PortStats = false);
+
+    /// <summary>
+    /// Where an end opens, as the 2D and 3D maps open a node: an AP its clients in Client Stats, a switch or
+    /// gateway its Port Statistics, a client Client Performance. Null when there is nowhere to go.
+    /// </summary>
+    // TODO: point the network device links at the Network Device dashboard once it exists.
+    private static EndLink? EndTarget(LinkEnd end, string? clientIp)
+    {
+        if (end.IsUniFi && !string.IsNullOrEmpty(end.DeviceMac))
+            return end.IsAccessPoint
+                ? new($"/wifi-optimizer?tab=client&ap={Uri.EscapeDataString(end.DeviceMac)}", "View in Client Stats")
+                : new("/monitoring?tab=live", "View in Port Statistics", PortStats: true);
+        return !end.IsUniFi && !string.IsNullOrEmpty(clientIp)
+            ? new($"/client-dashboard?ip={Uri.EscapeDataString(clientIp)}", "View in Client Performance")
+            : null;
+    }
+
     /// <summary>Opens Live View's Port Statistics on this device: the table reads the hand-off when it mounts.</summary>
-    // TODO: point every network device link here at the Network Device dashboard once it exists.
     private async Task OpenPortStatsAsync(LinkEnd end)
     {
-        var value = end.IsAccessPoint ? $"{end.DeviceMac}|aps" : end.DeviceMac;
-        try { await JS.InvokeVoidAsync("sessionStorage.setItem", "portStatsSelect", value); }
+        try { await JS.InvokeVoidAsync("sessionStorage.setItem", "portStatsSelect", end.DeviceMac); }
         catch (Exception ex) when (ex is JSException or JSDisconnectedException) { Logger.LogDebug(ex, "Port Statistics hand-off not stored"); }
         NavigationManager.NavigateTo("/monitoring?tab=live");
     }
