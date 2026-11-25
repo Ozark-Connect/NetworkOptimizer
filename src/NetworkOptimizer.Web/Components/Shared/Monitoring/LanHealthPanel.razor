@@ -648,6 +648,9 @@ else
         var mlo = bands.Count > 1;
         var cols = bands.Count + (mlo ? 1 : 0);
         var lastCol = Math.Max(1, cols);
+        var downTip = $"{link.Upstream.DeviceName} to {link.Downstream.DeviceName}";
+        var upTip = $"{link.Downstream.DeviceName} to {link.Upstream.DeviceName}";
+        var nowTip = $"As {link.Downstream.DeviceName} reads it now";
         var avg = mlo && bands.Where(b => b.SignalDbm != null && b.Band != NetworkOptimizer.WiFi.Models.RadioBand.Band2_4GHz).ToList() is { Count: > 0 } graded
             ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetAverageSignal(graded.Select(b => (b.SignalDbm!.Value, (string?)(b.Band == NetworkOptimizer.WiFi.Models.RadioBand.Band6GHz ? "6" : "5"))).ToList())
             : ((int Bars, string Color)?)null;
@@ -676,7 +679,7 @@ else
                             @if (bands.Count > 0)
                             {
                                 <tr>
-                                    <td>Signal</td>
+                                    <td><span data-tooltip="@nowTip">Signal</span></td>
                                     @foreach (var b in bands)
                                     {
                                         <td><span class="lan-health-signal">@(b.SignalDbm is int s ? $"{s} dBm" : "--")<SignalBarsInline Dbm="b.SignalDbm" Band="b.Band" /></span></td>
@@ -698,26 +701,26 @@ else
                                     }
                                 </tr>
                                 <tr>
-                                    <td>Link speed</td>
+                                    <td><span data-tooltip="@nowTip">Link speed</span></td>
                                     @foreach (var b in bands)
                                     {
-                                        <td><span class="speed-down">↓ @Kbps(b.DownKbps)</span> <span class="speed-up">↑ @Kbps(b.UpKbps)</span></td>
+                                        <td><span class="speed-down" data-tooltip="@downTip">↓ @Kbps(b.DownKbps)</span> <span class="speed-up" data-tooltip="@upTip">↑ @Kbps(b.UpKbps)</span></td>
                                     }
                                     @if (mlo)
                                     {
                                         var down = bands.Sum(b => b.DownKbps ?? 0);
                                         var up = bands.Sum(b => b.UpKbps ?? 0);
-                                        <td><span class="speed-down">↓ @Kbps(down)</span> <span class="speed-up">↑ @Kbps(up)</span></td>
+                                        <td><span class="speed-down" data-tooltip="@downTip">↓ @Kbps(down)</span> <span class="speed-up" data-tooltip="@upTip">↑ @Kbps(up)</span></td>
                                     }
                                 </tr>
                                 <tr>
-                                    <td>Channel</td>
+                                    <td><span data-tooltip="@nowTip">Channel</span></td>
                                     @foreach (var b in bands) { <td>@(b.Channel?.ToString() ?? "--")</td> }
                                     @if (mlo) { <td>--</td> }
                                 </tr>
                             }
-                            @WindowRow($"TX retries ({RangeLabel})", @<text><span class="speed-down">↓ @Pct(l.MeshRetryPct)</span> <span class="speed-up">↑ @Pct(l.MeshChildRetryPct)</span></text>)
-                            @WindowRow($"TX dropped ({RangeLabel})", @<text><span class="speed-down">↓ @(l.MeshTxDropped is double d ? $"{d:N0}" : "--")</span> <span class="speed-up">↑ @(l.MeshChildTxDropped is double c ? $"{c:N0}" : "--")</span></text>)
+                            @WindowRow($"TX retries ({RangeLabel})", @<text><span class="speed-down" data-tooltip="@downTip">↓ @Pct(l.MeshRetryPct)</span> <span class="speed-up" data-tooltip="@upTip">↑ @Pct(l.MeshChildRetryPct)</span></text>)
+                            @WindowRow($"TX dropped ({RangeLabel})", @<text><span class="speed-down" data-tooltip="@downTip">↓ @(l.MeshTxDropped is double d ? $"{d:N0}" : "--")</span> <span class="speed-up" data-tooltip="@upTip">↑ @(l.MeshChildTxDropped is double c ? $"{c:N0}" : "--")</span></text>)
                             @WindowRow($"Re-associations ({RangeLabel})", @<text>@(l.MeshReassociations?.ToString() ?? "--")</text>)
                             @if (l.MeshWorstSignalDbm is int worst && l.MeshWorstSignalRadio is { } wr)
                             {
