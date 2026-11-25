@@ -577,6 +577,7 @@
                             : 'min(100vw - 10px, 360px)',
                     onShow: function(instance) {
                         var ref = instance.reference;
+                        if (window.__nestedTipYields && window.__nestedTipYields(instance)) return false;
                         // data-tooltip-truncated: only when the text is cut off by its ellipsis
                         if (ref.hasAttribute('data-tooltip-truncated') && ref.scrollWidth <= ref.clientWidth + 1) {
                             return false;
@@ -740,6 +741,15 @@
         }, true);
         // An element in the cell with a tooltip of its own (the via line, a badge) shows only that one.
         function innerTipHovered(cell) { return !!cell.querySelector('[data-tooltip]:hover'); }
+        // The same rule for any tooltip inside another's element (a LAN Health badge in a map's rate
+        // pill): the outer stays shut while the inner is hovered, and closes when the inner opens.
+        window.__nestedTipYields = function(instance) {
+            var ref = instance.reference;
+            if (ref.querySelector('[data-tooltip]:hover')) return true;
+            var outer = ref.parentElement && ref.parentElement.closest('[data-tooltip]');
+            if (outer && outer._tippy) outer._tippy.hide();
+            return false;
+        };
         // Live Traffic's tables and Where It's Going hold a card until the pointer has rested this long,
         // and so does a destination card anywhere else it sits in a table or a row of filter chips:
         // crossing packed targets on the way up the page would otherwise strobe cards over them.
@@ -1043,6 +1053,7 @@
                             : 'min(100vw - 10px, 360px)',
                     onShow: function(instance) {
                         var ref = instance.reference;
+                        if (window.__nestedTipYields && window.__nestedTipYields(instance)) return false;
                         if (ref.hasAttribute('data-tooltip-truncated') && ref.scrollWidth <= ref.clientWidth + 1) {
                             return false;
                         }
