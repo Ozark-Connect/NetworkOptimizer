@@ -48,6 +48,7 @@ public class DeviceSshRouterHaTests
         DeviceModeOverride = mode,
         VrrpState = vrrp,
         GatewayVrrpMode = vrrpMode,
+        State = 1,
         IpAddress = "203.0.113.10",
         LanIpAddress = lanIp,
     };

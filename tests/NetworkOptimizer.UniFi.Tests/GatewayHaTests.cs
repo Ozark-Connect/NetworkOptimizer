@@ -137,11 +137,12 @@ public class GatewayHaTests
     [InlineData("UDMPROMAX")]
     [InlineData("UDMEA4C")]
     [InlineData("UDMENT")]
+    [InlineData("EFGCORE")]
     public void ConsoleShadowMode_BothListed_TheVrrpMasterWins(string model)
     {
         // Console Shadow Mode carries vrrp.state but no shadow label.
         UniFiDeviceResponse Udm(string mac, string state) => Parse(
-            "{ \"mac\": \"" + mac + "\", \"type\": \"udm\", \"model\": \"" + model + "\"" + Vrrp(state) + " }");
+            "{ \"mac\": \"" + mac + "\", \"type\": \"udm\", \"model\": \"" + model + "\", \"state\": 1" + Vrrp(state) + " }");
         var backup = Udm("aa:bb:cc:00:00:01", "backup");
         var master = Udm("aa:bb:cc:00:00:02", "master");
         var devices = new[] { backup, master };
@@ -151,6 +152,20 @@ public class GatewayHaTests
         GatewayHa.IsStandby(master, devices).Should().BeFalse();
         GatewayHa.IsUnreachableStandby(backup, devices).Should().BeTrue();
         GatewayHa.IsUnreachableStandby(master, devices).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ConsoleShadowMode_Takeover_StaleOfflineRowNeverWins()
+    {
+        // After a takeover the live row is the shadow's own; the failed primary's row may stay
+        // listed, offline, with its last VRRP state still reading master.
+        var stale = Parse("{ \"mac\": \"aa:bb:cc:00:00:01\", \"type\": \"udm\", \"model\": \"UDMPRO\", \"state\": 0" + Vrrp("master") + " }");
+        var live = Parse("{ \"mac\": \"aa:bb:cc:00:00:02\", \"type\": \"udm\", \"model\": \"UDMPRO\", \"state\": 1" + Vrrp("master") + " }");
+        var devices = new[] { stale, live };
+
+        GatewayHa.Active(devices).Should().BeSameAs(live);
+        GatewayHa.IsStandby(live, devices).Should().BeFalse();
+        GatewayHa.IsUnreachableStandby(live, devices).Should().BeFalse();
     }
 
     [Fact]
@@ -193,8 +208,8 @@ public class GatewayHaTests
     public void FromJson_ReadsTheSameRules()
     {
         using var doc = JsonDocument.Parse($$"""
-            [ { "mac": "{{PrimaryMac}}", "type": "uxg", "model": "UXGENT" },
-              { "mac": "{{ShadowMac}}", "type": "uxg", "model": "UXGENT",
+            [ { "mac": "{{PrimaryMac}}", "type": "uxg", "model": "UXGENT", "state": 1 },
+              { "mac": "{{ShadowMac}}", "type": "uxg", "model": "UXGENT", "state": 1,
                 "device_mode_override": "managed_shadow_gateway", "vrrp": { "state": "master" } } ]
             """);
         var facts = doc.RootElement.EnumerateArray().Select(GatewayHa.FromJson).ToList();

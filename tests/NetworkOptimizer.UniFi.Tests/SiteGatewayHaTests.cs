@@ -24,6 +24,7 @@ public class SiteGatewayHaTests
         VrrpState = vrrp,
         GatewayVrrpMode = vrrpMode,
         ApplicationModeEnabled = appMode,
+        State = 1,
         IpAddress = "203.0.113.10",
         LanIpAddress = "192.0.2.1",
     };

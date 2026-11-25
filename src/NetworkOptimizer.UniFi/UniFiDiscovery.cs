@@ -1114,6 +1114,7 @@ public class DiscoveredDevice : IGatewayHaFacts
     string? IGatewayHaFacts.HaVrrpState => VrrpState;
     string? IGatewayHaFacts.HaGatewayVrrpMode => GatewayVrrpMode;
     bool IGatewayHaFacts.HaApplicationMode => ApplicationModeEnabled;
+    bool IGatewayHaFacts.HaOnline => UniFiDeviceStateMap.IsOnline(State);
 
     public string Id { get; set; } = string.Empty;
     public string Mac { get; set; } = string.Empty;

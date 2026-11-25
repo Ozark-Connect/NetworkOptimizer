@@ -22,6 +22,7 @@ public class SnmpDeviceRulesHaTests
         Type = "uxg",
         Model = "UXGENT",
         Ip = ip,
+        State = 1,
         DeviceModeOverride = mode,
         Vrrp = vrrp == null ? null : new VrrpStatus { State = vrrp },
         GatewayVrrpMode = vrrpMode,

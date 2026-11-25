@@ -88,6 +88,9 @@ public interface IGatewayHaFacts
 
     /// <summary>application_mode_enabled is true.</summary>
     bool HaApplicationMode { get; }
+
+    /// <summary>The console reports the unit connected (UniFi <c>state</c>).</summary>
+    bool HaOnline { get; }
 }
 
 /// <summary>
@@ -139,7 +142,7 @@ public static class GatewayHa
     /// before UniFi cleared the label), the shadow. Null when no unit is a gateway.
     /// </summary>
     /// <remarks>
-    /// "Any VRRP master" covers Console Shadow Mode (UDM Pro, UDM SE, UDM Pro Max, UDM-Beast, EFG):
+    /// "Any VRRP master" covers Console Shadow Mode (UDM Pro, UDM SE, UDM Pro Max, UDM-Beast, EFG, EF Core):
     /// its pair carries vrrp.state but no shadow label, so the state is the only thing that can
     /// tell its units apart if the console ever lists both.
     /// </remarks>
@@ -147,15 +150,22 @@ public static class GatewayHa
     {
         if (devices == null) return null;
         var gateways = devices.Where(IsGateway).ToList();
-        return gateways.FirstOrDefault(d => IsShadow(d) && IsMaster(d))
-            ?? gateways.FirstOrDefault(IsMaster)
-            ?? gateways.FirstOrDefault(d => !IsShadow(d))
-            ?? gateways.FirstOrDefault();
+        // Online units first: after a Console Shadow Mode takeover the live gateway row is the
+        // shadow's own (new MAC and _id), and the failed primary's row can stay listed with its
+        // last VRRP state still reading master.
+        return PickActive(gateways.Where(d => d.HaOnline).ToList()) ?? PickActive(gateways);
     }
 
-    // A second unit holds VRRP master and this one does not: this one is the pair's backup.
+    private static T? PickActive<T>(List<T> gateways) where T : class, IGatewayHaFacts =>
+        gateways.FirstOrDefault(d => IsShadow(d) && IsMaster(d))
+        ?? gateways.FirstOrDefault(IsMaster)
+        ?? gateways.FirstOrDefault(d => !IsShadow(d))
+        ?? gateways.FirstOrDefault();
+
+    // A second, online unit holds VRRP master and this one does not: this one is the pair's backup.
+    // An offline row's last state proves nothing about who holds the VIP now.
     private static bool AnotherIsMaster<T>(T device, IEnumerable<T> devices) where T : class, IGatewayHaFacts =>
-        !IsMaster(device) && devices.Any(d => !ReferenceEquals(d, device) && IsGateway(d) && IsMaster(d));
+        !IsMaster(device) && devices.Any(d => !ReferenceEquals(d, device) && IsGateway(d) && IsMaster(d) && d.HaOnline);
 
     /// <summary>
     /// The gateway that owns the config: the first non-shadow gateway, else the shadow when it
@@ -214,6 +224,8 @@ public static class GatewayHa
             HaGatewayVrrpMode = Str(d, "gateway_vrrp_mode");
             HaApplicationMode = d.ValueKind == JsonValueKind.Object
                 && d.TryGetProperty("application_mode_enabled", out var a) && a.ValueKind == JsonValueKind.True;
+            HaOnline = d.ValueKind == JsonValueKind.Object && d.TryGetProperty("state", out var s)
+                && s.ValueKind == JsonValueKind.Number && s.TryGetInt32(out var state) && UniFiDeviceStateMap.IsOnline(state);
         }
 
         public DeviceType HaRoleType { get; }
@@ -221,6 +233,7 @@ public static class GatewayHa
         public string? HaVrrpState { get; }
         public string? HaGatewayVrrpMode { get; }
         public bool HaApplicationMode { get; }
+        public bool HaOnline { get; }
     }
 
     /// <summary>

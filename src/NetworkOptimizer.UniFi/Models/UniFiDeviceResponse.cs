@@ -17,6 +17,7 @@ public class UniFiDeviceResponse : IGatewayHaFacts
     string? IGatewayHaFacts.HaVrrpState => Vrrp?.State;
     string? IGatewayHaFacts.HaGatewayVrrpMode => GatewayVrrpMode;
     bool IGatewayHaFacts.HaApplicationMode => ApplicationModeEnabled == true;
+    bool IGatewayHaFacts.HaOnline => UniFiDeviceStateMap.IsOnline(State);
 
     [JsonPropertyName("_id")]
     public string Id { get; set; } = string.Empty;
