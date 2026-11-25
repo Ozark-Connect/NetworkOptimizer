@@ -1526,8 +1526,9 @@ a.stat-card-link:active {
     flex-shrink: 0;
 }
 
+/* A small icon draws smaller in the full-width slot, so every stat card's text starts in the same place. */
 .stat-icon-img.stat-icon-sm {
-    width: 2.5rem;
+    width: 3rem;
     height: 2.5rem;
 }
 
@@ -11557,8 +11558,9 @@ h3 > .tooltip-icon-sm {
     flex-shrink: 0;
 }
 
+/* Same slot width as .stat-icon-img.stat-icon-sm: smaller drawing, aligned text. */
 .stat-icon-svg.stat-icon-sm {
-    width: 2.5rem;
+    width: 3rem;
     height: 2.5rem;
 }
 
