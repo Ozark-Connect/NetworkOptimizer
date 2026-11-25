@@ -7,12 +7,13 @@ namespace NetworkOptimizer.Web.Tests.Monitoring;
 
 public class TransitFallbackNumberTests
 {
-    private static TransitAsnCandidate Hop(string address, string? savedName = null) => new()
+    private static TransitAsnCandidate Hop(string address, string? savedName = null, int hop = 5) => new()
     {
         AsnNumber = 64500,
         AsnName = "ExampleNet",
         Method = DiscoveryMethod.DirectRouter,
         HopAddress = address,
+        HopNumber = hop,
         Label = savedName,
         PreservedFromExisting = savedName != null,
     };
@@ -29,7 +30,7 @@ public class TransitFallbackNumberTests
     public void New_hops_number_from_one_with_nothing_saved()
     {
         var a = Hop("192.0.2.1");
-        var b = Hop("192.0.2.2");
+        var b = Hop("192.0.2.2", hop: 6);
 
         UpstreamTracerService.AssignFallbackNumbers([a, b], []);
 
@@ -38,31 +39,58 @@ public class TransitFallbackNumberTests
     }
 
     [Fact]
-    public void New_hop_skips_a_name_a_saved_hop_off_the_path_holds()
+    public void New_hop_takes_a_suffix_when_a_saved_hop_off_the_path_holds_its_name()
     {
         var saved = new[] { Row(13, "198.51.100.9", "ExampleNet 1") };
         var newHop = Hop("192.0.2.1");
 
         UpstreamTracerService.AssignFallbackNumbers([newHop], saved);
 
-        newHop.Label.Should().Be("ExampleNet 2");
+        newHop.Label.Should().Be("ExampleNet 1-1");
     }
 
     [Fact]
-    public void Saved_hop_keeps_its_name_and_a_new_hop_numbers_past_it()
+    public void New_hops_at_the_same_reach_take_suffixes()
+    {
+        var a = Hop("192.0.2.1");
+        var b = Hop("192.0.2.2");
+
+        UpstreamTracerService.AssignFallbackNumbers([a, b], []);
+
+        a.Label.Should().Be("ExampleNet 1-1");
+        b.Label.Should().Be("ExampleNet 1-2");
+    }
+
+    [Fact]
+    public void Suffix_skips_one_already_taken()
+    {
+        var saved = new[]
+        {
+            Row(13, "198.51.100.9", "ExampleNet 1"),
+            Row(20, "198.51.100.10", "ExampleNet 1-1"),
+        };
+        var newHop = Hop("192.0.2.1");
+
+        UpstreamTracerService.AssignFallbackNumbers([newHop], saved);
+
+        newHop.Label.Should().Be("ExampleNet 1-2");
+    }
+
+    [Fact]
+    public void New_second_hop_behind_a_saved_first_hop_is_number_two()
     {
         var saved = new[] { Row(13, "192.0.2.1", "ExampleNet 1") };
         var kept = Hop("192.0.2.1", "ExampleNet 1");
-        var newHop = Hop("192.0.2.2");
+        var newHop = Hop("192.0.2.2", hop: 6);
 
-        UpstreamTracerService.AssignFallbackNumbers([newHop, kept], saved);
+        UpstreamTracerService.AssignFallbackNumbers([kept, newHop], saved);
 
         kept.Label.Should().Be("ExampleNet 1");
         newHop.Label.Should().Be("ExampleNet 2");
     }
 
     [Fact]
-    public void Newer_duplicate_is_renumbered_and_the_older_keeps_the_name()
+    public void Newer_duplicate_takes_a_suffix_and_the_older_keeps_the_name()
     {
         var saved = new[]
         {
@@ -73,7 +101,7 @@ public class TransitFallbackNumberTests
 
         UpstreamTracerService.AssignFallbackNumbers([newer], saved);
 
-        newer.Label.Should().Be("ExampleNet 2");
+        newer.Label.Should().Be("ExampleNet 1-1");
     }
 
     [Fact]
@@ -92,7 +120,7 @@ public class TransitFallbackNumberTests
     }
 
     [Fact]
-    public void A_name_the_user_chose_is_never_renumbered()
+    public void A_name_the_user_chose_is_never_changed()
     {
         var saved = new[]
         {
