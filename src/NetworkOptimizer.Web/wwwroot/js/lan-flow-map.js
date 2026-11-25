@@ -210,6 +210,10 @@ const NODE_KIND = {
 // is the cutoff - low enough to surface most user-noticeable flows, high enough
 // that monitoring's own ping/loss probes don't render labels everywhere.
 const LINK_LABEL_THRESHOLD_BPS = 1_000_000;
+// A hovered link's pipe: how much thicker it swells, how fast, and how long before its hint shows.
+const LINK_HOVER_SWELL = 1.8;
+const LINK_SWELL_MS = 150;
+const LINK_HINT_MS = 1500;
 const WAN_LABEL_THRESHOLD_BPS = 500_000;
 
 // Camera-distance cutoff (scene units) above which leaf link labels
@@ -464,7 +468,7 @@ export class LanFlowMap {
         this._visibilityObserver.observe(this.canvas);
 
         this.canvas.addEventListener('pointermove', (e) => this._onPointerMove(e));
-        this.canvas.addEventListener('pointerleave', () => this._clearHover());
+        this.canvas.addEventListener('pointerleave', () => { this._clearHover(); this._hoverLinkAt(null); });
         this.canvas.addEventListener('dblclick', (e) => this._onDoubleClick(e));
         this.canvas.addEventListener('contextmenu', (e) => this._onContextMenu(e));
         this.canvas.addEventListener('pointerdown', (e) => {
@@ -1994,9 +1998,11 @@ export class LanFlowMap {
         if (!this._linkLabels) return;
         for (const [linkId, entry] of this._linkLabels) {
             entry.healthEl?.remove();
+            // Access links come back too, for the double-click; only fabric links carry a badge.
             const h = this._linkHealth?.get(linkId);
-            entry.health = h || null;
-            entry.healthEl = h ? lanHealth.createBadge(h) : null;
+            const fabric = h && h.fabric !== false ? h : null;
+            entry.health = fabric;
+            entry.healthEl = fabric ? lanHealth.createBadge(fabric) : null;
         }
         this._refreshLinkLabels();
     }
@@ -3126,6 +3132,7 @@ export class LanFlowMap {
             <div class="lan-flow-map-help-row"><span>Zoom</span><span class="kbd">Scroll</span> or <span class="kbd">W</span> <span class="kbd">S</span></div>
             <div class="lan-flow-map-help-row"><span>Hover detail</span><span class="kbd">Mouse over</span></div>
             <div class="lan-flow-map-help-row"><span>Open Client</span><span class="kbd">Double-click</span></div>
+            <div class="lan-flow-map-help-row"><span>Open a link's LAN Health</span><span class="kbd">Double-click</span></div>
             <div class="lan-flow-map-help-row"><span>Move device</span><span class="kbd">Right-click</span></div>
             <div class="lan-flow-map-help-row"><span>Pause / Play</span><span class="kbd">Space</span></div>
             <div class="lan-flow-map-help-row"><span>Scrub timeline</span><span class="kbd">←</span> <span class="kbd">→</span></div>
@@ -4386,6 +4393,7 @@ export class LanFlowMap {
     }
 
     _onPointerMove(e) {
+        this._touch = e.pointerType !== 'mouse';
         const rect = this.canvas.getBoundingClientRect();
         this._pointerScreen.x = e.clientX - rect.left;
         this._pointerScreen.y = e.clientY - rect.top;
@@ -4404,13 +4412,72 @@ export class LanFlowMap {
             if (group.userData.iconBody) candidates.push(group.userData.core);
         }
         const hits = this._raycaster.intersectObjects(candidates, false);
-        if (hits.length === 0) { this._clearHover(); return; }
+        if (hits.length === 0) {
+            if (this._hoverTarget) this._clearHover();
+            this._hoverLinkAt(this._linkPipeAt());
+            return;
+        }
+        this._hoverLinkAt(null);
         const hit = hits[0].object;
         // Walk up to find the group with userData.node.
         let g = hit;
         while (g && !(g.userData && g.userData.node)) g = g.parent;
         if (!g) { this._clearHover(); return; }
         this._showHover(g.userData.node);
+    }
+
+    // The link LAN Health has a page for under the pointer: its pipe, from the raycaster's last aim.
+    _linkPipeAt() {
+        if (!this._linkHealth?.size) return null;
+        const pipes = [];
+        for (const lm of this._linkMeshes.values()) {
+            if (lm.pipe?.isMesh && lm.pipe.visible && this._linkHealth.get(lm.link.id)?.href) pipes.push(lm.pipe);
+        }
+        const hits = this._raycaster.intersectObjects(pipes, false);
+        return hits.length ? this._linkMeshes.get(hits[0].object.userData.link.id) || null : null;
+    }
+
+    // The hovered link's pipe swells to say it is clickable and, after a long rest, what a double-click does.
+    _hoverLinkAt(lm) {
+        if (lm === this._hoverLink) {
+            if (lm && this._linkHintShown) this._placeLinkHint();
+            return;
+        }
+        if (this._hoverLink) this._swellPipe(this._hoverLink.pipe, 1);
+        clearTimeout(this._linkHintTimer);
+        if (this._linkHintShown) { this._tooltipEl?.classList.remove('is-visible'); this._linkHintShown = false; }
+        this._hoverLink = lm;
+        this.canvas.style.cursor = lm ? 'pointer' : '';
+        if (!lm) return;
+        this._swellPipe(lm.pipe, LINK_HOVER_SWELL);
+        this._linkHintTimer = setTimeout(() => {
+            if (this._hoverLink !== lm || this._hoverTarget || !this._tooltipEl) return;
+            const gesture = this._touch ? 'Double-tap' : 'Double-click';
+            this._tooltipEl.innerHTML = `<div class="lan-flow-map-tooltip-row"><span>${gesture} for LAN Health</span></div>`;
+            this._linkHintShown = true;
+            this._placeLinkHint();
+            this._tooltipEl.classList.add('is-visible');
+        }, LINK_HINT_MS);
+    }
+
+    _placeLinkHint() {
+        this._tooltipEl.style.left = `${this._pointerScreen.x + 14}px`;
+        this._tooltipEl.style.top = `${this._pointerScreen.y + 14}px`;
+    }
+
+    // Eases a pipe's girth (its local X and Z; the cylinder runs along local Y) to `to`.
+    _swellPipe(pipe, to) {
+        if (!pipe?.isMesh) return;
+        cancelAnimationFrame(pipe.userData.swellRaf);
+        const from = pipe.scale.x, start = performance.now();
+        const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        const step = (now) => {
+            const t = reduce ? 1 : Math.min(1, (now - start) / LINK_SWELL_MS);
+            const s = from + (to - from) * t;
+            pipe.scale.set(s, 1, s);
+            if (t < 1) pipe.userData.swellRaf = requestAnimationFrame(step);
+        };
+        pipe.userData.swellRaf = requestAnimationFrame(step);
     }
 
     _onDoubleClick(e) {
@@ -4431,7 +4498,12 @@ export class LanFlowMap {
             if (group.userData.iconBody) candidates.push(group.userData.core);
         }
         const hits = this._raycaster.intersectObjects(candidates, false);
-        if (hits.length === 0) return;
+        if (hits.length === 0) {
+            // A link LAN Health has a page for opens it; a node over the link wins, above.
+            const lm = this._linkPipeAt();
+            if (lm) navigate(this._linkHealth.get(lm.link.id).href);
+            return;
+        }
         let g = hits[0].object;
         while (g && !(g.userData?.node)) g = g.parent;
         if (!g) return;
@@ -4465,10 +4537,8 @@ export class LanFlowMap {
         if (node.kind !== NODE_KIND.WifiClient && node.kind !== NODE_KIND.WiredClient && node.kind !== NODE_KIND.VirtualHub) return;
         const ip = node.ip;
         if (!ip) return;
-        // Wi-Fi clients land on the Signal tab; wired clients have no signal data,
-        // so they go to the default tab.
-        const tab = node.kind === NODE_KIND.WifiClient ? '&tab=signal' : '';
-        const url = `/client-dashboard?ip=${encodeURIComponent(ip)}${tab}`;
+        // The default tab (Speed): what the device is doing is the usual question; Signal is a click away.
+        const url = `/client-dashboard?ip=${encodeURIComponent(ip)}`;
         navigate(url);
     }
 

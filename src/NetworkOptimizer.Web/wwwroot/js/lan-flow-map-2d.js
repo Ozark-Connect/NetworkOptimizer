@@ -260,6 +260,18 @@ function orthoAt(x1,y1,x2,y2,t,midYOff,hz,out) {
     o.x=x2;o.y=midY+vs*(c2+Math.min(d,s5));return o;
 }
 const _dotPt={x:0,y:0};
+const _linkPt={x:0,y:0};
+// A link's hit test walks its path in this many straight pieces; the hint waits this long on a link.
+const LINK_HIT_STEPS=24;
+const LINK_HINT_MS=1500;
+// How much wider a hovered link draws at full swell.
+const LINK_HOVER_GROW=0.8;
+
+function segDist(px,py,x1,y1,x2,y2){
+    const dx=x2-x1,dy=y2-y1,l2=dx*dx+dy*dy;
+    const t=l2>0?Math.max(0,Math.min(1,((px-x1)*dx+(py-y1)*dy)/l2)):0;
+    return Math.hypot(px-(x1+t*dx),py-(y1+t*dy));
+}
 
 function strokeOrtho(ctx,x1,y1,x2,y2,midYOff,hz) {
     if(hz)return strokeOrtho(axisSwap(ctx),y1,x1,y2,x2,midYOff,false);
@@ -640,7 +652,8 @@ class LanFlowMap2D {
                 <div class="lan-flow-map-help-row"><span>Open Port Statistics</span><span class="kbd">Double-click</span></div>
                 <div class="lan-flow-map-help-row"><span>Open an AP's Client Stats</span><span class="kbd">Double-click</span></div>
                 <div class="lan-flow-map-help-row"><span>Open a modem's Cellular Stats</span><span class="kbd">Double-click</span></div>
-                <div class="lan-flow-map-help-row"><span>Open ISP Health</span><span class="kbd">Double-click</span></div>${scrubRows}
+                <div class="lan-flow-map-help-row"><span>Open ISP Health</span><span class="kbd">Double-click</span></div>
+                <div class="lan-flow-map-help-row"><span>Open a link's LAN Health</span><span class="kbd">Double-click</span></div>${scrubRows}
                 <div class="lan-flow-map-help-row"><span>Fullscreen</span><span class="kbd">Esc</span> to exit</div>`;
         help.appendChild(helpBody);
         helpTitle.addEventListener('click',()=>helpBody.classList.toggle('is-collapsed'));
@@ -1217,7 +1230,12 @@ class LanFlowMap2D {
             }
         }
         const hit=this._nodeAt(sx,sy);
-        if(!hit)return;
+        if(!hit){
+            // A link LAN Health has a page for opens it; a node over the link wins, above.
+            const link=this._linkAt(sx,sy);
+            if(link)navigate(this._linkHealth.get(link.lk.id).href);
+            return;
+        }
         const d=hit.d;
         // A monitored cellular modem opens its series in Cellular Stats, as the Dashboard card does;
         // its ports say little. A Gateway with a modem inside keeps Port Statistics.
@@ -1246,9 +1264,8 @@ class LanFlowMap2D {
         // A shared-port hub carries the IP of its busiest interface, so it opens like a client.
         if(d.kind!==NK.WifiClient&&d.kind!==NK.WiredClient&&d.kind!==NK.VirtualHub)return;
         if(!d.ip)return;
-        // Wi-Fi clients land on the Signal tab; wired clients go to the default tab.
-        const tab=d.kind===NK.WifiClient?'&tab=signal':'';
-        const url=`/client-dashboard?ip=${encodeURIComponent(d.ip)}${tab}`;
+        // The default tab (Speed): what the device is doing is the usual question; Signal is a click away.
+        const url=`/client-dashboard?ip=${encodeURIComponent(d.ip)}`;
         navigate(url);
     }
 
@@ -1268,12 +1285,65 @@ class LanFlowMap2D {
             if(tx<4)tx=4; if(ty<4)ty=4;
             this._tooltip.style.left=tx+'px';
             this._tooltip.style.top=ty+'px';
-        } else if(!hit){
+        } else if(!hit&&this._hoverNode){
             this._hideTooltip();
         }
         // WAN globes carry no tooltip, but they grow on hover like the nodes.
         const w=this._screenToWorld(sx,sy);
         this._hoverCloud=!hit&&this._isCloudVisible()?this._clouds.find(c=>Math.hypot(w.x-c.x,w.y-c.y)<=G.cloudR)||null:null;
+        this._hoverLinkAt(hit||this._hoverCloud?null:this._linkAt(sx,sy),sx,sy);
+    }
+
+    // A link LAN Health has a page for, within a few pixels of its drawn path: what a double-click opens.
+    _linkAt(sx,sy){
+        if(!this._linkHealth?.size)return null;
+        const w=this._screenToWorld(sx,sy), tol=6/this._scale;
+        let best=null,bestD=Infinity;
+        for(const e of this._edges){
+            if(!e._vis||e._x1==null||!this._linkHealth.get(e.lk.id)?.href)continue;
+            const reach=tol+pipeW(e.lk.capacityBps)/2;
+            let px=e._x1,py=e._y1;
+            for(let i=1;i<=LINK_HIT_STEPS;i++){
+                const p=orthoAt(e._x1,e._y1,e._x2,e._y2,i/LINK_HIT_STEPS,e._midYOff,e._hz,_linkPt);
+                const d=segDist(w.x,w.y,px,py,p.x,p.y);
+                if(d<reach&&d<bestD){bestD=d;best=e;}
+                px=p.x;py=p.y;
+            }
+        }
+        return best;
+    }
+
+    // The hovered link swells (via _stepHover) and, after a long rest, says what a double-click does.
+    _hoverLinkAt(link,sx,sy){
+        if(link!==this._hoverLink){
+            this._hoverLink=link;
+            clearTimeout(this._linkHintTimer);
+            if(!this._dragging)this._canvas.style.cursor=link?'pointer':'grab';
+            if(!link){if(!this._hoverNode)this._hideTooltip();return;}
+            this._linkHintTimer=setTimeout(()=>{
+                if(this._hoverLink!==link||this._hoverNode)return;
+                const gesture=this._touch?'Double-tap':'Double-click';
+                this._tooltip.innerHTML=`<div style="color:${C.textMuted}">${gesture} for LAN Health</div>`;
+                this._tooltip.style.opacity='1';
+                this._tooltip.style.visibility='visible';
+                this._placeTooltip(this._linkSx,this._linkSy);
+            },LINK_HINT_MS);
+        }
+        if(link){
+            this._linkSx=sx;this._linkSy=sy;
+            if(this._tooltip.style.visibility==='visible')this._placeTooltip(sx,sy);
+        }
+    }
+
+    _placeTooltip(sx,sy){
+        const tr=this._tooltip.getBoundingClientRect();
+        const cr=this._el.getBoundingClientRect();
+        let tx=sx+14,ty=sy+14;
+        if(tx+tr.width>cr.width-4)tx=sx-tr.width-8;
+        if(ty+tr.height>cr.height-4)ty=sy-tr.height-8;
+        if(tx<4)tx=4; if(ty<4)ty=4;
+        this._tooltip.style.left=tx+'px';
+        this._tooltip.style.top=ty+'px';
     }
 
     // ---- Hover grow ----
@@ -1287,6 +1357,7 @@ class LanFlowMap2D {
         const targets=new Set();
         if(this._hoverNode)targets.add(this._hoverNode.d.id);
         if(this._hoverCloud)targets.add(this._hoverCloud.d.id);
+        if(this._hoverLink)targets.add('link:'+this._hoverLink.lk.id);
         for(const id of targets)if(!prog.has(id))prog.set(id,0);
         if(!prog.size)return;
         const step=this._reducedMotion()?1:dt*1000/HOVER_MS;
@@ -1453,6 +1524,8 @@ class LanFlowMap2D {
     _hideTooltip(){
         this._hoverNode=null;
         this._hoverCloud=null;
+        this._hoverLink=null;
+        clearTimeout(this._linkHintTimer);
         if(this._tooltip){this._tooltip.style.opacity='0';this._tooltip.style.visibility='hidden';}
     }
 
@@ -2814,9 +2887,10 @@ class LanFlowMap2D {
             const u=0.75*Math.max(dU,uU)+0.25*Math.min(dU,uU);
             const band=edgeBand(e);
             ctx.strokeStyle=pipeClr(Math.min(u,1),band);
-            ctx.lineWidth=pipeW(e.lk.capacityBps);
+            const swell=this._hoverProg?.get('link:'+e.lk.id)||0;
+            ctx.lineWidth=pipeW(e.lk.capacityBps)*(1+LINK_HOVER_GROW*swell);
             ctx.lineCap='round';
-            ctx.globalAlpha=e._isCl?0.3+u*0.45:0.5+u*0.5;
+            ctx.globalAlpha=Math.min(1,(e._isCl?0.3+u*0.45:0.5+u*0.5)+0.3*swell);
             // A WAN tunneled over the LAN (GRE from a cellular modem) is dashed: it crosses the LAN.
             const tunnel=e._isWan&&e.lk.viaTunnel&&e.lk.viaNodeId&&this._treeMap.get(e.lk.viaNodeId)?.x!=null;
             if(tunnel)ctx.setLineDash([6,5]);
@@ -2924,7 +2998,7 @@ class LanFlowMap2D {
         const placed=new Set();
         const rects=new Map((this._linkLabelRects||[]).filter(r=>r.owner?.lk?.id).map(r=>[r.owner.lk.id,r]));
         for(const[id,h]of this._linkHealth){
-            if(h.healthy)continue;
+            if(h.healthy||h.fabric===false)continue;
             const r=rects.get(id);
             const mid=this._edgeMids?.get(id);
             const wx=r?r.x+r.w+3:mid?.x, wy=r?r.y+r.h/2:mid?.y;

@@ -1,8 +1,8 @@
 using System.Text.Json;
 using NetworkOptimizer.Web.Services;
-using NetworkOptimizer.Web.Services.LanFlowMap;
 using NetworkOptimizer.Web.Services.Authorization;
 using NetworkOptimizer.Web.Services.ClientIcons;
+using NetworkOptimizer.Web.Services.LanFlowMap;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -34,21 +34,27 @@ public static class LanFlowMapEndpoints
                 }
             });
 
-        // LAN Health per fabric link, keyed by the map's own link id ("uplink-{child mac}"), for the
-        // health badge beside each link's throughput label on both maps.
+        // LAN Health per link, keyed by the map's own link id: a fabric link's "uplink-{child mac}", for the
+        // health badge beside its throughput label, and a wired access port's "cli-link-{client mac}", for the
+        // double-click through to its link page (fabric: false, so it draws no badge).
         read.MapGet("/api/monitoring/lan-flow-map/link-health",
             async (NetworkOptimizer.Web.Services.Monitoring.LanHealth.ILanHealthService lanHealth, CancellationToken ct) =>
             {
                 var report = await lanHealth.GetReportAsync(48, TimeZoneInfo.Utc, NetworkOptimizer.Core.Helpers.DisplayFormat.Fallback, ct);
-                return Results.Ok(report.Links.Where(l => l.Link.IsFabric && l.Link.Downstream.DeviceMac.Length > 0)
-                    .Select(l => new
+                return Results.Ok(report.Links
+                    .Select(l => (Health: l, MapId: l.Link.IsFabric
+                        ? (l.Link.Downstream.DeviceMac.Length > 0 ? $"uplink-{l.Link.Downstream.DeviceMac}" : null)
+                        : (string.IsNullOrEmpty(l.Link.ClientMac) ? null : $"cli-link-{l.Link.ClientMac}")))
+                    .Where(x => x.MapId != null)
+                    .Select(x => new
                     {
-                        mapLinkId = $"uplink-{l.Link.Downstream.DeviceMac}",
-                        linkId = l.Link.Id,
-                        score = Math.Round(l.Score),
-                        status = NetworkOptimizer.Web.Components.Shared.Monitoring.LanHealthPanel.StatusLabel(l.Status),
-                        healthy = l.Score >= NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanHealthScorer.HealthyScore,
-                        href = NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanHealthLinks.Link(l.Link.Id),
+                        mapLinkId = x.MapId,
+                        fabric = x.Health.Link.IsFabric,
+                        linkId = x.Health.Link.Id,
+                        score = Math.Round(x.Health.Score),
+                        status = NetworkOptimizer.Web.Components.Shared.Monitoring.LanHealthPanel.StatusLabel(x.Health.Status),
+                        healthy = x.Health.Score >= NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanHealthScorer.HealthyScore,
+                        href = NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanHealthLinks.Link(x.Health.Link.Id),
                     }));
             });
 
