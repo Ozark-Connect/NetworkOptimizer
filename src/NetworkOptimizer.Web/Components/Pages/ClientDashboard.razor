@@ -241,7 +241,7 @@
                     }
                     else
                     {
-                        <ClientIcon Url="@clientIconUrl" Size="40" Class="identity-client-icon" />
+                        <ClientIcon Url="@clientIconUrl" Size="52" Class="identity-client-icon" />
                         <div class="identity-text">
                         <ClientNameEditor @key="_client.Mac" Mac="@_client.Mac" Name="@_client.Name" Hostname="@_client.Hostname" Class="identity-name-cell" TourId="client-rename"
                                           ReadOnly="@_client.IsProtectDevice" OnRenamed="OnClientRenamed">
@@ -4986,6 +4986,10 @@
     .signal-unit {
         font-size: 0.75rem;
         opacity: 0.7;
+    }
+    /* Larger than the row it sits in: the negative margins spend the row's spare space instead of growing it. */
+    .identity-client-icon {
+        margin: -6px -3px -6px 0;
     }
     .identity-live-group {
         display: flex;
