@@ -1,0 +1,28 @@
+@using NetworkOptimizer.WiFi.Models
+
+@* A Wi-Fi band as the app's band badge ("5 GHz" in the band's color); plain text for an unknown band. *@
+@if (CssClass(Band) is { Length: > 0 } css)
+{
+    <span class="band-badge @css">@Band.ToDisplayString()</span>
+}
+else
+{
+    @UnknownText
+}
+
+@code {
+    /// <summary>The band to show.</summary>
+    [Parameter] public RadioBand Band { get; set; }
+
+    /// <summary>What an unknown band reads as.</summary>
+    [Parameter] public string UnknownText { get; set; } = "Wi-Fi";
+
+    /// <summary>The band badge's color class for a band, empty for an unknown one.</summary>
+    public static string CssClass(RadioBand band) => band switch
+    {
+        RadioBand.Band2_4GHz => "band-2ghz",
+        RadioBand.Band5GHz => "band-5ghz",
+        RadioBand.Band6GHz => "band-6ghz",
+        _ => "",
+    };
+}

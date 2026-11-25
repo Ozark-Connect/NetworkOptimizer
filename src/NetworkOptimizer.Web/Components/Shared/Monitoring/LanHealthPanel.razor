@@ -625,14 +625,6 @@ else
             _ => NetworkOptimizer.WiFi.Models.RadioBand.Unknown,
         };
 
-    private static string BandClass(NetworkOptimizer.WiFi.Models.RadioBand band) => band switch
-    {
-        NetworkOptimizer.WiFi.Models.RadioBand.Band2_4GHz => "band-2ghz",
-        NetworkOptimizer.WiFi.Models.RadioBand.Band5GHz => "band-5ghz",
-        NetworkOptimizer.WiFi.Models.RadioBand.Band6GHz => "band-6ghz",
-        _ => ""
-    };
-
     private static string Kbps(long? kbps) => kbps is > 0 ? DisplayFormatters.FormatRate(kbps.Value * 1000.0) : "-";
 
     private static string Pct(double? pct) => pct is double p ? $"{p:0.#}%" : "-";
@@ -677,7 +669,7 @@ else
                                 <th></th>
                                 @foreach (var b in bands)
                                 {
-                                    <th>@if (b.Band == RadioBand.Unknown) { <text>Wi-Fi</text> } else { <span class="band-badge @BandClass(b.Band)">@b.Band.ToDisplayString()</span> }</th>
+                                    <th><BandBadge Band="b.Band" /></th>
                                 }
                                 @if (mlo) { <th>Combined (MLO)</th> }
                                 @if (bands.Count == 0) { <th></th> }
@@ -700,12 +692,7 @@ else
                                             <td>
                                                 @if (Average(end.Signal) is { } a)
                                                 {
-                                                    <span class="lan-health-signal">
-                                                        <span class="signal-bars-inline" role="img" aria-label="@a.Bars of 5 bars">
-                                                            @for (var i = 0; i < 5; i++) { <span style="@(i < a.Bars ? $"background: {a.Color}" : null)"></span> }
-                                                        </span>
-                                                        <span class="lan-health-sub">average</span>
-                                                    </span>
+                                                    <span class="lan-health-signal"><SignalBarsInline Average="a" /><span class="lan-health-sub">average</span></span>
                                                 }
                                                 else { <text>-</text> }
                                             </td>

@@ -2,10 +2,10 @@
 @using NetworkOptimizer.WiFi.Models
 
 @* Five bars beside a dBm reading: count and color from SignalClassification, as on Client Performance. *@
-@if (Dbm.HasValue)
+@if (Dbm.HasValue || Average.HasValue)
 {
-    var lit = SignalClassification.GetSignalBars(Dbm.Value, Band);
-    var color = SignalClassification.GetSignalColor(Dbm.Value, Band);
+    var lit = Average?.Bars ?? SignalClassification.GetSignalBars(Dbm!.Value, Band);
+    var color = Average?.Color ?? SignalClassification.GetSignalColor(Dbm!.Value, Band);
     <span class="signal-bars-inline" role="img" aria-label="@lit of 5 bars">
         @for (var i = 0; i < 5; i++)
         {
@@ -20,4 +20,7 @@
 
     /// <summary>The band the reading is on, which sets the scale.</summary>
     [Parameter] public RadioBand Band { get; set; }
+
+    /// <summary>Several links read together (an MLO backhaul), from SignalClassification.GetAverageSignal; wins over Dbm.</summary>
+    [Parameter] public (int Bars, string Color)? Average { get; set; }
 }
