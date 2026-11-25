@@ -21030,8 +21030,8 @@ tr.stats-row-filtered {
 .lan-health .lan-health-end-link { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; min-width: 0; color: inherit; text-decoration: none; }
 .lan-health a.lan-health-end-link:hover .lan-health-end-name, .lan-health .lan-health-device-link:hover { color: var(--primary-hover); }
 .lan-health .lan-health-device-link { display: inline-flex; align-items: center; gap: 0.3rem; color: inherit; text-decoration: none; }
-.lan-health .lan-health-device-link > .line-icon { width: 0.9em; height: 0.9em; flex: none; color: var(--text-muted); }
-.lan-health .lan-health-device-link:hover > .line-icon { color: inherit; }
+.lan-health .lan-health-device-link > svg { flex: none; color: var(--text-muted); }
+.lan-health .lan-health-device-link:hover > svg { color: inherit; }
 /* Beside the 48px icon, bottom-aligned with it: outside the link so a restart never navigates. */
 .lan-health .lan-health-end > .device-restart-btn { position: absolute; left: calc(50% + 24px + 0.35rem); top: 48px; transform: translateY(-100%); }
 .lan-health .lan-health-end-name { font-size: 0.875rem; font-weight: 600; color: var(--text-primary); overflow-wrap: break-word; }
