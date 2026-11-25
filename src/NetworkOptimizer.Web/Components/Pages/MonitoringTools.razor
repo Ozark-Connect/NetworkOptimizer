@@ -488,7 +488,7 @@
     <div class="card" style="margin-top: 1.5rem;">
         <div class="card-header">
             <h2 class="card-title">Addresses and DHCP Lease</h2>
-            <span class="status-badge @(string.Equals(iface.State, "UP", StringComparison.OrdinalIgnoreCase) ? "status-connected" : "status-error")">
+            <span class="status-badge @GatewayInterfaceStatusClass(iface.State)">
                 @iface.Name · @(iface.State ?? "unknown")
             </span>
         </div>
@@ -1422,6 +1422,13 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         // The blank "Custom interface" option leaves whatever is typed in the box alone.
         if (!string.IsNullOrEmpty(value)) _diagInterface = value;
     }
+
+    internal static string GatewayInterfaceStatusClass(string? state) => state?.ToUpperInvariant() switch
+    {
+        "UP" => "status-connected",
+        "UNKNOWN" or null => "status-neutral",
+        _ => "status-error"
+    };
 
     private async Task RunGatewayDiagnostics()
     {
