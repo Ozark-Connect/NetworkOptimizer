@@ -772,13 +772,16 @@ public static class LanHealthDetectors
         };
     }
 
+    /// <summary>Below this share of similar paths' median, speed tests across a link read as slow.</summary>
+    public const double SlowSpeedTestShare = 0.6;
+
     // ---- Speed tests across the link vs the norm for their path shape ----
     internal static LinkFinding? SpeedTestBelowNorm(LinkEvidence ev)
     {
         var tests = ev.SpeedTests.Where(t => !t.DuringIncident && t.NormDownMbps is > 0).ToList();
         if (tests.Count < 2) return null;
-        var ratio = tests.Average(t => Math.Max(t.DownMbps / t.NormDownMbps!.Value, t.NormUpMbps is > 0 ? t.UpMbps / t.NormUpMbps.Value : 0));
-        if (ratio >= 0.6) return null;
+        var ratio = tests.Average(t => t.ShareOfNorm!.Value);
+        if (ratio >= SlowSpeedTestShare) return null;
         return new LinkFinding
         {
             Detector = Detectors.SlowSpeedTests,

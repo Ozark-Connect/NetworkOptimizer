@@ -447,6 +447,9 @@ public sealed class LinkHealth
     public int? MeshWorstSignalDbm { get; set; }
     public string? MeshWorstSignalRadio { get; set; }
     public bool MeshWorstSignalAtParent { get; set; }
+
+    /// <summary>The speed tests that crossed the link in the window, latest first, for the Speed Tests card.</summary>
+    public List<LinkSpeedTest> SpeedTests { get; set; } = [];
 }
 
 /// <summary>The site's LAN Health over a window: the score card, the findings, and every link.</summary>

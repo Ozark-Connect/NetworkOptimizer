@@ -8313,6 +8313,28 @@ tr:hover .snmp-row-chevron {
     font-weight: 500;
 }
 
+/* A path link's jump to its LAN Health page: the bottleneck line's separator, in a muted color, and
+   no separator when it is the tooltip's only line. */
+.wifi-tooltip-hint {
+    margin-top: 0.5rem;
+    padding-top: 0.4rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+}
+.wifi-tooltip-hint:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+}
+.path-connector.has-lan-health,
+.bottleneck-warning.has-lan-health {
+    cursor: pointer;
+}
+.path-connector.has-lan-health:hover .connector-line {
+    filter: brightness(1.4);
+}
+
 .wifi-band-badge {
     display: inline-block;
     padding: 0.1rem 0.35rem;

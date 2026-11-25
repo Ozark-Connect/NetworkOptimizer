@@ -342,6 +342,7 @@ public static class LanHealthReportBuilder
                 MeshWorstSignalDbm = ev.MeshWorstSignalDbm,
                 MeshWorstSignalRadio = ev.MeshWorstSignalRadio,
                 MeshWorstSignalAtParent = ev.MeshWorstSignalAtParent,
+                SpeedTests = ev.SpeedTests.OrderByDescending(t => t.At).ToList(),
             };
             health.Score = health.Exclusion == ExclusionLevel.ExcludeFromScore ? 100 : LanHealthScorer.LinkScore(findings);
             report.Links.Add(health);

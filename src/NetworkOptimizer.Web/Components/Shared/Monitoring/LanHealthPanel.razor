@@ -607,6 +607,69 @@ else
             : null;
     }
 
+    /// <summary>The speed tests that crossed the link in the window: the verdict the Slow Speed Tests finding reads, then the latest five.</summary>
+    private RenderFragment SpeedTestsCard(LinkHealth l) => __builder =>
+    {
+        var tests = l.SpeedTests;
+        var judged = tests.Where(t => !t.DuringIncident && t.ShareOfNorm != null).ToList();
+        <div class="card">
+            <div class="card-header"><h2 class="card-title">Speed Tests (@RangeLabel)</h2></div>
+            <div class="card-body">
+                @if (tests.Count == 0)
+                {
+                    <p class="lan-health-sub">No speed tests crossed this link in @RangeLabel.</p>
+                }
+                else
+                {
+                    <p class="lan-health-sub">
+                        @if (judged.Count > 0)
+                        {
+                            @($"{Pluralize(judged.Count, "speed test")} across this link averaged {judged.Average(t => t.ShareOfNorm!.Value) * 100:0}% of what similar paths normally get.")
+                        }
+                        else
+                        {
+                            @($"{Pluralize(tests.Count, "speed test")} across this link; too few tests over similar paths yet to judge them.")
+                        }
+                    </p>
+                    <div class="table-responsive">
+                        <table class="data-table lan-health-speedtests">
+                            <thead><tr><th>Time</th><th>Device</th><th>Result</th><th>Of Normal</th><th>Verdict</th><th></th></tr></thead>
+                            <tbody>
+                                @foreach (var t in tests.Take(5))
+                                {
+                                    var share = t.ShareOfNorm;
+                                    var (verdict, css) = t.DuringIncident ? ("During an incident", "isp-score-none")
+                                        : share is not double s ? ("No baseline yet", "isp-score-none")
+                                        : s >= LanHealthDetectors.SlowSpeedTestShare ? ("Normal", "isp-score-excellent")
+                                        : ("Below normal", "isp-score-poor");
+                                    <tr>
+                                        <td>@TimeFormatHelper.FormatLocalDateTime(t.At, DisplayTime.Zone, DisplayTime.Format)</td>
+                                        <td>@(t.Device ?? "-")</td>
+                                        <td><span class="speed-down">↓ @DisplayFormatters.FormatRate(t.DownMbps * 1e6)</span> <span class="speed-up">↑ @DisplayFormatters.FormatRate(t.UpMbps * 1e6)</span></td>
+                                        <td>@(share is double p ? $"{p * 100:0}%" : "-")</td>
+                                        <td class="@css">@verdict</td>
+                                        <td>
+                                            @if (t.ResultId > 0)
+                                            {
+                                                <a href="@SpeedTestHref(t)" data-tooltip="View this speed test"><LinkOutIcon Size="13" /></a>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    };
+
+    /// <summary>A result Network Optimizer ran opens on LAN Speed Test; one a device or browser ran, on Client Speed Test.</summary>
+    private static string SpeedTestHref(LinkSpeedTest t) =>
+        t.Direction == NetworkOptimizer.Storage.Models.SpeedTestDirection.ServerToDevice
+            ? $"/speedtest?result={t.ResultId}"
+            : $"/client-speedtest?result={t.ResultId}";
+
     /// <summary>One band of a mesh backhaul as the child reads it now: rates in Kbps, down is parent toward child.</summary>
     private sealed record MeshBand(NetworkOptimizer.WiFi.Models.RadioBand Band, string Radio, int? SignalDbm, long? DownKbps, long? UpKbps, int? Channel);
 
@@ -869,6 +932,11 @@ else
                     </table>
                 </div>
             </div>
+        }
+
+        @if (link.IsFabric)
+        {
+            @SpeedTestsCard(l)
         }
 
         <div class="card">

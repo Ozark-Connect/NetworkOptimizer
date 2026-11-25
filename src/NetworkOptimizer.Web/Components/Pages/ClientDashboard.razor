@@ -38,6 +38,7 @@
 @inject ILiveTrafficService LiveTraffic
 @inject ITailscaleDirectory Tailscale
 @inject IClientIcons ClientIcons
+@inject NetworkOptimizer.Web.Services.Monitoring.LanHealth.ILanHealthService LanHealth
 @inject IAuthorizationService Authz
 
 <PageTitle>Client Performance - Network Optimizer</PageTitle>
@@ -325,6 +326,17 @@
                     @if (!_client.IsVpn)
                     {
                     <div class="identity-live-group">
+                        @* A wired client's own port on LAN Health; a Wi-Fi client's slot holds the logging button. *@
+                        @if (_client.IsWired && NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanHealthLinkMatch.ForClient(_lanLinks, _client.Mac) is { } portLink)
+                        {
+                            <a class="identity-lan-health" href="@NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanHealthLinks.Link(portLink.Link.Id)"
+                               data-tooltip="View this port on LAN Health" data-tooltip-hover-only>
+                                Port link
+                                <span class="@NetworkOptimizer.Web.Components.Shared.Monitoring.LanHealthPanel.ScoreClass(portLink.Score)">@Math.Round(portLink.Score)</span>
+                                · @NetworkOptimizer.Web.Components.Shared.Monitoring.LanHealthPanel.StatusLabel(portLink.Status)
+                                <LinkOutIcon Size="12" />
+                            </a>
+                        }
                         @if (PresumedOffline)
                         {
                             <span class="identity-live">
@@ -1968,6 +1980,19 @@
     /// <summary>The site's client icons, for the identity bar. Empty until loaded.</summary>
     private ClientIconMap _clientIcons = ClientIconMap.Empty;
 
+    /// <summary>LAN Health's links now, for a wired client's Port link chip. Empty until loaded or when refused.</summary>
+    private IReadOnlyList<NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkHealth> _lanLinks = [];
+
+    private async Task LoadLanLinksAsync()
+    {
+        try
+        {
+            var report = await LanHealth.GetReportAsync(48, TimeZoneInfo.Utc, NetworkOptimizer.Core.Helpers.DisplayFormat.Fallback);
+            await InvokeAsync(() => { _lanLinks = report.Links; StateHasChanged(); });
+        }
+        catch (Exception ex) { Logger.LogDebug(ex, "Client Performance: LAN Health links not loaded"); }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         await EnsureLiveChartAsync();
@@ -1988,6 +2013,7 @@
         if (!firstRender) return;
 
         _ = ClientIcons.LoadIntoAsync(map => InvokeAsync(() => { _clientIcons = map; StateHasChanged(); }), Logger);
+        _ = LoadLanLinksAsync();
 
         // Check if browser is in a secure context (HTTPS or localhost) - GPS requires it
         // Must be in OnAfterRenderAsync because JS interop isn't available during prerender
@@ -4965,6 +4991,20 @@
         display: flex;
         align-items: center;
         gap: 5px;
+    }
+    /* A wired client's port on LAN Health, in the slot a Wi-Fi client's logging button takes. */
+    .identity-lan-health {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        margin-right: 0.75rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        text-decoration: none;
+        white-space: nowrap;
+    }
+    .identity-lan-health:hover {
+        color: var(--primary-hover);
     }
     .identity-live {
         display: flex;

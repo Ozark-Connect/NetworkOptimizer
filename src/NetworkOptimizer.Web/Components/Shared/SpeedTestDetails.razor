@@ -15,6 +15,8 @@
 @inject ITailscaleDirectory Tailscale
 @inject IClientIcons ClientIcons
 @inject IJSRuntime JS
+@inject NavigationManager Nav
+@inject NetworkOptimizer.Web.Services.Monitoring.LanHealth.ILanHealthService LanHealth
 
 @if (!PathOnly)
 {
@@ -276,9 +278,9 @@
                                     var linkSpeed = GetLinkSpeed(lastHop, nextHopGlobal);
                                     var isWirelessLink = lastHop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
                                     var isBottleneckLink = IsBottleneckLink(lastHop, nextHopGlobal, isWirelessLink, linkSpeed);
-                                    var turnTooltip = GetConnectorTooltip(lastHop, nextHopGlobal, isWirelessLink, isBottleneckLink);
+                                    var turnTooltip = ConnectorTip(lastHop, nextHopGlobal, isWirelessLink, isBottleneckLink);
 
-                                    <div class="path-connector path-turn turn-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-link="@lastGlobalIdx" data-tooltip="@turnTooltip" data-tooltip-html data-tooltip-interactive="@(isWirelessLink ? "" : null)">
+                                    <div class="path-connector path-turn turn-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "") @LanLinkClass(lastHop, nextHopGlobal)" data-link="@lastGlobalIdx" @onclick="() => OpenLanLink(lastHop, nextHopGlobal)" data-tooltip="@turnTooltip" data-tooltip-html data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
                                         {
                                             @RenderSignalBars(lastHop, nextHopGlobal)
@@ -307,9 +309,9 @@
                                     var linkSpeed = GetLinkSpeed(hop, nextHopGlobal);
                                     var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
                                     var isBottleneckLink = IsBottleneckLink(hop, nextHopGlobal, isWirelessLink, linkSpeed);
-                                    var connectorTooltip1 = GetConnectorTooltip(hop, nextHopGlobal, isWirelessLink, isBottleneckLink);
+                                    var connectorTooltip1 = ConnectorTip(hop, nextHopGlobal, isWirelessLink, isBottleneckLink);
 
-                                    <div class="path-connector arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-link="@globalIdx" data-tooltip="@connectorTooltip1" data-tooltip-html data-tooltip-interactive="@(isWirelessLink ? "" : null)">
+                                    <div class="path-connector arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "") @LanLinkClass(hop, nextHopGlobal)" data-link="@globalIdx" @onclick="() => OpenLanLink(hop, nextHopGlobal)" data-tooltip="@connectorTooltip1" data-tooltip-html data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
                                         {
                                             @RenderSignalBars(hop, nextHopGlobal)
@@ -362,9 +364,9 @@
                                     var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
                                     var isBottleneckLink = IsBottleneckLink(hop, nextHopGlobal, isWirelessLink, linkSpeed);
                                     var needsTurn = isLastHopInRow && !isLastRow;
-                                    var connectorTooltip2 = GetConnectorTooltip(hop, nextHopGlobal, isWirelessLink, isBottleneckLink);
+                                    var connectorTooltip2 = ConnectorTip(hop, nextHopGlobal, isWirelessLink, isBottleneckLink);
 
-                                    <div class="path-connector @(needsTurn ? "path-turn" : "") @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-link="@globalIdx" data-tooltip="@connectorTooltip2" data-tooltip-html data-tooltip-interactive="@(isWirelessLink ? "" : null)">
+                                    <div class="path-connector @(needsTurn ? "path-turn" : "") @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "") @LanLinkClass(hop, nextHopGlobal)" data-link="@globalIdx" @onclick="() => OpenLanLink(hop, nextHopGlobal)" data-tooltip="@connectorTooltip2" data-tooltip-html data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
                                         {
                                             @RenderSignalBars(hop, nextHopGlobal)
@@ -387,7 +389,9 @@
 
             @if (PathAnalysis.Path.HasRealBottleneck && (PathAnalysis.Path.Hops?.Count ?? 0) > 2)
             {
-                <div class="bottleneck-warning" data-tooltip="This is the slowest link in the path, limiting overall throughput">
+                var bottleneckLink = BottleneckLanLink();
+                <div class="bottleneck-warning @(bottleneckLink != null ? "has-lan-health" : "")" @onclick="() => OpenLanLink(bottleneckLink)"
+                     data-tooltip="@(bottleneckLink != null ? "This is the slowest link in the path, limiting overall throughput. Click for LAN Health." : "This is the slowest link in the path, limiting overall throughput")">
                     @FormatBottleneckDescription()
                 </div>
             }
@@ -458,6 +462,7 @@
             _tailnetRead = true;
             // Refused on a public result page too: the hops keep their bundled images and emoji.
             _ = ClientIcons.LoadIntoAsync(map => InvokeAsync(() => { _clientIcons = map; StateHasChanged(); }));
+            _ = LoadLanLinksAsync();
             try { _tailnet = await Tailscale.GetPeersAsync(); }
             catch (Exception) { /* Refused (no session, as on a public result page): the hop keeps its generic label. */ }
         }
@@ -1201,6 +1206,53 @@
             nextHop.Type == HopType.Wan || nextHop.Type == HopType.Vpn;
 
         return !isAsymmetricLink && linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps;
+    }
+
+    /// <summary>LAN Health's links now, for the jump from a path link to its page. Empty when refused (a public result page).</summary>
+    private IReadOnlyList<NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkHealth> _lanLinks = [];
+
+    private async Task LoadLanLinksAsync()
+    {
+        try
+        {
+            var report = await LanHealth.GetReportAsync(48, TimeZoneInfo.Utc, NetworkOptimizer.Core.Helpers.DisplayFormat.Fallback);
+            await InvokeAsync(() => { _lanLinks = report.Links; StateHasChanged(); });
+        }
+        catch (Exception) { /* No session or no LAN Health yet: the links stay plain. */ }
+    }
+
+    /// <summary>The LAN Health link between two neighbors on the path, if LAN Health has one.</summary>
+    private NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkHealth? LanLinkFor(NetworkHop hop, NetworkHop nextHop) =>
+        _lanLinks.Count == 0 ? null : NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanHealthLinkMatch.Between(_lanLinks, hop.DeviceMac, nextHop.DeviceMac);
+
+    private string? LanLinkClass(NetworkHop hop, NetworkHop nextHop) => LanLinkFor(hop, nextHop) != null ? "has-lan-health" : null;
+
+    private void OpenLanLink(NetworkHop hop, NetworkHop nextHop) => OpenLanLink(LanLinkFor(hop, nextHop));
+
+    private void OpenLanLink(NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkHealth? link)
+    {
+        if (link != null) Nav.NavigateTo(NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanHealthLinks.Link(link.Link.Id));
+    }
+
+    /// <summary>The first bottleneck link on the path that LAN Health has, for the bottleneck note's jump.</summary>
+    private NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkHealth? BottleneckLanLink()
+    {
+        var hops = PathAnalysis?.Path?.Hops;
+        if (hops == null || _lanLinks.Count == 0) return null;
+        for (var i = 0; i + 1 < hops.Count; i++)
+        {
+            var wireless = hops[i].IsWirelessEgress || hops[i + 1].IsWirelessIngress;
+            if (IsBottleneckLink(hops[i], hops[i + 1], wireless, GetLinkSpeed(hops[i], hops[i + 1])) && LanLinkFor(hops[i], hops[i + 1]) is { } link)
+                return link;
+        }
+        return null;
+    }
+
+    /// <summary>A link's tooltip, with the jump to its LAN Health page as the last line when LAN Health has the link.</summary>
+    private string? ConnectorTip(NetworkHop hop, NetworkHop nextHop, bool isWirelessLink, bool isBottleneckLink)
+    {
+        var tip = GetConnectorTooltip(hop, nextHop, isWirelessLink, isBottleneckLink);
+        return LanLinkFor(hop, nextHop) == null ? tip : tip + "<div class='wifi-tooltip-hint'>Click for LAN Health</div>";
     }
 
     private string? GetConnectorTooltip(NetworkHop hop, NetworkHop nextHop, bool isWirelessLink, bool isBottleneckLink)

@@ -13,7 +13,10 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 public static class LanHealthSpeedTests
 {
     /// <summary>One test reduced to what attribution needs.</summary>
-    public sealed record Test(DateTime At, double DownMbps, double UpMbps, int Retransmits, string Shape, string Kind, bool Routed, IReadOnlyList<string> HopMacs);
+    /// <param name="ResultId">The stored result, for the link page's jump to it.</param>
+    /// <param name="Device">The tested device as the result names it.</param>
+    public sealed record Test(DateTime At, double DownMbps, double UpMbps, int Retransmits, string Shape, string Kind, bool Routed, IReadOnlyList<string> HopMacs,
+        int ResultId = 0, string? Device = null, SpeedTestDirection Direction = SpeedTestDirection.ServerToDevice);
 
     /// <summary>Tests from stored results; failed tests and tests without a path are dropped.</summary>
     public static List<Test> FromResults(IEnumerable<Iperf3Result> results) =>
@@ -24,7 +27,8 @@ public static class LanHealthSpeedTests
                 var macs = path.Hops.OrderBy(h => h.Order).Select(h => LanLinkBuilder.Mac(h.DeviceMac)).Where(m => m.Length > 0).ToList();
                 var shape = $"{path.TheoreticalMaxMbps}|{path.Hops.Count}|{r.Direction}|{r.ParallelStreams}|{path.RequiresRouting}";
                 return new Test(DateTime.SpecifyKind(r.TestTime, DateTimeKind.Utc), r.DownloadBitsPerSecond / 1e6, r.UploadBitsPerSecond / 1e6,
-                    r.DownloadRetransmits + r.UploadRetransmits, shape, r.Direction.ToString(), path.RequiresRouting, macs);
+                    r.DownloadRetransmits + r.UploadRetransmits, shape, r.Direction.ToString(), path.RequiresRouting, macs,
+                    r.Id, string.IsNullOrWhiteSpace(r.DeviceName) ? r.DeviceHost : r.DeviceName, r.Direction);
             })
             .ToList();
 
@@ -41,8 +45,7 @@ public static class LanHealthSpeedTests
         {
             var a = t.HopMacs[i];
             var b = t.HopMacs[i + 1];
-            var link = links.FirstOrDefault(l => l.IsFabric
-                && (l.Upstream.DeviceMac == a && l.Downstream.DeviceMac == b || l.Upstream.DeviceMac == b && l.Downstream.DeviceMac == a));
+            var link = links.FirstOrDefault(l => l.IsFabric && LanHealthLinkMatch.Joins(l, a, b));
             if (link != null) yield return link;
         }
     }
@@ -58,7 +61,8 @@ public static class LanHealthSpeedTests
             foreach (var link in Crossed(t, links))
             {
                 if (!result.TryGetValue(link.Id, out var list)) result[link.Id] = list = [];
-                list.Add(new LinkSpeedTest(t.At, t.DownMbps, t.UpMbps, t.Retransmits, t.Shape, t.Kind, norm?.Item1, norm?.Item2, false));
+                list.Add(new LinkSpeedTest(t.At, t.DownMbps, t.UpMbps, t.Retransmits, t.Shape, t.Kind, norm?.Item1, norm?.Item2, false,
+                    t.ResultId, t.Device, t.Direction));
             }
         }
         return result;

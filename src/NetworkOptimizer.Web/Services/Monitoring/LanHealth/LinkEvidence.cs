@@ -39,8 +39,15 @@ public sealed record SpeedReading(DateTime At, int SpeedMbps, bool? FullDuplex, 
 /// <summary>A mesh backhaul reading at a time.</summary>
 public sealed record MeshReading(DateTime At, int? SignalDbm, long? TxRateKbps, int? MloMembers, string? ParentMac);
 
-/// <summary>A speed test that crossed the link.</summary>
-public sealed record LinkSpeedTest(DateTime At, double DownMbps, double UpMbps, int? Retransmits, string Shape, string Kind, double? NormDownMbps, double? NormUpMbps, bool DuringIncident);
+/// <summary>A speed test that crossed the link; the result id, device, and direction serve the link page's Speed Tests card.</summary>
+public sealed record LinkSpeedTest(DateTime At, double DownMbps, double UpMbps, int? Retransmits, string Shape, string Kind, double? NormDownMbps, double? NormUpMbps, bool DuringIncident,
+    int ResultId = 0, string? Device = null, NetworkOptimizer.Storage.Models.SpeedTestDirection Direction = NetworkOptimizer.Storage.Models.SpeedTestDirection.ServerToDevice)
+{
+    /// <summary>The better of the two directions against its norm (as the Slow Speed Tests finding reads it), or null without a norm.</summary>
+    public double? ShareOfNorm => NormDownMbps is > 0
+        ? Math.Max(DownMbps / NormDownMbps.Value, NormUpMbps is > 0 ? UpMbps / NormUpMbps.Value : 0)
+        : null;
+}
 
 /// <summary>Everything known about one link over the scoring window, from every source.</summary>
 public sealed class LinkEvidence
