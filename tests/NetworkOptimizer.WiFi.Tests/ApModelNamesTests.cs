@@ -28,6 +28,12 @@ public class ApModelNamesTests
     }
 
     [Fact]
+    public void GetDefaultMountType_U7Industrial_IsWall()
+    {
+        Assert.Equal("wall", MountTypeHelper.GetDefaultMountType("U7-Industrial"));
+    }
+
+    [Fact]
     public void GetDefaultMountType_BlackVariant_MatchesBase()
     {
         Assert.Equal(MountTypeHelper.GetDefaultMountType("UWB-XG"), MountTypeHelper.GetDefaultMountType("UWB-XG-BK"));
