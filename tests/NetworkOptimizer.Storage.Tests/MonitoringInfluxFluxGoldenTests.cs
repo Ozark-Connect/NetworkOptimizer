@@ -352,6 +352,10 @@ public sealed class MonitoringInfluxFluxGoldenTests : IDisposable
             return name.Contains("exclude", StringComparison.OrdinalIgnoreCase)
                 ? new List<(string, string)> { ("network_mode", "LTE") }
                 : new List<(string, string)> { ("cm_id", "3"), ("device_mac", "AA-BB-CC-DD-EE-FF") };
+        if (element == typeof((string, int)))
+            return fillOptional
+                ? new List<(string, int)> { ("AA-BB-CC-DD-EE-FF", 3), ("aa:bb:cc:dd:ee:01", 7) }
+                : new List<(string, int)> { ("AA-BB-CC-DD-EE-FF", 3) };
 
         throw new NotSupportedException($"No golden input for {p.Member.Name}({p.ParameterType} {p.Name})");
     }
