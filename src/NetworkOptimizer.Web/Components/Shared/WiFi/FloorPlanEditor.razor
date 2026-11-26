@@ -2745,6 +2745,26 @@
 
     // ── AP markers (match Coverage Map) ──────────────────────────────
 
+    /// <summary>
+    /// The antenna modes the Signal Map offers for a model, from its antenna pattern variants.
+    /// A model with an external antenna (omni, panel) leads with "Internal", its built-in antenna;
+    /// a reflector-only model (narrow/wide) has no separate built-in mode. Null when the model
+    /// has no variants. The first entry is a new planned AP's default.
+    /// </summary>
+    private string[]? SelectableAntennaModes(string model)
+    {
+        var variants = PatternLoader.GetAntennaVariants(model);
+        bool Has(string v) => variants.Contains(v, StringComparer.OrdinalIgnoreCase);
+
+        var modes = new List<string>();
+        if (Has("omni") || Has("panel")) modes.Add("Internal");
+        if (Has("omni")) modes.Add("OMNI");
+        if (Has("panel")) modes.Add("Panel");
+        if (Has("narrow")) modes.Add("Narrow");
+        if (Has("wide")) modes.Add("Wide");
+        return modes.Count > 1 ? modes.ToArray() : null;
+    }
+
     private async Task UpdateApMarkers()
     {
         if (!_mapInitialized) return;
@@ -2761,6 +2781,7 @@
             iconUrl = DeviceIcon.GetIconPath(a.Model) ?? "/images/devices/default-ap.png",
             sameFloor = (a.Floor ?? 1) == _globalActiveFloor,
             isPlanned = false, plannedId = 0,
+            antennaModes = SelectableAntennaModes(a.Model),
             radios = a.Radios.Select(r =>
             {
                 var bd = ApModelCatalog.GetBandDefaults(a.Model, r.Band);
@@ -2821,6 +2842,7 @@
                 iconUrl = DeviceIcon.GetIconPath(pa.Model) ?? "/images/devices/default-ap.png",
                 sameFloor = pa.Floor == _globalActiveFloor,
                 isPlanned = true, plannedId = pa.Id,
+                antennaModes = SelectableAntennaModes(pa.Model),
                 radios = radios
             };
         });
@@ -3224,14 +3246,7 @@
         {
             var model = _selectedCatalogModel;
             var mountType = MountTypeHelper.GetDefaultMountType(model);
-            var catalogEntry = _apCatalog.FirstOrDefault(c => c.Model == model);
-            string? defaultAntennaMode = null;
-            if (catalogEntry?.AntennaVariants is { Count: > 0 } variants)
-            {
-                // Set default antenna mode: "Narrow" for narrow/wide APs, "Internal" for omni APs
-                defaultAntennaMode = variants.Contains("narrow", StringComparer.OrdinalIgnoreCase)
-                    ? "Narrow" : "Internal";
-            }
+            var defaultAntennaMode = SelectableAntennaModes(model)?[0];
             var ap = new PlannedAp
             {
                 Name = model,

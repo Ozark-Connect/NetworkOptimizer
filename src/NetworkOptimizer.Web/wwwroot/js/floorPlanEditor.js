@@ -1293,46 +1293,52 @@ window.fpEditor = {
                 }
             }
 
-            // Antenna mode toggle for APs with switchable modes
-            // Supports two types: Internal/OMNI (U7-Outdoor) and Narrow/Wide (E7-Audience)
+            // Antenna mode selector for APs with switchable modes. The server lists the modes from
+            // the model's antenna patterns (ap.antennaModes); a model without variants gets none.
             var antennaModeHtml = '';
-            function getModePair(mode) {
-                var m = (mode || '').toUpperCase();
-                if (m === 'NARROW' || m === 'WIDE') return { modes: ['Narrow', 'Wide'], labels: ['Narrow', 'Wide'] };
-                return { modes: ['Internal', 'OMNI'], labels: ['Directional', 'Omni'] };
-            }
-            if (isPlanned) {
-                // Planned APs: antenna mode persists directly
-                if (activeRadio && activeRadio.antennaMode) {
-                    var currentMode = activeRadio.antennaMode;
-                    var pair = getModePair(currentMode);
-                    var activeIdx = currentMode.toUpperCase() === pair.modes[1].toUpperCase() ? 1 : 0;
-                    antennaModeHtml =
-                        '<div class="fp-ap-popup-row"><label>Antenna</label>' +
-                        '<div class="fp-mode-toggle" ' +
-                        'onclick="fpEditor._togglePlannedAntennaMode(' + ap.plannedId + ',\'' + esc(currentMode) + '\')">' +
-                        '<span class="fp-mode-opt' + (activeIdx === 0 ? ' active' : '') + '">' + pair.labels[0] + '</span>' +
-                        '<span class="fp-mode-opt' + (activeIdx === 1 ? ' active' : '') + '">' + pair.labels[1] + '</span>' +
-                        '</div></div>';
-                }
-            } else {
-                // Real APs: antenna mode uses simulation overrides
-                if (activeRadio && activeRadio.antennaMode) {
-                    var modeOverrideKey = ap.mac.toLowerCase();
-                    var currentMode = self._antennaModeOverrides[modeOverrideKey] || activeRadio.antennaMode;
-                    var pair = getModePair(currentMode);
-                    var activeIdx = currentMode.toUpperCase() === pair.modes[1].toUpperCase() ? 1 : 0;
-                    var safeModeKey = esc(modeOverrideKey);
-                    var modeIsOverridden = self._antennaModeOverrides[modeOverrideKey] != null;
-                    var modeHeader = txPowerHtml ? '' :
-                        '<div class="fp-ap-popup-divider"></div><div class="fp-ap-popup-section-label">Simulate</div>';
-                    antennaModeHtml = modeHeader +
-                        '<div class="fp-ap-popup-row"><label>Antenna</label>' +
-                        '<div class="fp-mode-toggle' + (modeIsOverridden ? ' overridden' : '') + '" ' +
-                        'onclick="fpEditor._toggleAntennaMode(\'' + safeModeKey + '\',\'' + esc(activeRadio.antennaMode) + '\')">' +
-                        '<span class="fp-mode-opt' + (activeIdx === 0 ? ' active' : '') + '">' + pair.labels[0] + '</span>' +
-                        '<span class="fp-mode-opt' + (activeIdx === 1 ? ' active' : '') + '">' + pair.labels[1] + '</span>' +
-                        '</div></div>';
+            var modeList = (ap.antennaModes && ap.antennaModes.length > 1) ? ap.antennaModes : null;
+            if (modeList) {
+                var isOutdoorPair = modeList.length === 2 && modeList[1].toUpperCase() === 'OMNI';
+                var modeLabels = {
+                    INTERNAL: isOutdoorPair ? 'Directional' : 'Built-in',
+                    OMNI: 'Omni', PANEL: 'Panel', NARROW: 'Narrow', WIDE: 'Wide'
+                };
+                // Null when the mode is unset or not one this model has: nothing is highlighted
+                // rather than a guess that could disagree with the pattern the heatmap uses.
+                var matchMode = function (mode) {
+                    var m = (mode || '').toUpperCase();
+                    for (var i = 0; i < modeList.length; i++) {
+                        if (modeList[i].toUpperCase() === m) return modeList[i];
+                    }
+                    return null;
+                };
+                var modeSelectorHtml = function (current, onclickFor, overridden) {
+                    var html = '<div class="fp-ap-popup-row"><label>Antenna</label>' +
+                        '<div class="fp-mode-toggle' + (overridden ? ' overridden' : '') + '">';
+                    modeList.forEach(function (mode) {
+                        // A two-mode toggle flips on any click, including on the active side
+                        var target = (modeList.length === 2 && mode === current)
+                            ? (modeList[0] === mode ? modeList[1] : modeList[0]) : mode;
+                        html += '<span class="fp-mode-opt' + (mode === current ? ' active' : '') + '" ' +
+                            'onclick="' + onclickFor(target) + '">' + (modeLabels[mode.toUpperCase()] || esc(mode)) + '</span>';
+                    });
+                    return html + '</div></div>';
+                };
+                if (isPlanned) {
+                    // Planned APs: antenna mode persists directly
+                    antennaModeHtml = modeSelectorHtml(matchMode(activeRadio && activeRadio.antennaMode), function (mode) {
+                        return 'fpEditor._setPlannedAntennaMode(' + ap.plannedId + ',\'' + esc(mode) + '\')';
+                    }, false);
+                } else {
+                    // Real APs: antenna mode uses simulation overrides
+                    var liveKey = ap.mac.toLowerCase();
+                    var liveOriginal = (activeRadio && activeRadio.antennaMode) || '';
+                    var liveOverride = self._antennaModeOverrides[liveKey];
+                    antennaModeHtml = (txPowerHtml ? '' :
+                        '<div class="fp-ap-popup-divider"></div><div class="fp-ap-popup-section-label">Simulate</div>') +
+                        modeSelectorHtml(matchMode(liveOverride || liveOriginal), function (mode) {
+                            return 'fpEditor._setAntennaMode(\'' + esc(liveKey) + '\',\'' + esc(liveOriginal) + '\',\'' + esc(mode) + '\')';
+                        }, liveOverride != null);
                 }
             }
 
@@ -1576,26 +1582,15 @@ window.fpEditor = {
         });
     },
 
-    _getOtherMode: function (currentMode) {
-        var m = currentMode.toUpperCase();
-        if (m === 'NARROW') return 'Wide';
-        if (m === 'WIDE') return 'Narrow';
-        if (m === 'OMNI') return 'Internal';
-        return 'OMNI';
+    _setPlannedAntennaMode: function (plannedId, mode) {
+        if (this._dotNetRef) this._dotNetRef.invokeMethodAsync('OnPlannedApAntennaModeChangedFromJs', plannedId, mode);
     },
 
-    _togglePlannedAntennaMode: function (plannedId, currentMode) {
-        var next = this._getOtherMode(currentMode);
-        if (this._dotNetRef) this._dotNetRef.invokeMethodAsync('OnPlannedApAntennaModeChangedFromJs', plannedId, next);
-    },
-
-    _toggleAntennaMode: function (key, originalMode) {
-        var current = this._antennaModeOverrides[key] || originalMode;
-        var next = this._getOtherMode(current);
-        if (next.toUpperCase() === originalMode.toUpperCase()) {
+    _setAntennaMode: function (key, originalMode, mode) {
+        if (mode.toUpperCase() === originalMode.toUpperCase()) {
             delete this._antennaModeOverrides[key];
         } else {
-            this._antennaModeOverrides[key] = next;
+            this._antennaModeOverrides[key] = mode;
         }
         this._updateResetSimBtn();
         this.computeHeatmap();
