@@ -2173,12 +2173,6 @@ public class MonitoringCollectionAgent : BackgroundService
     }
 
     /// <summary>
-    /// Put a retired target back into service, restoring the enabled state retirement took from it.
-    /// </summary>
-    /// <param name="target">The retired row.</param>
-    /// <param name="fallbackEnabled">Used only for a row retired before the remembered value
-    /// existed, where there is nothing to restore.</param>
-    /// <summary>
     /// The auto-discovered fabric target another member of the site's HA gateway pair holds at
     /// <paramref name="address"/> (the LAN VIP), live before retired; null when
     /// <paramref name="mac"/> is not a pair member or no member has one.
@@ -2196,6 +2190,12 @@ public class MonitoringCollectionAgent : BackgroundService
             .FirstOrDefault();
     }
 
+    /// <summary>
+    /// Put a retired target back into service, restoring the enabled state retirement took from it.
+    /// </summary>
+    /// <param name="target">The retired row.</param>
+    /// <param name="fallbackEnabled">Used only for a row retired before the remembered value
+    /// existed, where there is nothing to restore.</param>
     internal static void ApplyRevival(MonitoringTarget target, bool fallbackEnabled)
     {
         target.Enabled = target.EnabledBeforeRetire ?? fallbackEnabled;

@@ -87,17 +87,20 @@ public class DashboardService : IDashboardService
                 data.DeviceCount = devices.Count;
                 data.Devices = devices.Select(d =>
                 {
+                    // A Console Shadow Mode pair has vrrp.state but no shadow label, so either marks a pair member.
+                    var haStandby = d.Type == DeviceType.Gateway && !d.IsActiveGateway
+                        && (d.HaRole != NetworkOptimizer.UniFi.GatewayHaRole.None || d.VrrpState != null);
                     var info = new DeviceInfo
                     {
                         Name = d.Name ?? d.Mac ?? "Unknown",
                         Mac = d.Mac ?? string.Empty,
                         Type = d.Type,
                         HaRole = d.HaRole,
-                        // A Console Shadow Mode pair has vrrp.state but no shadow label, so either marks a pair member.
-                        IsHaStandby = d.Type == DeviceType.Gateway && !d.IsActiveGateway
-                            && (d.HaRole != NetworkOptimizer.UniFi.GatewayHaRole.None || d.VrrpState != null),
+                        IsHaStandby = haStandby,
                         StatusInfo = UniFiDeviceStateMap.ToStatus(d.State),
-                        IpAddress = d.DisplayIpAddress ?? "",
+                        // A standby holds no LAN address and UniFi reports none it can be reached at
+                        // ("unknown" or its suspended WAN), so like UniFi's own device panel, show none.
+                        IpAddress = haStandby ? "" : d.DisplayIpAddress ?? "",
                         Model = d.FriendlyModelName,
                         Firmware = d.Firmware,
                         Uptime = FormatUptime((long?)d.Uptime.TotalSeconds),
