@@ -4,6 +4,7 @@ using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
+using NetworkOptimizer.Web.Services.Monitoring.PathMap;
 
 namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
@@ -595,6 +596,9 @@ public class IspHealthService
         // Upstream Discovery's traces. ISP Health uses these to confirm one hop routes
         // through another before its jitter absolves the other. No live traceroute here.
         Dictionary<string, List<string>> ancestorIpsByTargetId;
+        // TargetId -> the ASNs its confirmed route crosses (every stored row's, in order). IX Peering
+        // reads it: ancestry names only the monitored hops, so it misses a transit ASN's other routers.
+        Dictionary<string, List<int>> pathAsnsByTargetId;
         // TargetId -> persisted hop distance (lowest TTL seen across traces). The canonical
         // nearest-first ordering for the outage shape; absent for targets never traced
         // (the trace map landed post-launch), where the caller falls back to RTT.
@@ -702,6 +706,13 @@ public class IspHealthService
                     g => g.Key,
                     g => g.SelectMany(d => (d.AncestorHopIps ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries))
                         .Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+            pathAsnsByTargetId = discoveries
+                .Where(d => targetIdById.ContainsKey(d.MonitoringTargetId!.Value))
+                .GroupBy(d => targetIdById[d.MonitoringTargetId!.Value])
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.SelectMany(d => RouteSignature.Asns(StoredRoutes.ReadState(d.RouteJson)?.Stable.Signature))
+                        .Distinct().ToList());
             // Ancestor data exists when any row carries the (non-null) column - distinguishes
             // "no discovery yet / pre-ancestor data" from "on-path but no upstream ancestors".
             hopOrderKnown = discoveries.Any(d => d.AncestorHopIps != null);
@@ -1052,6 +1063,7 @@ public class IspHealthService
                 // Hops proven upstream of this destination, so its clean end-to-end jitter
                 // can absolve an ICMP-deprioritized ISP hop it provably routes through.
                 AncestorIps = ancestorIpsByTargetId.TryGetValue(t.TargetId, out var destAnc) ? destAnc : new List<string>(),
+                PathAsns = pathAsnsByTargetId.TryGetValue(t.TargetId, out var destAsns) ? destAsns : new List<int>(),
                 // Internet/CDN endpoint (by TargetType): path-shift correlation prefers an
                 // on-path ISP/transit hop over these as the event label.
                 IsDestination = true

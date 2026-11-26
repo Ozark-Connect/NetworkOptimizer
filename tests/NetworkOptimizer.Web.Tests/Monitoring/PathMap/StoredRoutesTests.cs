@@ -90,6 +90,15 @@ public class StoredRoutesTests
     }
 
     [Fact]
+    public void Asns_ReadsEachNetworkInOrder_CollapsingRepeatsAndSkippingCityOnlyHops()
+    {
+        RouteSignature.Asns("Lakeview|64500 > Riverton|64500 > Riverton| > |64501 > Oakdale|64503")
+            .Should().Equal(64500, 64501, 64503);
+        RouteSignature.Asns(null).Should().BeEmpty();
+        RouteSignature.Asns("").Should().BeEmpty();
+    }
+
+    [Fact]
     public void RouteAt_BeforeAShift_IsTheOldRoute()
     {
         var old = Route(0, ViaRiverton);

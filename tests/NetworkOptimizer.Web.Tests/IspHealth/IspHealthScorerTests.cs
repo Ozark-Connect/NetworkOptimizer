@@ -2065,6 +2065,117 @@ public class IspHealthScorerTests
         dim.Factors.Should().NotContain(f => f.Name == "IX Peering");
     }
 
+    // IX Peering vs the stored route's ASNs. The ISP is 64496; the transit is graded on its nearest
+    // cluster only (HopIps 20.0.0.1); destinations sit 2.5 ms past the first hop and their ancestry
+    // never names 20.0.0.1, so ancestry alone would call every one of them peered.
+    private const int IxIspAsn = 64496;
+    private const int IxTransitAsn = 64500;
+
+    private static AsnSeries IxIsp() => new()
+    {
+        AsnNumber = IxIspAsn, AsnName = "ISP", TargetIds = { "isp" },
+        Samples = TestSeries.Flat(TestSeries.Start, Day, 1.5, 0.3), HopIps = { "10.0.0.1" }
+    };
+
+    private static List<AsnSeries> IxTransits(params int[] extraTransitAsns)
+    {
+        var list = new List<AsnSeries>
+        {
+            new() { AsnNumber = IxTransitAsn, AsnName = "Transit", TargetIds = { "t-near" },
+                Samples = TestSeries.Flat(TestSeries.Start, Day, 10, 0.5), HopIps = { "20.0.0.1" } }
+        };
+        list.AddRange(extraTransitAsns.Select((asn, i) => new AsnSeries
+        {
+            AsnNumber = asn, AsnName = $"Extra{asn}", TargetIds = { $"t-extra-{i}" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 11, 0.5), HopIps = { $"21.0.0.{i + 1}" }
+        }));
+        return list;
+    }
+
+    private static AsnSeries IxDest(string id, int asn, params int[] pathAsns) => new()
+    {
+        AsnNumber = asn, AsnName = id, TargetIds = { id },
+        Samples = TestSeries.Flat(TestSeries.Start, Day, 4, 0.3),
+        HopIps = { "30.0.0.1" },
+        // The ISP hop plus a farther router of the route (not a monitored hop IP).
+        AncestorIps = { "10.0.0.1", "20.0.0.9" },
+        PathAsns = pathAsns.ToList()
+    };
+
+    private static IspScoreDimension IxDimension(List<AsnSeries> transit, params AsnSeries[] destinations) =>
+        new IspHealthScorer(Options).Score(
+            BuildInputs(transit: transit, ispAsn: new List<AsnSeries> { IxIsp() },
+                destinations: destinations.ToList(), hopOrderKnown: true), Gpon).TransitDimension;
+
+    private static string? IxInvolvement(IspScoreDimension dim) =>
+        dim.Factors.SingleOrDefault(f => f.Name == "IX Peering")?.InvolvementTooltip;
+
+    [Fact]
+    public void Ix_peering_excludes_a_route_through_a_transit_asn_s_farther_router()
+    {
+        // The route crosses the transit ASN at a router outside its graded nearest cluster, so the
+        // ancestry IP check passes. The route's ASNs show the transit.
+        var dim = IxDimension(IxTransits(), IxDest("via-far-router", 15169, IxIspAsn, IxTransitAsn, 15169));
+
+        dim.Factors.Should().NotContain(f => f.Name == "IX Peering",
+            "the stored route crosses a graded transit ASN, so the destination is not peered");
+    }
+
+    [Fact]
+    public void Ix_peering_keeps_a_route_of_only_the_isp_and_the_destination()
+    {
+        // Real direct peering: the ISP straight into the destination's network.
+        var dim = IxDimension(IxTransits(),
+            IxDest("cloudflare", 13335, IxIspAsn, 13335),
+            IxDest("google", 15169, IxIspAsn, 15169));
+
+        IxInvolvement(dim).Should().Contain("2 of 2 internet targets");
+    }
+
+    [Fact]
+    public void Ix_peering_keeps_a_route_whose_only_extra_asn_is_not_graded_transit()
+    {
+        // Peering LANs, anycast hosts (PCH AS42 before Quad9), and a destination's sibling ASN
+        // (Microsoft AS8075 in front of AS8068) are not graded transit, so they never exclude.
+        var dim = IxDimension(IxTransits(),
+            IxDest("quad9", 19281, IxIspAsn, 42),
+            IxDest("microsoft", 8068, IxIspAsn, 8075),
+            IxDest("ix-lan-then-dest", 13335, IxIspAsn, 64700, 13335));
+
+        IxInvolvement(dim).Should().Contain("3 of 3 internet targets");
+    }
+
+    [Fact]
+    public void Ix_peering_ignores_the_destination_s_own_asn_and_the_isp_s_when_graded_as_transit()
+    {
+        // The destination's own routers monitored as a transit ASN, and the access ISP's ASN also graded
+        // in the transit role, are both on every peered route: neither makes it transit.
+        var dim = IxDimension(IxTransits(15169, IxIspAsn), IxDest("google", 15169, IxIspAsn, 15169));
+
+        IxInvolvement(dim).Should().Contain("1 of 1 internet targets");
+    }
+
+    [Fact]
+    public void Ix_peering_with_no_stored_route_falls_back_to_ancestry()
+    {
+        // No route signature stored (older discovery rows): classification is ancestry and delta alone.
+        var dim = IxDimension(IxTransits(), IxDest("no-route", 13335));
+
+        IxInvolvement(dim).Should().Contain("1 of 1 internet targets");
+    }
+
+    [Fact]
+    public void Ix_peering_mixed_routes_keep_only_the_direct_ones()
+    {
+        // Most destinations peer; one crosses a second graded transit ASN.
+        var dim = IxDimension(IxTransits(3356),
+            IxDest("cloudflare", 13335, IxIspAsn, 13335),
+            IxDest("akamai", 20940, IxIspAsn),
+            IxDest("opendns", 36692, IxIspAsn, 3356));
+
+        IxInvolvement(dim).Should().Contain("2 of 3 internet targets");
+    }
+
     [Fact]
     public void Without_hop_order_a_transit_asn_is_graded_on_its_near_cluster()
     {

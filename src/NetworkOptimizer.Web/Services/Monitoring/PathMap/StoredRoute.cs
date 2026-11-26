@@ -163,4 +163,19 @@ public static class RouteSignature
     /// <summary>The tokens of a signature, in order.</summary>
     public static IReadOnlyList<string> Tokens(string signature) =>
         signature.Split(" > ", StringSplitOptions.RemoveEmptyEntries);
+
+    /// <summary>The ASNs a signature crosses, nearest first, consecutive repeats collapsed. Tokens with no ASN are skipped.</summary>
+    public static IReadOnlyList<int> Asns(string? signature)
+    {
+        var asns = new List<int>();
+        if (string.IsNullOrEmpty(signature)) return asns;
+        foreach (var token in Tokens(signature))
+        {
+            var bar = token.LastIndexOf('|');
+            if (bar < 0 || !int.TryParse(token.AsSpan(bar + 1), out var asn) || asn <= 0) continue;
+            if (asns.Count > 0 && asns[^1] == asn) continue;
+            asns.Add(asn);
+        }
+        return asns;
+    }
 }

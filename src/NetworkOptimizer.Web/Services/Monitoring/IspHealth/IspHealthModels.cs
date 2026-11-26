@@ -807,6 +807,13 @@ public class AsnSeries
     /// </summary>
     public List<string> AncestorIps { get; init; } = new();
 
+    /// <summary>
+    /// On a destination series: the ASNs of its confirmed route, nearest first, from the stored
+    /// route signature. Unlike <see cref="AncestorIps"/> it names every network the route crosses,
+    /// not only the monitored hops. Empty when no route is stored.
+    /// </summary>
+    public List<int> PathAsns { get; init; } = new();
+
     /// <summary>True for an internet/CDN destination series (DB TargetType InternetService).
     /// Carried onto path-shift events so correlation can prefer an on-path hop as the label.</summary>
     public bool IsDestination { get; init; }

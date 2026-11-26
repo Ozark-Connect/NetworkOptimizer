@@ -1918,7 +1918,8 @@ public class IspHealthScorer
 
     /// <summary>
     /// Selects the monitored internet destinations reached over the access ISP's own peering/IX rather
-    /// than a transit provider: the forward path crosses no transit ASN AND the best-case delta beyond
+    /// than a transit provider: the forward path crosses no transit ASN (neither a monitored transit hop in
+    /// its ancestry nor a graded transit ASN in its stored route) AND the best-case delta beyond
     /// the first clean ISP hop is under <see cref="IxPeeringMaxBestCaseDeltaMs"/>. Requires
     /// per-destination ancestry (hop order + a non-empty ancestor set); a destination we can't place on
     /// the path is never assumed peered. Empty when nothing qualifies.
@@ -1941,11 +1942,20 @@ public class IspHealthScorer
             return double.IsNaN(min) ? (double?)null : Math.Max(0, min - baseline);
         }
 
+        // A graded transit series carries only its nearest cluster's hop IPs, so ancestry alone misses a
+        // route through that ASN's farther routers. The route's ASNs catch it. Only an ASN graded as transit
+        // here counts: an IX LAN, the destination's own sibling ASN, or an unmonitored network is not proof.
+        var transitAsns = inputs.TransitAsnSeries.Select(t => t.AsnNumber).Where(a => a > 0).ToHashSet();
+        transitAsns.ExceptWith(inputs.IspAsnSeries.Select(s => s.AsnNumber));
+        bool RouteCrossesTransitAsn(AsnSeries d) =>
+            d.PathAsns.Any(a => a != d.AsnNumber && transitAsns.Contains(a));
+
         // Min (best case), not mean: a peered-but-flapping anycast (a low floor with occasional spikes)
         // is still peering - the flapping belongs in the grade, not the peering/transit classification.
         return inputs.DestinationSeries
             .Where(d => d.AncestorIps.Count > 0
                 && !inputs.TransitAsnSeries.Any(t => RoutesThrough(d.AncestorIps, t.HopIps))
+                && !RouteCrossesTransitAsn(d)
                 && BestCaseDeltaMs(d) is double delta && delta < IxPeeringMaxBestCaseDeltaMs)
             .ToList();
     }
