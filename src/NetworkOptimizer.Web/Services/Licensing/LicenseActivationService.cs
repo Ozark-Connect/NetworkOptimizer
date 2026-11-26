@@ -305,6 +305,21 @@ public class LicenseActivationService : ILicenseActivationService
     }
 
     /// <summary>
+    /// Drops a removed site from the free-tier slot list. Its key assignment cascades away with
+    /// the site row; the slot list is a settings value, so the site-removal path clears it here.
+    /// </summary>
+    public async Task ForgetFreeTierSiteAsync(int siteId)
+    {
+        await using var db = await _mainDbFactory.CreateDbContextAsync();
+        var freeTier = await LicenseFreeTier.LoadAsync(db);
+        if (!freeTier.SiteIds.Contains(siteId))
+            return;
+        await LicenseFreeTier.StageAsync(db, freeTier with { SiteIds = freeTier.SiteIds.Where(id => id != siteId).ToList() },
+            _time.GetUtcNow().UtcDateTime);
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>
     /// Assigns uncovered sites to free slots, default site first then oldest
     /// first, so activating a key never leaves working sites uncovered when
     /// slots are available. Keys fill before the free-tier slots of declared

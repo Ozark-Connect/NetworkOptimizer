@@ -349,6 +349,7 @@ public class SiteManagementService : ISiteManagementService
         }
         await RemoveAccessGrantsAsync(site.Slug);
         await _siteRepository.DeleteAsync(site.Id);
+        await _activation.ForgetFreeTierSiteAsync(site.Id);
 
         // SQLite connection pooling keeps file handles open after the contexts are
         // disposed; clear the pools so the directory delete doesn't hit locked files.
