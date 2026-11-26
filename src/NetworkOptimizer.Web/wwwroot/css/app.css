@@ -24499,6 +24499,14 @@ a.shp-issue {
     margin-bottom: 0.5rem;
 }
 
+.license-use-question {
+    margin-top: 1rem;
+}
+
+.license-use-question-actions {
+    margin-top: 0.75rem;
+}
+
 .license-refresh-actions {
     margin-top: 1rem;
     margin-bottom: 0.5rem;
