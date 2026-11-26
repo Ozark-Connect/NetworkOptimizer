@@ -490,9 +490,16 @@ public class ClientDashboardService
             if (listed != null)
             {
                 _offlineByMacCache.TryRemove(mac, out _);
-                if (TryNormalizeIp(listed.BestIp ?? clientIp) is { } listedIp)
+                // Its last or fixed address counts only while no other listed client holds it: otherwise WiFiman,
+                // the live poll and the path trace would all read that other client.
+                var listedIp = TryNormalizeIp(listed.Ip)
+                    ?? (TryNormalizeIp(listed.BestIp) is { } last
+                        && !clients.Any(c => !MacEquals(c.Mac, mac) && IpEquals(c.Ip, last)) ? last : null);
+                if (listedIp != null)
                     return await IdentifyLegacyClientAsync(listed, listedIp);
-                return MapClientToIdentity(listed);
+                var addressless = MapClientToIdentity(listed);
+                addressless.Ip = "";
+                return addressless;
             }
 
             if (_offlineByMacCache.TryGetValue(mac, out var cached))
@@ -753,9 +760,14 @@ public class ClientDashboardService
         var identifyMs = pollSw.ElapsedMilliseconds;
         if (identity == null)
             return null;
-        // A pinned client back at a new address is traced and stored at that address.
-        if (!string.IsNullOrEmpty(pinnedMac) && !string.IsNullOrEmpty(identity.Ip))
+        // A pinned client is traced and stored at its own address, and not at all while it has none: the
+        // address the page holds may be another client's.
+        if (!string.IsNullOrEmpty(pinnedMac))
+        {
+            if (string.IsNullOrEmpty(identity.Ip))
+                return new SignalPollResult { Client = identity, Timestamp = DateTime.UtcNow };
             clientIp = identity.Ip;
+        }
 
         var result = new SignalPollResult
         {
