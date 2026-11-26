@@ -681,7 +681,7 @@ public class PropagationService
     /// </summary>
     private static bool IsStandMountModel(string model)
     {
-        var m = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase) ? model[..^2] : model;
+        var m = ApModelNames.StripColorSuffix(model);
         return m.Contains("-IW", StringComparison.OrdinalIgnoreCase) ||
                m.Contains("-Wall", StringComparison.OrdinalIgnoreCase);
     }

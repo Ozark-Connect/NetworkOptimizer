@@ -120,14 +120,9 @@ public class AntennaPatternLoader
     }
 
     /// <summary>
-    /// Strip color suffix "-B" which doesn't affect antenna pattern.
+    /// Strip a color suffix ("-B", "-BK"), which doesn't affect the antenna pattern.
     /// </summary>
-    private static string StripModelSuffix(string model)
-    {
-        if (model.EndsWith("-B", StringComparison.OrdinalIgnoreCase))
-            return model[..^2];
-        return model;
-    }
+    private static string StripModelSuffix(string model) => ApModelNames.StripColorSuffix(model);
 
     /// <summary>
     /// Get antenna gain at a specific elevation angle for a model/band/mode.

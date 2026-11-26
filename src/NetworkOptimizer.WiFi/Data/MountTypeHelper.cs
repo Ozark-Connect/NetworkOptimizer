@@ -24,10 +24,7 @@ public static class MountTypeHelper
         if (string.IsNullOrEmpty(model))
             return "ceiling";
 
-        // Strip color suffix (e.g., "-B" for black) before checking
-        var m = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase)
-            ? model[..^2]
-            : model;
+        var m = ApModelNames.StripColorSuffix(model);
 
         if (WallModels.Contains(m))
             return "wall";

@@ -561,9 +561,7 @@ public static class ApModelCatalog
     /// </summary>
     public static BandDefaults GetBandDefaults(string model, string band)
     {
-        // Strip color suffix (e.g., "-B" for black) before lookup
-        var m = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase)
-            ? model[..^2] : model;
+        var m = ApModelNames.StripColorSuffix(model);
         // Normalize display strings like "5 GHz" to catalog keys like "5"
         var b = NormalizeBandKey(band);
         if (ModelDefaults.TryGetValue(m, out var modelBands) &&
@@ -586,8 +584,7 @@ public static class ApModelCatalog
     /// </summary>
     public static bool TryGetBandDefaults(string model, string band, out BandDefaults defaults)
     {
-        var m = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase)
-            ? model[..^2] : model;
+        var m = ApModelNames.StripColorSuffix(model);
         var b = NormalizeBandKey(band);
         if (ModelDefaults.TryGetValue(m, out var modelBands) &&
             modelBands.TryGetValue(b, out var specific))
