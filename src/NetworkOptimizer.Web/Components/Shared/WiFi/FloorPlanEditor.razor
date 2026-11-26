@@ -565,10 +565,18 @@
         height: 100% !important;
     }
 
-    .fp-fullscreen .fp-bottom-bar {
+    .fp-fullscreen .fp-bottom-bar,
+    .fp-fullscreen .fp-signal-footer {
         position: relative;
         z-index: 10000;
         flex-shrink: 0;
+    }
+
+    /* Over the page in fullscreen, as the toolbar and bottom bar are; opaque so nothing shows through. */
+    .fp-fullscreen .fp-signal-footer {
+        margin-top: 0;
+        padding-top: 0.75rem;
+        background: var(--bg-card, #161618);
     }
 
     .fp-toolbar {
