@@ -27,10 +27,18 @@ public class ApModelNamesTests
         Assert.Same(baseDefaults, blackDefaults);
     }
 
-    [Fact]
-    public void GetDefaultMountType_U7Industrial_IsWall()
+    [Theory]
+    [InlineData("U7-Industrial", "wall")]
+    [InlineData("UK-Ultra", "wall")]
+    [InlineData("UWB-XG", "wall")]
+    [InlineData("UWB-XG-BK", "wall")]
+    [InlineData("UAP-AC-M", "wall")]
+    [InlineData("UAP-AC-M-PRO", "wall")]
+    [InlineData("UAP-FlexHD", "wall")]
+    [InlineData("UAP-XG", "ceiling")]
+    public void GetDefaultMountType_PoleAndWallModels(string model, string expected)
     {
-        Assert.Equal("wall", MountTypeHelper.GetDefaultMountType("U7-Industrial"));
+        Assert.Equal(expected, MountTypeHelper.GetDefaultMountType(model));
     }
 
     [Fact]
