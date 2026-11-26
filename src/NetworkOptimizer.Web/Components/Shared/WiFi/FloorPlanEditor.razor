@@ -250,18 +250,34 @@
         @if (_mode == "plan-aps")
         {
             <div class="fp-ap-panel">
-                <div class="fp-ap-panel-header">
-                    @if (_selectedCatalogModel != null)
-                    {
-                        <span>Click the map to place <strong>@_selectedCatalogModel</strong></span>
-                    }
-                    else
-                    {
-                        <span>Select an AP model to plan</span>
-                    }
+                <div class="fp-ap-panel-top">
+                    <div class="fp-ap-panel-header">
+                        @if (_selectedCatalogModel != null)
+                        {
+                            <span>Click the map to place <strong>@_selectedCatalogModel</strong></span>
+                        }
+                        else
+                        {
+                            <span>Select an AP model to plan</span>
+                        }
+                    </div>
+                    <div class="lt-search fp-ap-search @(string.IsNullOrWhiteSpace(_catalogSearch) ? "" : "is-active")">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+                        <input class="form-control" placeholder="Filter by model" aria-label="Filter AP models"
+                               @bind="_catalogSearch" @bind:event="oninput" @onkeydown="OnCatalogSearchKey" />
+                        <span class="lt-search-hint" aria-hidden="true">Filter by model</span>
+                        @if (!string.IsNullOrWhiteSpace(_catalogSearch))
+                        {
+                            <button type="button" class="lt-x lt-search-clear" aria-label="Clear the filter" data-tooltip="Clear the filter" @onclick='() => _catalogSearch = ""'>×</button>
+                        }
+                    </div>
                 </div>
                 <div class="fp-ap-panel-list">
-                    @foreach (var m in _apCatalog)
+                    @if (FilteredCatalog.Count == 0)
+                    {
+                        <div class="fp-ap-search-empty">Nothing matches &ldquo;@_catalogSearch.Trim()&rdquo;</div>
+                    }
+                    @foreach (var m in FilteredCatalog)
                     {
                         <button class="fp-ap-item @(_selectedCatalogModel == m.Model ? "selected" : "")"
                                 @onclick="() => SelectCatalogModel(m.Model)">
@@ -880,6 +896,33 @@
         color: var(--text-muted, #5c5c66);
         margin-bottom: 0.5rem;
         line-height: 1.4;
+    }
+
+    /* Stays at the top while the model list scrolls under it. Sticky offsets count from the
+       panel's content edge, so -0.75rem covers its padding as well. */
+    .fp-ap-panel-top {
+        position: sticky;
+        top: -0.75rem;
+        z-index: 1;
+        margin: -0.75rem -0.75rem 0;
+        padding: 0.75rem 0.75rem 0.5rem;
+        background: var(--bg-secondary, #161618);
+    }
+
+    .lt-search.fp-ap-search {
+        max-width: none;
+    }
+
+    .fp-ap-search .form-control {
+        font-size: 0.8rem;
+        padding-top: 0.35rem;
+        padding-bottom: 0.35rem;
+    }
+
+    .fp-ap-search-empty {
+        font-size: 0.8rem;
+        color: var(--text-muted, #5c5c66);
+        padding: 0.25rem 0.1rem;
     }
 
     .fp-ap-panel-list {
@@ -1756,6 +1799,32 @@
     private List<PlannedAp> _plannedAps = new();
     private List<ApModelCatalog.ApModelInfo> _apCatalog = new();
     private string? _selectedCatalogModel;
+    private string _catalogSearch = "";
+
+    /// <summary>
+    /// The planned-AP model list narrowed by the search box. Every word must appear in the model,
+    /// with hyphens read as spaces, so "u7 pro" finds U7-Pro and U7-Pro-Max.
+    /// </summary>
+    private List<ApModelCatalog.ApModelInfo> FilteredCatalog
+    {
+        get
+        {
+            var words = _catalogSearch.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (words.Length == 0) return _apCatalog;
+            return _apCatalog
+                .Where(m => words.All(w => m.Model.Replace('-', ' ').Contains(w.Replace('-', ' '), StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+        }
+    }
+
+    // Enter picks the top match, as the button beside a field would; Escape clears.
+    private void OnCatalogSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+            _catalogSearch = "";
+        else if (e.Key == "Enter" && FilteredCatalog.FirstOrDefault() is { } top)
+            _selectedCatalogModel = top.Model;
+    }
 
     private IEnumerable<ApMapMarker> UnplacedAps => _apMarkers.Where(a => !a.Latitude.HasValue || !a.Longitude.HasValue);
     private int _lastSignalLogCount;
