@@ -2042,6 +2042,18 @@ public class MonitoringCollectionAgent : BackgroundService
                     "Fabric target {Name} ({Mac}) returned to {Address}; resuming its existing target",
                     revived.Name, mac, address);
             }
+            else if (PairTargetFor(allFabric, mac, address, _influx.GatewayPairMacs) is { } inherited)
+            {
+                // A Shadow Mode failover hands the VIP to the other unit, with its own MAC: one
+                // gateway, so one target and one latency history.
+                if (inherited.IsRetired) ApplyRevival(inherited, fallbackEnabled: enableLatency);
+                var from = inherited.DeviceMac;
+                inherited.DeviceMac = mac;
+                inherited.Name = string.IsNullOrEmpty(d.Name) ? d.Mac : d.Name;
+                _logger.LogInformation(
+                    "HA gateway {Mac} took over fabric target {Name} at {Address} from {From}",
+                    mac, inherited.Name, address, from);
+            }
             else
             {
                 var created = new MonitoringTarget
@@ -2166,6 +2178,24 @@ public class MonitoringCollectionAgent : BackgroundService
     /// <param name="target">The retired row.</param>
     /// <param name="fallbackEnabled">Used only for a row retired before the remembered value
     /// existed, where there is nothing to restore.</param>
+    /// <summary>
+    /// The auto-discovered fabric target another member of the site's HA gateway pair holds at
+    /// <paramref name="address"/> (the LAN VIP), live before retired; null when
+    /// <paramref name="mac"/> is not a pair member or no member has one.
+    /// </summary>
+    internal static MonitoringTarget? PairTargetFor(
+        IEnumerable<MonitoringTarget> fabric, string mac, string address, IReadOnlyCollection<string> pairMacs)
+    {
+        if (!pairMacs.Contains(mac, StringComparer.OrdinalIgnoreCase)) return null;
+        return fabric
+            .Where(t => t.AutoDiscovered && !string.IsNullOrEmpty(t.DeviceMac)
+                && !string.Equals(t.DeviceMac, mac, StringComparison.OrdinalIgnoreCase)
+                && pairMacs.Contains(t.DeviceMac, StringComparer.OrdinalIgnoreCase)
+                && string.Equals(t.Address, address, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(t => t.IsRetired ? 1 : 0)
+            .FirstOrDefault();
+    }
+
     internal static void ApplyRevival(MonitoringTarget target, bool fallbackEnabled)
     {
         target.Enabled = target.EnabledBeforeRetire ?? fallbackEnabled;

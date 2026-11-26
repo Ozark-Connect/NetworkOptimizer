@@ -7320,13 +7320,6 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         _rawQueryHttp = null;
     }
 
-    /// <summary>
-    /// Lowercases and colon-separates a MAC, then drops every character a MAC cannot hold. Read
-    /// paths interpolate the result straight into a Flux predicate, so the strip is what keeps a
-    /// caller-supplied value from closing the filter and appending its own Flux - stripped, it can
-    /// only ever match nothing. The one non-MAC tag value written here
-    /// (<see cref="ClientWanCoverageMarker"/>) bypasses this by design.
-    /// </summary>
     private string[] _gatewayPairMacs = Array.Empty<string>();
 
     /// <summary>
@@ -7362,6 +7355,13 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         return (filter, regroup);
     }
 
+    /// <summary>
+    /// Lowercases and colon-separates a MAC, then drops every character a MAC cannot hold. Read
+    /// paths interpolate the result straight into a Flux predicate, so the strip is what keeps a
+    /// caller-supplied value from closing the filter and appending its own Flux - stripped, it can
+    /// only ever match nothing. The one non-MAC tag value written here
+    /// (<see cref="ClientWanCoverageMarker"/>) bypasses this by design.
+    /// </summary>
     private static string NormalizeMac(string mac)
     {
         if (string.IsNullOrEmpty(mac)) return string.Empty;

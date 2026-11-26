@@ -192,12 +192,10 @@ public static class GatewayHa
     }
 
     /// <summary>
-    /// True for the backup member of a Shadow Mode pair. On a Managed Shadow Gateway pair it holds
-    /// no IPv4 address on any LAN (every LAN address is a VIP on the master; its own address is on
-    /// the HA link), so SNMP, SSH, and ping cannot reach it: anything sent to the LAN gateway address
-    /// lands on the master. A Console Shadow Mode backup is treated the same way, the safe reading
-    /// while no capture shows its addressing. Per-network VRRP units have their own LAN addresses and
-    /// are never this.
+    /// True for the backup member of a Shadow Mode pair (managed or console). It holds no IPv4
+    /// address on any LAN (every LAN address is a VIP on the master; its own address is on the HA
+    /// link), so SNMP, SSH, and ping cannot reach it: anything sent to the LAN gateway address lands
+    /// on the master. Per-network VRRP units have their own LAN addresses and are never this.
     /// </summary>
     public static bool IsUnreachableStandby<T>(T device, IEnumerable<T> devices) where T : class, IGatewayHaFacts
     {
