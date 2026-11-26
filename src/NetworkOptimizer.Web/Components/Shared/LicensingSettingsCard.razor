@@ -60,6 +60,22 @@
             </div>
         }
 
+        @if (_askPersonalUse && !_freeTier.PersonalUse)
+        {
+            <div class="form-group license-use-question">
+                <label class="form-label">Are any of your Sites for personal, non-commercial use?</label>
+                <small class="form-help">Personal Sites get @SiteManagementService.FreeSiteLimit free-tier slots beside your license keys, so a key only has to cover the rest. You can change this later under Site Coverage.</small>
+                <div class="action-buttons license-use-question-actions">
+                    <button class="btn btn-primary" @onclick="() => AnswerPersonalUseAsync(true)" disabled="@_savingPersonalUse">Yes, some are personal</button>
+                    <button class="btn btn-secondary" @onclick="() => AnswerPersonalUseAsync(false)" disabled="@_savingPersonalUse">No, they're commercial</button>
+                </div>
+                @if (!string.IsNullOrEmpty(_askError))
+                {
+                    <div class="alert alert-danger" style="margin-top: 0.5rem;">@_askError</div>
+                }
+            </div>
+        }
+
         @if (_keys.Count > 0)
         {
             <div class="table-responsive" style="padding-top: 1rem;">
@@ -217,6 +233,10 @@
     private bool _savingPersonalUse;
     private string? _personalUseError;
 
+    /// <summary>Set after a key activates, so the card asks once whether any Sites are personal.</summary>
+    private bool _askPersonalUse;
+    private string? _askError;
+
     /// <summary>Coverage dropdown value for a free-tier slot; key options use the key's row id.</summary>
     private const string FreeTierValue = "free";
 
@@ -300,6 +320,32 @@
         _freeTier = await Activation.GetFreeTierAsync();
     }
 
+    private async Task AnswerPersonalUseAsync(bool personal)
+    {
+        _askError = null;
+        if (!personal)
+        {
+            _askPersonalUse = false;
+            return;
+        }
+
+        _savingPersonalUse = true;
+        try
+        {
+            await Activation.SetPersonalUseAsync(true);
+            await LoadDataAsync();
+            _askPersonalUse = false;
+        }
+        catch (Exception ex)
+        {
+            _askError = $"Could not save: {ex.Message}";
+        }
+        finally
+        {
+            _savingPersonalUse = false;
+        }
+    }
+
     private async Task OnPersonalUseChangedAsync(ChangeEventArgs e)
     {
         _personalUseError = null;
@@ -355,6 +401,8 @@
             {
                 _enteredKey = "";
                 await LoadDataAsync();
+                _askPersonalUse = !_freeTier.PersonalUse;
+                _askError = null;
             }
         }
         finally
