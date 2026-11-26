@@ -336,7 +336,9 @@ window.fpEditor = {
             if (window.ResizeObserver) {
                 if (self._resizeObserver) self._resizeObserver.disconnect();
                 self._resizeObserver = new ResizeObserver(function () {
-                    if (self._map !== m || self._sizeSnapshot) return;
+                    if (self._map !== m) return;
+                    // A fullscreen toggle's snapshot takes the proportional zoom instead.
+                    if (self._sizeSnapshot) { self._applySizeSnapshot(); return; }
                     m.invalidateSize({ pan: false });
                 });
                 self._resizeObserver.observe(container);
@@ -665,38 +667,49 @@ window.fpEditor = {
 
     /**
      * Records the map's size and center before a layout change that invalidateSizeProportional
-     * will follow (fullscreen). Until then the resize observer leaves the map alone, so the
-     * proportional zoom still sees the old size.
+     * will follow (fullscreen). The zoom is applied when the container's size has actually
+     * changed, by whichever comes first: the resize observer, or the caller's
+     * invalidateSizeProportional. Blazor's render can land after that call, so neither may
+     * assume the layout has changed yet.
      */
     snapshotSize: function () {
         if (!this._map) return;
         var self = this, m = this._map;
         var snap = { size: m.getSize(), center: m.getCenter() };
         this._sizeSnapshot = snap;
-        // Never leave the observer off if the proportional resize does not follow.
+        // A snapshot the layout never answered: drop it and re-measure plainly.
         setTimeout(function () {
             if (self._sizeSnapshot !== snap) return;
             self._sizeSnapshot = null;
             if (self._map === m) m.invalidateSize({ pan: false });
-        }, 1000);
+        }, 2000);
+    },
+
+    // Applies a pending snapshot's proportional zoom once the container's size differs from it,
+    // so the same geographic area stays visible. False while the layout has not changed yet.
+    _applySizeSnapshot: function () {
+        var m = this._map, snap = this._sizeSnapshot;
+        if (!m || !snap) return false;
+        var c = m.getContainer();
+        if (c.clientWidth === snap.size.x && c.clientHeight === snap.size.y) return false;
+        this._sizeSnapshot = null;
+        var oldZoom = m.getZoom();
+        m.invalidateSize({ pan: false });
+        var newSize = m.getSize();
+        if (snap.size.x > 0 && newSize.x > 0) {
+            m.setView(snap.center, oldZoom + Math.log2(newSize.x / snap.size.x), { animate: false });
+        }
+        return true;
     },
 
     // Recalculate container size and adjust zoom proportionally to the viewport
     // width change so the same geographic area stays visible.
     invalidateSizeProportional: function () {
         if (!this._map) return;
-        // The size and center from before the layout changed (snapshotSize), when the caller took them.
-        var snap = this._sizeSnapshot;
-        this._sizeSnapshot = null;
-        var oldSize = snap ? snap.size : this._map.getSize();
-        var center = snap ? snap.center : this._map.getCenter();
-        var oldZoom = this._map.getZoom();
+        // With a snapshot pending, apply it if the layout has changed; if not yet, the resize
+        // observer applies it when the render lands.
+        if (this._sizeSnapshot) { this._applySizeSnapshot(); return; }
         this._map.invalidateSize();
-        var newSize = this._map.getSize();
-        if (oldSize.x > 0 && newSize.x > 0) {
-            var zoomDelta = Math.log2(newSize.x / oldSize.x);
-            this._map.setView(center, oldZoom + zoomDelta, { animate: false });
-        }
     },
 
     // ── Floor Overlay ────────────────────────────────────────────────
