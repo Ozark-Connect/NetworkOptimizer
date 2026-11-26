@@ -475,11 +475,57 @@ window.fpEditor = {
                 self._addrSearch = window.MapAddressSearch.add(m, { position: 'topright' });
             }
 
+            // Fullscreen, then fit, under the address search: the 2D LAN map's buttons, order, and icons.
+            var ViewControls = L.Control.extend({
+                options: { position: 'topright' },
+                onAdd: function () {
+                    var col = L.DomUtil.create('div', 'fp-view-controls');
+                    var fs = L.DomUtil.create('button', 'lan-flow-map-fullscreen-btn', col);
+                    fs.type = 'button';
+                    fs.setAttribute('data-tooltip-hover-only', '');
+                    fs.addEventListener('click', function () {
+                        fs.blur();
+                        if (self._dotNetRef) self._dotNetRef.invokeMethodAsync('ToggleFullscreenFromJs');
+                    });
+                    var fit = L.DomUtil.create('button', 'lfm2d-btn', col);
+                    fit.type = 'button';
+                    fit.setAttribute('aria-label', 'Fit to view');
+                    fit.setAttribute('data-tooltip', 'Fit to view');
+                    fit.setAttribute('data-tooltip-hover-only', '');
+                    fit.innerHTML = self._FIT_ICON;
+                    fit.addEventListener('click', function () {
+                        fit.blur();
+                        if (self._dotNetRef) self._dotNetRef.invokeMethodAsync('FitMapToContentFromJs');
+                    });
+                    L.DomEvent.disableClickPropagation(col);
+                    L.DomEvent.disableScrollPropagation(col);
+                    self._fsBtn = fs;
+                    self.setFullscreenState(false);
+                    return col;
+                }
+            });
+            new ViewControls().addTo(m);
+
             resolveReady();
         }
 
         init();
         return readyPromise;
+    },
+
+    // Copies of map-core.js's icons (this file is not a module).
+    _FS_ENTER_ICON: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 8 3 3 8 3"></polyline><polyline points="16 3 21 3 21 8"></polyline><polyline points="21 16 21 21 16 21"></polyline><polyline points="8 21 3 21 3 16"></polyline></svg>',
+    _FS_EXIT_ICON: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 10 10 10 10 4"></polyline><polyline points="14 4 14 10 20 10"></polyline><polyline points="20 14 14 14 14 20"></polyline><polyline points="10 20 10 14 4 14"></polyline></svg>',
+    _FIT_ICON: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 4 20 10 20"></polyline><polyline points="20 10 20 4 14 4"></polyline><line x1="14" y1="10" x2="20" y2="4"></line><line x1="4" y1="20" x2="10" y2="14"></line></svg>',
+
+    /** Sets the map's fullscreen button to match the editor's state (C# owns the state). */
+    setFullscreenState: function (on) {
+        var fs = this._fsBtn;
+        if (!fs) return;
+        fs.innerHTML = on ? this._FS_EXIT_ICON : this._FS_ENTER_ICON;
+        fs.setAttribute('data-tooltip', on ? 'Exit fullscreen (Esc)' : 'Fullscreen');
+        fs.setAttribute('aria-label', on ? 'Exit fullscreen' : 'Fullscreen');
+        if (fs._tippy) fs._tippy.setContent(fs.getAttribute('data-tooltip'));
     },
 
     setDotNetRef: function (ref) {
