@@ -89,7 +89,10 @@
     <p class="page-description">Configure Network Optimizer connections and preferences</p>
 </div>
 
-<div class="wifi-view-tabs-wrapper settings-tabs-wrapper">
+@* The search box sits beside the strip, not inside its wrapper: the scroll arrows are positioned over
+   the wrapper, so on mobile, where the search wraps to a second row, they would span both rows. *@
+<div class="settings-tabs-bar">
+<div class="wifi-view-tabs-wrapper">
     <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="scrollTabStrip(this, -1)"><AppIcon Name="chevron-left" /></button>
     <div class="wifi-view-tabs">
         <button class="wifi-view-tab @(_activeTab == "connection" ? "active" : "")"
@@ -164,6 +167,7 @@
         </AuthorizeView>
     </div>
     <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="scrollTabStrip(this, 1)"><AppIcon Name="chevron-right" /></button>
+</div>
     @* Every tab renders at once and is shown by class, so a hit is already on the page - selection
        switches tab and rings the card rather than navigating. *@
     <AppSearchBox Area="Settings" Placeholder="Search settings" OnSelect="GoToSearchHitAsync"
@@ -4320,9 +4324,26 @@
 <SponsorshipBanner AlwaysShow="true" />
 
 <style>
+    .settings-tabs-bar {
+        display: flex;
+        align-items: stretch;
+        margin-bottom: 1.5rem;
+    }
+
+    .settings-tabs-bar > .wifi-view-tabs-wrapper {
+        flex: 1 1 auto;
+        min-width: 0;
+        margin-bottom: 0;
+    }
+
     @@media (max-width: 768px) {
-        .settings-tabs-wrapper {
+        .settings-tabs-bar {
             flex-wrap: wrap;
+            margin-bottom: 0.75rem;
+        }
+
+        .settings-tabs-bar > .wifi-view-tabs-wrapper {
+            flex-basis: 100%;
         }
     }
 

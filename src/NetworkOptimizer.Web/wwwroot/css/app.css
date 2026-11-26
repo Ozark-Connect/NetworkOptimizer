@@ -9335,6 +9335,12 @@ a.path-hop.hop-clickable:hover {
     margin-left: auto;
 }
 
+/* These strips drop their bottom padding and line, so the arrows run to the bottom to stay centered. */
+.threat-header-bar .wifi-tabs-scroll-btn,
+.alerts-header-bar .wifi-tabs-scroll-btn {
+    bottom: 0;
+}
+
 .threat-controls {
     display: flex;
     align-items: center;
