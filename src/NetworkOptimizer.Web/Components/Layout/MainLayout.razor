@@ -198,6 +198,10 @@
             var identityBar = document.querySelector('.identity-bar');
             if (identityBar) {
                 identityBar.classList.toggle('identity-collapsed', st > 80);
+                // Stuck once the bar has reached its sticky offset in the scroller; until then it still has page above it.
+                var stickyTop = parseFloat(getComputedStyle(identityBar).top) || 0;
+                var offset = identityBar.getBoundingClientRect().top - currentEl.getBoundingClientRect().top;
+                identityBar.classList.toggle('identity-stuck', offset <= stickyTop + 1);
             }
 
             // Mobile-only: top bar hide/show, below-topbar offset
