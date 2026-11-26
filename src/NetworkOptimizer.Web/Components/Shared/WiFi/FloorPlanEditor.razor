@@ -408,7 +408,7 @@
     }
     else if (!IsReadOnly && _selectedBuilding != null)
     {
-        <div class="fp-bottom-bar">
+        <div class="fp-bottom-bar fp-bottom-bar-building">
             <button class="fp-btn" @onclick="StartBuildingMove">Move Building</button>
             <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteBuilding = true">Delete Building</button>
         </div>
@@ -1679,6 +1679,10 @@
         .fp-bottom-bar {
             gap: 6px 8px;
             padding: 6px 8px;
+        }
+        /* The last bar on the page: room below Move / Delete Building, clear of the screen edge. */
+        .fp-bottom-bar-building {
+            padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
         }
         .fp-bottom-bar .fp-btn,
         .fp-bottom-bar .fp-upload-btn {
