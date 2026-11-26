@@ -363,8 +363,10 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
         Entry("application", "Application", "licensing",
             "Licensing",
             ["license"],
-            ["license key", "activate", "licensed site slots", "free slots", "free tier",
-             "allowance", "term expires", "pricing"], Reach.InstanceWide),
+            ["license key", "enter key", "site key", "activate", "licensed site slots", "free slots", "free tier",
+             "allowance", "term expires", "pricing", "pay", "paid", "subscription", "billing", "manage billing",
+             "invoice", "renew", "grace", "perpetual", "site coverage", "personal use", "non-commercial",
+             "commercial", "business", "buy", "purchase", "seat", "trial", "msp"], Reach.InstanceWide),
 
         Entry("application", "Application", "application-settings",
             "Application Settings",
