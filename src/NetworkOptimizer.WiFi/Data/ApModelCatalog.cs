@@ -129,6 +129,12 @@ public static class ApModelCatalog
             ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 3 },
             ["5"] = new() { DefaultTxPowerDbm = 24, MinTxPowerDbm = 1, MaxTxPowerDbm = 24, AntennaGainDbi = 10 },
         },
+        ["U7-Industrial"] = new()
+        {
+            // public.json (built-in antenna): 23/4, 24/5
+            ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 4 },
+            ["5"] = new() { DefaultTxPowerDbm = 24, MinTxPowerDbm = 1, MaxTxPowerDbm = 24, AntennaGainDbi = 5 },
+        },
         ["U7-Mesh-Wall"] = new()
         {
             // public.json: 23/6, 24/6
