@@ -5756,8 +5756,9 @@ input.form-control::-webkit-date-and-time-value {
     .identity-bar.identity-collapsed:has(.signal-gauge) {
         padding-top: 0;
     }
-    /* Collapsed but not yet pinned (page still above it): a touch of padding so the row is not flush with its edge. */
-    .identity-bar.identity-collapsed:not(.identity-stuck):has(.signal-gauge) {
+    /* Collapsed with page or the nav bar above it: a touch of padding so the row is not flush with its edge.
+       Only pinned at the very top of the app (nav bar hidden) does it go. */
+    .identity-bar.identity-collapsed:is(:not(.identity-stuck), .below-topbar):has(.signal-gauge) {
         padding-top: 6px;
     }
 
