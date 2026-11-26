@@ -2218,11 +2218,12 @@ window.fpEditor = {
         });
         // After a gesture the marquee handled itself, the browser's click must not reach Leaflet:
         // its preclick would close the popup the gesture just opened.
-        // Never a click on a control: the toolbox and zoom buttons are href="#" links that cancel their
-        // own navigation, and a click stopped before they see it opens the app root (the Dashboard).
+        // Never a click on a control or in a popup: those are deliberate, and the toolbox, zoom, and popup
+        // close buttons are href="#" links that cancel their own navigation, so a click stopped before
+        // they see it opens the app root (the Dashboard).
         container.addEventListener('click', function (e) {
             if (Date.now() >= self._swallowClickUntil) return;
-            if (e.target.closest && e.target.closest('.leaflet-control')) return;
+            if (e.target.closest && e.target.closest('.leaflet-control, .leaflet-popup')) return;
             self._swallowClickUntil = 0;
             e.stopPropagation();
             e.preventDefault();
