@@ -144,24 +144,10 @@ public static class PortStatsEndpoints
             }
             catch (Exception ex) when (ex is not OperationCanceledException) { /* The table renders without the links. */ }
 
-            // The port's client as LAN Health resolves it (named through ClientNames, then client history; its ip
-            // online or its last one), so both pages agree. A shared port (a hypervisor's VMs) names no one client.
             NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkRecord? LanClient(string deviceMac, int port) =>
-                lanByPort.TryGetValue((deviceMac, port), out var lh)
-                    && lh.Link.Kind == NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkKind.Access && lh.Link.Upstream.DeviceMac == deviceMac
-                    && !string.IsNullOrEmpty(lh.Link.ClientMac) && lh.Link.OccupantMacs.Count <= 1 ? lh.Link : null;
-            (string? Mac, string? Ip, string? Name) Fill(string deviceMac, int port, string? clientMac, string? ip, string? name)
-            {
-                var key = Norm(clientMac ?? "");
-                var lan = LanClient(deviceMac, port);
-                if (lan != null && Norm(lan.ClientMac!) == key)
-                {
-                    if (string.IsNullOrWhiteSpace(name) && lan.Downstream.DeviceName != key) name = lan.Downstream.DeviceName;
-                    if (string.IsNullOrWhiteSpace(ip)) ip = lan.ClientIp;
-                }
-                if (string.IsNullOrWhiteSpace(name) && recentNames?.GetValueOrDefault(key) is { } known) name = known;
-                return (clientMac, string.IsNullOrWhiteSpace(ip) ? null : ip, string.IsNullOrWhiteSpace(name) ? null : name);
-            }
+                LanHealthPortClient(lanByPort, deviceMac, port);
+            (string? Mac, string? Ip, string? Name) Fill(string deviceMac, int port, string? clientMac, string? ip, string? name) =>
+                FillClient(LanClient(deviceMac, port), recentNames, clientMac, ip, name);
 
             string? ResolveFriendly(string mac, string ifName)
             {
@@ -322,6 +308,38 @@ public static class PortStatsEndpoints
             if (port is int idx) poe[(mac, idx)] = p.Watts;
         }
         return poe;
+    }
+
+    /// <summary>
+    /// The port's client as LAN Health resolves it (named through ClientNames, then client history; its ip online
+    /// or its last one), so Port Statistics and LAN Health agree. Null for a fabric link, a port with no client, or
+    /// a shared port (a hypervisor's VMs), which names no one client.
+    /// </summary>
+    internal static NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkRecord? LanHealthPortClient(
+        IReadOnlyDictionary<(string Mac, int Port), NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkHealth> lanByPort,
+        string deviceMac, int port) =>
+        lanByPort.TryGetValue((deviceMac, port), out var lh)
+            && lh.Link.Kind == NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkKind.Access && lh.Link.Upstream.DeviceMac == deviceMac
+            && !string.IsNullOrEmpty(lh.Link.ClientMac) && lh.Link.OccupantMacs.Count <= 1 ? lh.Link : null;
+
+    /// <summary>
+    /// A client's name and ip for the Client column: its own, then LAN Health's for the same client on the port,
+    /// then the client history name. LAN Health's answer applies only when it names this client, never a past one.
+    /// </summary>
+    internal static (string? Mac, string? Ip, string? Name) FillClient(
+        NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkRecord? lan,
+        IReadOnlyDictionary<string, string>? historyNames,
+        string? clientMac, string? ip, string? name)
+    {
+        var key = Norm(clientMac ?? "");
+        if (lan?.ClientMac is { } lanMac && Norm(lanMac) == key)
+        {
+            // LAN Health names an unnamed client by its MAC: that is no name at all here.
+            if (string.IsNullOrWhiteSpace(name) && lan.Downstream.DeviceName != key) name = lan.Downstream.DeviceName;
+            if (string.IsNullOrWhiteSpace(ip)) ip = lan.ClientIp;
+        }
+        if (string.IsNullOrWhiteSpace(name) && historyNames?.GetValueOrDefault(key) is { } known) name = known;
+        return (clientMac, string.IsNullOrWhiteSpace(ip) ? null : ip, string.IsNullOrWhiteSpace(name) ? null : name);
     }
 
     private static string Norm(string mac) =>

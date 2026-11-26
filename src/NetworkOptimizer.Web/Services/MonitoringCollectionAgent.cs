@@ -1376,7 +1376,7 @@ public class MonitoringCollectionAgent : BackgroundService
         {
             if (list.Count != 1) continue;
             var pc = list[0];
-            // Empty when nothing names it: Port Statistics then falls back to the client's history name, then its MAC.
+            // Empty when nothing names it: Port Statistics then takes LAN Health's name, the history name, then its MAC.
             var pcName = ClientNames.For(pc, displayNames.GetValueOrDefault(pc.Mac.ToLowerInvariant())) ?? string.Empty;
             // BestIp falls back ip -> last_ip -> fixed_ip, so fixed/reservation devices
             // (no live DHCP lease) still resolve, matching the UniFi client table.
