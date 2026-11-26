@@ -20514,6 +20514,16 @@ tr.stats-row-filtered {
         top: 3rem;
     }
 }
+/* Open Signal Map: left of Fit all in the 3D map's top row; third in the column on a phone. */
+.lan-flow-map-fit-btn.lan-flow-map-signal-btn {
+    right: 5.25rem;
+}
+@media (max-width: 768px) {
+    .lan-flow-map-fit-btn.lan-flow-map-signal-btn {
+        right: 0.75rem;
+        top: 5.25rem;
+    }
+}
 
 .lan-flow-map-labels {
     position: absolute;

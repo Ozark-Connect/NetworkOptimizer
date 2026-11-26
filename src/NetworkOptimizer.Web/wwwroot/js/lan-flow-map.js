@@ -3113,6 +3113,21 @@ export class LanFlowMap {
         fitBtn.addEventListener('click', () => this._fitCamera());
         this.stage.appendChild(fitBtn);
 
+        // Signal Map: where the floor plans and AP positions this map draws are edited.
+        // A room with Wi-Fi arcs from its corner and a pen in the open corner.
+        const signalBtn = document.createElement('button');
+        signalBtn.type = 'button';
+        signalBtn.className = 'lan-flow-map-fit-btn lan-flow-map-signal-btn';
+        signalBtn.setAttribute('data-tooltip', 'Open Signal Map');
+        signalBtn.setAttribute('data-tooltip-hover-only', '');
+        signalBtn.setAttribute('aria-label', 'Open Signal Map');
+        signalBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2H3.5A1.5 1.5 0 0 0 2 3.5v17A1.5 1.5 0 0 0 3.5 22h17a1.5 1.5 0 0 0 1.5-1.5V12"/>
+            <circle cx="6" cy="18" r="1.4" fill="currentColor" stroke="none"/><path d="M6 13a5 5 0 0 1 5 5"/><path d="M6 8.5a9.5 9.5 0 0 1 9.5 9.5"/>
+            <path d="M15.6 6.1 19.2 2.5a1.7 1.7 0 0 1 2.4 2.4L18 8.5l-3.6 1.1Z"/></svg>`;
+        signalBtn.addEventListener('click', () => navigate('/wifi-optimizer?tab=floorplan'));
+        this.stage.appendChild(signalBtn);
+
         // Legend (bottom-right)
         const legend = this._makePanel('lan-flow-map-legend');
         legend.innerHTML = `
