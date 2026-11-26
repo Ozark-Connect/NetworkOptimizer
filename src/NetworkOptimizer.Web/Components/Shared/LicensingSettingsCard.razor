@@ -21,7 +21,7 @@
         @if (LicenseState.AnyKeysActive)
         {
             <p class="section-description">
-                @UsedSlots of @LicenseState.TotalAllowance licensed site slots used &middot; @FreeSlots free@(SoonestTermExpiry is { } expiry ? $" · earliest term expires {expiry.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.Date, DisplayFormat.Culture)}" : "")
+                @UsedSlots of @LicenseState.TotalAllowance licensed site slots used &middot; @FreeSlots free@(_freeTier.PersonalUse ? $" · {FreeTierUsed} of {SiteManagementService.FreeSiteLimit} free-tier site slots used" : "")@(SoonestTermExpiry is { } expiry ? $" · earliest term expires {expiry.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.Date, DisplayFormat.Culture)}" : "")
             </p>
         }
         else
@@ -124,6 +124,18 @@
         @if (_keys.Count > 0 && _multiSiteEnabled)
         {
             <h4 class="license-section-title">Site Coverage</h4>
+            <div class="form-group license-personal-use" data-autosave>
+                <label class="checkbox-label">
+                    <input type="checkbox" checked="@_freeTier.PersonalUse" disabled="@_savingPersonalUse"
+                           @onchange="OnPersonalUseChangedAsync" />
+                    <span>These Sites are for personal, non-commercial use</span>
+                </label>
+                <small class="form-help">Adds @SiteManagementService.FreeSiteLimit free-tier Site slots beside your license keys, so a key only has to cover the Sites past the first @SiteManagementService.FreeSiteLimit.</small>
+                @if (!string.IsNullOrEmpty(_personalUseError))
+                {
+                    <div class="alert alert-danger" style="margin-top: 0.5rem;">@_personalUseError</div>
+                }
+            </div>
             @foreach (var site in _sites)
             {
                 <div class="license-site-row">
@@ -135,9 +147,13 @@
                     {
                         <span class="status-badge @GetSiteBadgeClass(status)">@GetSiteBadgeLabel(status)</span>
                     }
-                    <select class="form-control license-site-select" data-autosave value="@(AssignedKeyId(site.Id)?.ToString() ?? "")"
+                    <select class="form-control license-site-select" data-autosave value="@SelectedCoverage(site.Id)"
                             @onchange="e => OnAssignmentChangedAsync(site.Slug, e)">
                         <option value="">Not covered</option>
+                        @if (_freeTier.PersonalUse)
+                        {
+                            <option value="@FreeTierValue">Free tier (@FreeTierSpare free)</option>
+                        }
                         @foreach (var key in _keys)
                         {
                             <option value="@key.Id">@GetKeyOptionLabel(key)</option>
@@ -197,6 +213,21 @@
     private int _removingKeyId;
     private string? _assignError;
     private bool _refreshing;
+    private LicenseFreeTier _freeTier = LicenseFreeTier.None;
+    private bool _savingPersonalUse;
+    private string? _personalUseError;
+
+    /// <summary>Coverage dropdown value for a free-tier slot; key options use the key's row id.</summary>
+    private const string FreeTierValue = "free";
+
+    /// <summary>Free-tier slots in use by sites that still exist, capped as the state machine caps them.</summary>
+    private int FreeTierUsed => Math.Min(SiteManagementService.FreeSiteLimit,
+        _freeTier.EffectiveSiteIds.Count(id => _sites.Any(s => s.Id == id)));
+
+    private int FreeTierSpare => SiteManagementService.FreeSiteLimit - FreeTierUsed;
+
+    private string SelectedCoverage(int siteId) =>
+        _freeTier.EffectiveSiteIds.Contains(siteId) ? FreeTierValue : AssignedKeyId(siteId)?.ToString() ?? "";
 
     /// <summary>
     /// On a single-site instance there is no Site row to assign, but adding a key
@@ -266,6 +297,26 @@
         _keys = await Activation.GetKeysAsync();
         _assignments = await Activation.GetAssignmentsAsync();
         _sites = await SiteManagement.GetSitesAsync();
+        _freeTier = await Activation.GetFreeTierAsync();
+    }
+
+    private async Task OnPersonalUseChangedAsync(ChangeEventArgs e)
+    {
+        _personalUseError = null;
+        _savingPersonalUse = true;
+        try
+        {
+            await Activation.SetPersonalUseAsync(e.Value is true);
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            _personalUseError = $"Could not save: {ex.Message}";
+        }
+        finally
+        {
+            _savingPersonalUse = false;
+        }
     }
 
     private void HandleStateChanged() => _ = InvokeAsync(async () =>
@@ -333,10 +384,19 @@
     private async Task OnAssignmentChangedAsync(string siteSlug, ChangeEventArgs e)
     {
         _assignError = null;
-        int? keyId = int.TryParse(e.Value?.ToString(), out var parsed) ? parsed : null;
-        var error = await Activation.AssignAsync(siteSlug, keyId);
-        if (error != null)
-            _assignError = error;
+        try
+        {
+            var value = e.Value?.ToString();
+            var error = value == FreeTierValue
+                ? await Activation.AssignFreeTierAsync(siteSlug)
+                : await Activation.AssignAsync(siteSlug, int.TryParse(value, out var parsed) ? parsed : null);
+            if (error != null)
+                _assignError = error;
+        }
+        catch (Exception ex)
+        {
+            _assignError = $"Could not save: {ex.Message}";
+        }
         await LoadDataAsync();
     }
 

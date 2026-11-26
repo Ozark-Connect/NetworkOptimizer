@@ -206,13 +206,17 @@ public class LicenseActivationService : ILicenseActivationService
 
             var existing = await db.SiteLicenseAssignments.FirstOrDefaultAsync(a => a.SiteId == siteId);
 
+            // A site sits on one slot at a time: a key or "Not covered" takes it off its free-tier slot.
+            var freeTier = await LicenseFreeTier.LoadAsync(db);
+            if (freeTier.SiteIds.Contains(siteId))
+                await LicenseFreeTier.StageAsync(db, freeTier with { SiteIds = freeTier.SiteIds.Where(id => id != siteId).ToList() },
+                    _time.GetUtcNow().UtcDateTime);
+
             if (licenseKeyRecordId == null)
             {
                 if (existing != null)
-                {
                     db.SiteLicenseAssignments.Remove(existing);
-                    await db.SaveChangesAsync();
-                }
+                await db.SaveChangesAsync();
             }
             else
             {
@@ -246,10 +250,66 @@ public class LicenseActivationService : ILicenseActivationService
         return null;
     }
 
+    /// <inheritdoc />
+    public async Task<LicenseFreeTier> GetFreeTierAsync()
+    {
+        await using var db = await _mainDbFactory.CreateDbContextAsync();
+        return await LicenseFreeTier.LoadAsync(db);
+    }
+
+    /// <inheritdoc />
+    public async Task SetPersonalUseAsync(bool declared)
+    {
+        await using (var db = await _mainDbFactory.CreateDbContextAsync())
+        {
+            await LicenseFreeTier.StageAsync(db, new LicenseFreeTier(declared, []), _time.GetUtcNow().UtcDateTime);
+            await db.SaveChangesAsync();
+        }
+        _logger.LogInformation("Personal use {State}", declared ? "declared" : "withdrawn");
+
+        // Declaring fills the new slots; withdrawing lets spare key slots pick up what it freed.
+        await AutoAssignAsync();
+        await _stateService.RecomputeAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<string?> AssignFreeTierAsync(string siteSlug)
+    {
+        await using (var db = await _mainDbFactory.CreateDbContextAsync())
+        {
+            var site = await db.Sites.FirstOrDefaultAsync(s => s.Slug == siteSlug);
+            if (site == null)
+                return "Site not found";
+
+            var freeTier = await LicenseFreeTier.LoadAsync(db);
+            if (!freeTier.PersonalUse)
+                return "Declare personal, non-commercial use to use the free-tier Sites.";
+            if (!freeTier.SiteIds.Contains(site.Id))
+            {
+                // Ids of deleted sites hold no slot.
+                var siteIds = await db.Sites.Select(s => s.Id).ToListAsync();
+                var live = freeTier.SiteIds.Where(siteIds.Contains).ToList();
+                if (live.Count >= SiteManagementService.FreeSiteLimit)
+                    return $"The free tier covers {SiteManagementService.FreeSiteLimit} Sites and all of its slots are in use.";
+                await LicenseFreeTier.StageAsync(db, freeTier with { SiteIds = [.. live, site.Id] },
+                    _time.GetUtcNow().UtcDateTime);
+            }
+
+            var existing = await db.SiteLicenseAssignments.FirstOrDefaultAsync(a => a.SiteId == site.Id);
+            if (existing != null)
+                db.SiteLicenseAssignments.Remove(existing);
+            await db.SaveChangesAsync();
+        }
+
+        await _stateService.RecomputeAsync();
+        return null;
+    }
+
     /// <summary>
-    /// Assigns uncovered sites to active keys with spare allowance, default
-    /// site first then oldest first, so activating a key never leaves working
-    /// sites uncovered when slots are available.
+    /// Assigns uncovered sites to free slots, default site first then oldest
+    /// first, so activating a key never leaves working sites uncovered when
+    /// slots are available. Declared personal use fills its free-tier slots
+    /// before any key, so a key's paid slots go to the sites past the free three.
     /// </summary>
     public async Task AutoAssignAsync()
     {
@@ -259,14 +319,33 @@ public class LicenseActivationService : ILicenseActivationService
         var sites = await db.Sites.ToListAsync();
         var keys = await db.LicenseKeyRecords.ToListAsync();
         var assignments = await db.SiteLicenseAssignments.ToListAsync();
+        var freeTier = await LicenseFreeTier.LoadAsync(db);
 
-        var assignedSiteIds = assignments.Select(a => a.SiteId).ToHashSet();
+        var siteIds = sites.Select(s => s.Id).ToHashSet();
+        var freeSiteIds = freeTier.EffectiveSiteIds.Where(siteIds.Contains).ToList();
+        var assignedSiteIds = assignments.Select(a => a.SiteId).Concat(freeSiteIds).ToHashSet();
         var uncovered = sites
             .Where(s => !assignedSiteIds.Contains(s.Id))
             .OrderByDescending(s => s.IsDefault)
             .ThenBy(s => s.CreatedAt)
             .ThenBy(s => s.Id)
             .ToList();
+
+        if (freeTier.PersonalUse)
+        {
+            var freeAdded = false;
+            while (freeSiteIds.Count < SiteManagementService.FreeSiteLimit && uncovered.Count > 0)
+            {
+                var site = uncovered[0];
+                uncovered.RemoveAt(0);
+                freeSiteIds.Add(site.Id);
+                freeAdded = true;
+                _logger.LogInformation("Auto-assigned site {Slug} to the free tier", site.Slug);
+            }
+            // Also drops ids of deleted sites, which would otherwise hold a slot.
+            if (freeAdded || freeSiteIds.Count != freeTier.SiteIds.Count)
+                await LicenseFreeTier.StageAsync(db, freeTier with { SiteIds = freeSiteIds }, now);
+        }
 
         foreach (var key in keys.Where(k => LicenseStateService.IsActiveCurrent(k, now)).OrderBy(k => k.CreatedAt))
         {

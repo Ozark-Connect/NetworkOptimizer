@@ -117,6 +117,75 @@ public class LicenseStateServiceTests
         states["s4"].Reason.Should().Be(LicenseRestrictionReason.Unassigned);
     }
 
+    private static Site[] FourSites() =>
+    [
+        MakeSite(1, "main", isDefault: true, ageDays: 400), MakeSite(2, "s2", ageDays: 300),
+        MakeSite(3, "s3", ageDays: 200), MakeSite(4, "s4", ageDays: 100),
+    ];
+
+    [Fact]
+    public void PersonalUse_FreeTierSlotsPlusOneKey_CoverFourSites()
+    {
+        var keys = new[] { MakeTermKey(1, 1, Now.AddDays(60)) };
+        var assignments = new[] { Assign(4, 1) };
+
+        var states = LicenseStateService.ComputeStates(FourSites(), keys, assignments, NoHistory, Now, [1, 2, 3]);
+
+        states["main"].State.Should().Be(SiteLicenseState.FreeTier);
+        states["s2"].State.Should().Be(SiteLicenseState.FreeTier);
+        states["s3"].State.Should().Be(SiteLicenseState.FreeTier);
+        states["s4"].State.Should().Be(SiteLicenseState.Licensed);
+    }
+
+    [Fact]
+    public void NoPersonalUse_SameSitesAndKey_UncoveredSitesGetGrace()
+    {
+        var keys = new[] { MakeTermKey(1, 1, Now.AddDays(60)) };
+        var assignments = new[] { Assign(4, 1) };
+
+        var states = LicenseStateService.ComputeStates(FourSites(), keys, assignments, NoHistory, Now);
+
+        states["s4"].State.Should().Be(SiteLicenseState.Licensed);
+        new[] { "main", "s2", "s3" }.Should().OnlyContain(slug =>
+            states[slug].State == SiteLicenseState.Grace && states[slug].Reason == LicenseRestrictionReason.Unassigned);
+    }
+
+    [Fact]
+    public void PersonalUse_StaleListOverLimit_CapsAtThreeDefaultThenOldest()
+    {
+        var sites = FourSites().Append(MakeSite(5, "s5", ageDays: 50)).ToArray();
+        var keys = new[] { MakeTermKey(1, 1, Now.AddDays(60)) };
+
+        var states = LicenseStateService.ComputeStates(sites, keys, [], NoHistory, Now, [5, 4, 3, 2, 1]);
+
+        new[] { "main", "s2", "s3" }.Should().OnlyContain(slug => states[slug].State == SiteLicenseState.FreeTier);
+        states["s4"].State.Should().Be(SiteLicenseState.Grace);
+        states["s5"].State.Should().Be(SiteLicenseState.Grace);
+    }
+
+    [Fact]
+    public void PersonalUse_KeyExpiredPastGrace_FreeTierSitesKeepWorking()
+    {
+        var keys = new[] { MakeTermKey(1, 1, Now.AddDays(-20)) };
+        var assignments = new[] { Assign(4, 1) };
+
+        var states = LicenseStateService.ComputeStates(FourSites(), keys, assignments, NoHistory, Now, [1, 2, 3]);
+
+        new[] { "main", "s2", "s3" }.Should().OnlyContain(slug => states[slug].State == SiteLicenseState.FreeTier);
+        states["s4"].State.Should().Be(SiteLicenseState.Restricted);
+    }
+
+    [Fact]
+    public void PersonalUse_NoKeys_FloorFollowsFreeTierSlots_NeverMoreThanThree()
+    {
+        // The newest site holds a slot, so the default-plus-oldest floor alone would pick a different three.
+        var states = LicenseStateService.ComputeStates(FourSites(), [], [], NoHistory, Now, [1, 2, 4]);
+
+        new[] { "main", "s2", "s4" }.Should().OnlyContain(slug => states[slug].State == SiteLicenseState.FreeTier);
+        states["s3"].State.Should().Be(SiteLicenseState.Restricted);
+        states["s3"].Reason.Should().Be(LicenseRestrictionReason.OverFreeLimit);
+    }
+
     [Fact]
     public void ExpiredTermKey_InsideGrace_SitesGraceWithPaidThroughAnchor()
     {

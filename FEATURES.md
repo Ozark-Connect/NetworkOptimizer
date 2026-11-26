@@ -61,6 +61,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - Per site: reach the UniFi Console, devices, modems, and ONTs through the agent tunnel
 - Per agent site: client speed test target override
 - Three sites free for personal use; a lapsed license keeps a site running through a 10-day grace period
+- Personal use keeps its three free sites beside a license key, so a key covers only the sites past the third (assign each site in Licensing **Site Coverage**)
 - License checks never downgrade a license on failure; a restricted site pauses until relicensed
 - Buy a license from the free-tier notices; a subscription key gets **Manage billing** in Licensing and on its grace banner
 - Agent management - rename in place, status, version, **Upgrade** commands, **Run It for Me** gateway upgrade, enrollment tokens
