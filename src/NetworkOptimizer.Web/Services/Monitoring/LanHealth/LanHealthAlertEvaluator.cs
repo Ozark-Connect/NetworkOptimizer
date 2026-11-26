@@ -63,7 +63,9 @@ public sealed class LanHealthAlertEvaluator
         _logger = logger;
         _slug = slug;
         _siteSuffix = slug == SiteManagementService.DefaultSiteSlug ? "" : $" (site {slug})";
-        _seed = new OpenAlertSeed(scopes, slug, Pairs.Keys.ToList(), a => OpenAlertSeed.Context(a, "link_id"), logger);
+        // A fault resolved by hand that is still standing stays open across a restart, or each restart re-raises it.
+        _seed = new OpenAlertSeed(scopes, slug, Pairs.Keys.ToList(), a => OpenAlertSeed.Context(a, "link_id"), logger,
+            includeHandResolved: true);
     }
 
     /// <summary>Feeds one report. <paramref name="suppressed"/> holds link ids a rollout wave touches now.</summary>

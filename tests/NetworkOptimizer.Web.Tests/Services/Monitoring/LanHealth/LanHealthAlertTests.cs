@@ -5,6 +5,7 @@ using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Web.Services.Monitoring.LanHealth;
+using NetworkOptimizer.Web.Tests.Monitoring;
 using Xunit;
 
 namespace NetworkOptimizer.Web.Tests.Services.Monitoring.LanHealth;
@@ -57,6 +58,36 @@ public class LanHealthAlertTests
         bus.Published.Should().HaveCount(2);
         bus.Published[1].EventType.Should().Be(LanHealthAlertEvaluator.Stable);
         bus.Published[1].Title.Should().StartWith("Link Stable: ");
+    }
+
+    [Fact]
+    public async Task FlappingResolvedByHand_StillFlapping_IsNotRaisedAgainAfterRestart()
+    {
+        var bus = new CapturingBus();
+        var stored = OpenAlertTestScope.Alert(LanHealthAlertEvaluator.Flapping, "aa:bb:cc:00:00:02",
+            TimeSpan.FromHours(1), context: ("link_id", "l1")).Resolved();
+        var e = new LanHealthAlertEvaluator(bus, NullLogger.Instance, "default", OpenAlertTestScope.With(stored));
+
+        await e.EvaluateAsync(Report(Link("l1", classes: "Link Flapping")), None, T0);
+        await e.EvaluateAsync(Report(Link("l1", classes: "Link Flapping")), None, T0.AddMinutes(6));
+
+        bus.Published.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task FlappingThatRecovered_ComesBackAfterRestart_IsRaised()
+    {
+        var bus = new CapturingBus();
+        var opened = OpenAlertTestScope.Alert(LanHealthAlertEvaluator.Flapping, "aa:bb:cc:00:00:02",
+            TimeSpan.FromHours(2), context: ("link_id", "l1")).Resolved();
+        var recovered = OpenAlertTestScope.Alert(LanHealthAlertEvaluator.Stable, "aa:bb:cc:00:00:02",
+            TimeSpan.FromHours(1), AlertSeverity.Info, ("link_id", "l1")).Resolved();
+        var e = new LanHealthAlertEvaluator(bus, NullLogger.Instance, "default", OpenAlertTestScope.With(opened, recovered));
+
+        await e.EvaluateAsync(Report(Link("l1", classes: "Link Flapping")), None, T0);
+        await e.EvaluateAsync(Report(Link("l1", classes: "Link Flapping")), None, T0.AddMinutes(6));
+
+        bus.Published.Should().ContainSingle(a => a.EventType == LanHealthAlertEvaluator.Flapping);
     }
 
     [Fact]
