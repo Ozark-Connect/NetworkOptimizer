@@ -17,6 +17,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 @inject NetworkOptimizer.Web.Services.Monitoring.LanHealth.ILanHealthService LanHealth
+@inject NetworkOptimizer.Web.Services.Monitoring.ILinkSpeedHistory LinkSpeedHistory
 
 @if (!PathOnly)
 {
@@ -426,6 +427,9 @@
             var filteredRecs = hasZeroDirection
                 ? PathAnalysis.Recommendations.Where(r => !r.Contains("asymmetry", StringComparison.OrdinalIgnoreCase))
                 : PathAnalysis.Recommendations;
+            // A client's own 10/100 port is noted only when it has linked faster with that client: else it is the device's speed.
+            if (_slowClientPort != null && !_slowLinkRanFaster)
+                filteredRecs = filteredRecs.Where(r => r != NetworkOptimizer.UniFi.Models.PathAnalysisResult.SlowLinkRecommendation);
         }
         @if (filteredInsights.Any() || filteredRecs.Any())
         {
@@ -462,8 +466,24 @@
     private string HopName(NetworkHop hop) =>
         hop.Type == HopType.Tailscale ? _tailnet.NameFor(hop.DeviceIp) ?? hop.DeviceName : hop.DeviceName;
 
+    // The client access port behind a 10/100 note, and whether it has linked faster with that client.
+    private (string ClientMac, string SwitchMac, int Port, int Mbps)? _slowClientPort;
+    private bool _slowLinkRanFaster;
+
+    private async Task CheckSlowLinkAsync()
+    {
+        var slow = PathAnalysis?.SlowClientPort();
+        if (slow == _slowClientPort) return;
+        _slowClientPort = slow;
+        _slowLinkRanFaster = false;
+        if (slow is not { } s) return;
+        try { _slowLinkRanFaster = await LinkSpeedHistory.RanFasterWithClientAsync(s.SwitchMac, s.Port, s.ClientMac, s.Mbps); }
+        catch (Exception) { /* Refused (no session, as on a public result page): no evidence, so no note. */ }
+    }
+
     protected override async Task OnParametersSetAsync()
     {
+        await CheckSlowLinkAsync();
         if (!_tailnetRead)
         {
             _tailnetRead = true;
