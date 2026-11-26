@@ -163,16 +163,19 @@
                     {
                         <span class="status-badge @GetSiteBadgeClass(status)">@GetSiteBadgeLabel(status)</span>
                     }
+                    @* Keyed options with an explicit selected flag: when a key or Free tier is inserted
+                       above the selected option, Blazor otherwise rewrites the selected element's text
+                       in place and the dropdown shows a key the site is not on. *@
                     <select class="form-control license-site-select" data-autosave value="@SelectedCoverage(site.Id)"
                             @onchange="e => OnAssignmentChangedAsync(site.Slug, e)">
-                        <option value="">Not covered</option>
+                        <option @key="@("none")" value="" selected="@(SelectedCoverage(site.Id) == "")">Not covered</option>
                         @if (_freeTier.PersonalUse)
                         {
-                            <option value="@FreeTierValue">Free tier (@FreeTierSpare free)</option>
+                            <option @key="@FreeTierValue" value="@FreeTierValue" selected="@(SelectedCoverage(site.Id) == FreeTierValue)">Free tier (@FreeTierSpare free)</option>
                         }
                         @foreach (var key in _keys)
                         {
-                            <option value="@key.Id">@GetKeyOptionLabel(key)</option>
+                            <option @key="@key.Id" value="@key.Id" selected="@(SelectedCoverage(site.Id) == key.Id.ToString())">@GetKeyOptionLabel(key)</option>
                         }
                     </select>
                 </div>
