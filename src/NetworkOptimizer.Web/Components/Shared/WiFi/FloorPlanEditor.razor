@@ -264,6 +264,7 @@
                     <div class="lt-search fp-ap-search @(string.IsNullOrWhiteSpace(_catalogSearch) ? "" : "is-active")">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
                         <input class="form-control" placeholder="Filter by model" aria-label="Filter AP models"
+                               @ref="_catalogSearchInput"
                                @bind="_catalogSearch" @bind:event="oninput" @onkeydown="OnCatalogSearchKey" />
                         <span class="lt-search-hint" aria-hidden="true">Filter by model</span>
                         @if (!string.IsNullOrWhiteSpace(_catalogSearch))
@@ -1800,6 +1801,8 @@
     private List<ApModelCatalog.ApModelInfo> _apCatalog = new();
     private string? _selectedCatalogModel;
     private string _catalogSearch = "";
+    private ElementReference _catalogSearchInput;
+    private bool _focusCatalogSearch;
 
     /// <summary>
     /// The planned-AP model list narrowed by the search box. Every word must appear in the model,
@@ -1928,6 +1931,12 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender && _mapInitialized) await SyncToolbox();
+        if (_focusCatalogSearch)
+        {
+            _focusCatalogSearch = false;
+            try { await _catalogSearchInput.FocusAsync(); }
+            catch (Exception ex) when (ex is InvalidOperationException or JSException) { /* panel closed before it rendered */ }
+        }
         if (firstRender)
         {
             _dotNetRef = DotNetObjectReference.Create(this);
@@ -3284,7 +3293,13 @@
     private async Task TogglePlanApMode()
     {
         _mode = _mode == "plan-aps" ? "view" : "plan-aps";
-        if (_mode == "plan-aps") _showPlannedAps = true;
+        if (_mode == "plan-aps")
+        {
+            _showPlannedAps = true;
+            // Opening the model list puts the cursor in its search box, starting empty
+            _catalogSearch = "";
+            _focusCatalogSearch = true;
+        }
         else if (_plannedAps.Count == 0) _showPlannedAps = false;
         await JS.InvokeVoidAsync("fpEditor.setExcludePlannedAps", !_showPlannedAps);
         _selectedCatalogModel = null;
