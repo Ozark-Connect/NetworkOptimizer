@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
@@ -117,10 +116,11 @@ public class SiteManagementService : ISiteManagementService
         // Always notify: toggling multi-site changes what the Licensing card shows even
         // when the license snapshot is unchanged (e.g. the main site was already covered),
         // so force subscribers to reload rather than relying on a snapshot diff.
+        // Role caches clear first: subscribers reload the site list from them.
+        _siteRoles.InvalidateAll();
         await _licenseState.RecomputeAsync(alwaysNotify: true);
         // The no-console flag applies only while multi-site is on, where it can be cleared.
         await _siteConnections.GetDefault().RefreshNoConsoleAsync();
-        _siteRoles.InvalidateAll();
         _changeNotifier.NotifySitesChanged();
         _logger.LogInformation("Multi-site management {State}", enabled ? "enabled" : "disabled");
     }
@@ -391,9 +391,9 @@ public class SiteManagementService : ISiteManagementService
             _logger.LogWarning(ex, "Site {Slug} was removed but its threat settings could not be cleared", site.Slug);
         }
 
-        // Free the site's license seat.
-        await _licenseState.RecomputeAsync();
+        // Free the site's license seat. Role caches clear first: subscribers reload the site list from them.
         _siteRoles.InvalidateAll();
+        await _licenseState.RecomputeAsync();
         _changeNotifier.NotifySitesChanged();
         _logger.LogInformation("Removed site {Slug} (id {Id}) and its data", site.Slug, site.Id);
     }
@@ -479,9 +479,11 @@ public class SiteManagementService : ISiteManagementService
         await _siteRepository.AddAsync(site);
         // Cover the new site with a spare seat if one is available, then recompute so the
         // Licensing card reflects the new site immediately (no manual license refresh needed).
+        // Role caches clear before the recompute: the card reloads the site list through them,
+        // and a cached authorized-site set has no entry for a site that did not exist yet.
         await _activation.AutoAssignAsync();
-        await _licenseState.RecomputeAsync();
         _siteRoles.InvalidateAll();
+        await _licenseState.RecomputeAsync();
         _changeNotifier.NotifySitesChanged();
         return site;
     }
