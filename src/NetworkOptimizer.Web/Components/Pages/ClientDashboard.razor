@@ -1425,6 +1425,16 @@
     [SupplyParameterFromQuery(Name = "ip")]
     public string? IpParam { get; set; }
 
+    /// <summary>
+    /// Opens the client with this MAC, online or not. The page stays pinned to it: an old address now leased
+    /// to another device never shows that device, and a client back at a new address is followed there.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "mac")]
+    public string? MacParam { get; set; }
+
+    // The ?mac= client this page is pinned to, or null for an address or your own device.
+    private string? _pinnedMac;
+
     [SupplyParameterFromQuery(Name = "range")]
     public string? RangeParam { get; set; }
 
@@ -1789,13 +1799,16 @@
 
         // A client switch is a full load (FullLoadAsync), and so must its Back. Chromium keeps the
         // earlier entries on the reloaded document, so Back arrives here as a same-page ?ip= change.
-        if (_ipParamSeen && !string.Equals(IpParam, _lastIpParam, StringComparison.Ordinal))
+        if (_ipParamSeen && (!string.Equals(IpParam, _lastIpParam, StringComparison.Ordinal)
+                || !string.Equals(MacParam, _lastMacParam, StringComparison.OrdinalIgnoreCase)))
             _ = ReloadForClientChangeAsync();
         _lastIpParam = IpParam;
+        _lastMacParam = MacParam;
         _ipParamSeen = true;
     }
 
     private string? _lastIpParam;
+    private string? _lastMacParam;
     private bool _ipParamSeen;
 
     private async Task ReloadForClientChangeAsync()
@@ -1835,7 +1848,9 @@
                 _selectedTimeFilter = match.hours;
         }
 
-        _isOwnDevice = string.IsNullOrEmpty(IpParam);
+        // A ?mac= that is not a MAC is no link at all: the page opens your own device.
+        _isOwnDevice = string.IsNullOrEmpty(IpParam)
+            && NetworkOptimizer.Web.Services.CableModemProviders.Uci.UciInformService.NormalizeMac(MacParam) == null;
         // Own device logs, but not until the first poll settles what it is: a wireless one waits for
         // the GPS watcher, a wired one starts straight away. Claiming it here made the label say
         // Logging while nothing was being written yet.
@@ -1920,8 +1935,8 @@
                 // Offline, the second-by-second tick only asks the ledger whether an access point
                 // holds the client again. The stat/sta round trip keeps its own slower beat.
                 var offline = _client?.IsOffline == true;
-                var backOnAir = offline && !string.IsNullOrEmpty(_clientIp)
-                    && DashboardService.AgentHoldsClient(_clientIp);
+                var backOnAir = offline && (!string.IsNullOrEmpty(_clientIp) || _pinnedMac != null)
+                    && DashboardService.AgentHoldsClient(_clientIp ?? "", _pinnedMac);
                 var ticksPerFullPoll = _hasApAgentData ? 10 : 5;
                 var isFullPoll = backOnAir
                     || (!(_hasApAgentData || _hasWiFiManData) && (!offline || _tickCount % 5 == 0))
@@ -2166,6 +2181,16 @@
 
     private async Task<ClientIdentity?> GetClientIdentityAsync()
     {
+        // ?ip= wins when both are given. ?mac= pins the page to that client and takes its address from it.
+        if (string.IsNullOrEmpty(_clientIp) && !_isOwnDevice && string.IsNullOrEmpty(IpParam)
+            && NetworkOptimizer.Web.Services.CableModemProviders.Uci.UciInformService.NormalizeMac(MacParam) is { } mac)
+        {
+            _pinnedMac = mac;
+            var byMac = await DashboardService.IdentifyClientByMacAsync(mac);
+            if (!string.IsNullOrEmpty(byMac?.Ip)) _clientIp = byMac.Ip;
+            return byMac;
+        }
+
         // Use ?ip= query param if provided (for testing/linking to specific clients).
         // A stale ::ffff: deep-link is normalized so it still resolves against the client list.
         if (string.IsNullOrEmpty(_clientIp) && !_isOwnDevice)
@@ -2924,7 +2949,7 @@
 
         try
         {
-            var update = await DashboardService.PollLiveClientAsync(_clientIp);
+            var update = await DashboardService.PollLiveClientAsync(_clientIp, _pinnedMac);
 
             // Merged before the throughput refresh, whose chart push waits on the browser. A page in
             // the background parks every tick there; merging after it would write each tick's stale
@@ -3028,10 +3053,12 @@
         {
             _latestPoll = await DashboardService.PollSignalAsync(
                 _clientIp, lat, lng, acc,
-                persist: persist);
+                persist: persist, pinnedMac: _pinnedMac);
             if (_latestPoll != null)
             {
                 _client = _latestPoll.Client;
+                // A pinned client back at a new address is followed there.
+                if (_pinnedMac != null && !string.IsNullOrEmpty(_client.Ip)) _clientIp = _client.Ip;
                 TrackPresence();
                 await RefreshSteeringAsync();
                 await RefreshThroughputAsync();

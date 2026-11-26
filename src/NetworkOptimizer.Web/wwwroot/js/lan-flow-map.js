@@ -4558,11 +4558,12 @@ export class LanFlowMap {
         }
         // A shared-port hub carries the IP of its busiest interface, so it opens like a client.
         if (node.kind !== NODE_KIND.WifiClient && node.kind !== NODE_KIND.WiredClient && node.kind !== NODE_KIND.VirtualHub) return;
-        const ip = node.ip;
-        if (!ip) return;
-        // The default tab (Speed): what the device is doing is the usual question; Signal is a click away.
-        const url = `/client-dashboard?ip=${encodeURIComponent(ip)}`;
-        navigate(url);
+        // A client opens by MAC, so one with no recent address (and a past one whose address moved on) opens
+        // as itself. The default tab (Speed): what the device is doing is the usual question.
+        const q = node.kind !== NODE_KIND.VirtualHub && node.mac ? `mac=${encodeURIComponent(node.mac)}`
+            : node.ip ? `ip=${encodeURIComponent(node.ip)}` : null;
+        if (!q) return;
+        navigate(`/client-dashboard?${q}`);
     }
 
     _showHover(node) {
