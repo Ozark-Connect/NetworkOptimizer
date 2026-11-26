@@ -845,6 +845,7 @@ builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.IProbeExecutor>
 // analysis at a hostname override the way the site's clients resolve it.
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.SiteVantageDnsResolver>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory>();
+builder.Services.AddMutatingService<IClientPingService, ClientPingService>();
 // Data-plane check behind device offline alerts: tells an outage from a device that only stopped
 // reporting to UniFi Network. Resolved by the per-site DeviceStateAlertEvaluator.
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.IDeviceReachabilityProbe,

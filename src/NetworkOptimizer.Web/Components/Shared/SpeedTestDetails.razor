@@ -245,6 +245,7 @@
                         }
                     </div>
                 }
+                @SummaryEnd
             </div>
 
             @if (PathAnalysis.Path.Hops.Count > 0)
@@ -419,6 +420,9 @@
             var filteredInsights = hasZeroDirection
                 ? PathAnalysis.Insights.Where(i => !i.Contains("Performance below expected", StringComparison.OrdinalIgnoreCase))
                 : PathAnalysis.Insights;
+            // A path drawn without a test (Client Performance) has no speed for the wireless note to qualify.
+            if (PathOnly)
+                filteredInsights = filteredInsights.Where(i => i != NetworkOptimizer.UniFi.Models.PathAnalysisResult.WirelessSegmentInsight);
             var filteredRecs = hasZeroDirection
                 ? PathAnalysis.Recommendations.Where(r => !r.Contains("asymmetry", StringComparison.OrdinalIgnoreCase))
                 : PathAnalysis.Recommendations;
@@ -640,6 +644,9 @@
     /// When true, only renders the path visualization and hides test details (speed, retransmits, metadata).
     /// </summary>
     [Parameter] public bool PathOnly { get; set; }
+
+    /// <summary>Shown at the right end of the path's summary row, after the grades (Client Performance's live ping).</summary>
+    [Parameter] public RenderFragment? SummaryEnd { get; set; }
 
     /// <summary>
     /// Hide the device name in test details (useful when already shown in context)

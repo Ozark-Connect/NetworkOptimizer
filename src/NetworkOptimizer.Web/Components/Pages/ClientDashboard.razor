@@ -14,6 +14,7 @@
 @using Microsoft.AspNetCore.Http
 @using ApexCharts
 @inject ClientDashboardService DashboardService
+@inject NetworkOptimizer.Web.Services.Monitoring.IClientPingService PingService
 @inject IClientSpeedTestService SpeedTestService
 @inject UniFiConnectionService ConnectionService
 @inject IConfiguration Configuration
@@ -1059,14 +1060,41 @@
                 @* ===== CONNECTION TAB ===== *@
                 <div class="tab-pane">
                     @* Network Path *@
-                    @if (_latestPoll?.PathAnalysis != null)
+                    @if (_latestPoll == null && _client is { IsOffline: false, IsVpn: false })
+                    {
+                        @* The first trace is still out: the card holds a one-row path's height so the tab does not jump when it lands. *@
+                        <div class="card trace-card">
+                            <h3>Network Path</h3>
+                            <div class="path-analysis path-analysis-pending"><span class="spinner-sm"></span></div>
+                        </div>
+                    }
+                    else if (_latestPoll?.PathAnalysis != null)
                     {
                         <div class="card trace-card">
                             <h3>Network Path</h3>
                             <SpeedTestDetails PathAnalysis="_latestPoll.PathAnalysis" PathOnly="true"
                                               Perspective="SpeedPerspective.Device"
                                               LiveWifi="@ClientWifiLink.FromClient(_client)"
-                                              ClientSignalDbm="@(_client?.SignalDbm)" ClientRadio="@(_client?.Band)" />
+                                              ClientSignalDbm="@(_client?.SignalDbm)" ClientRadio="@(_client?.Band)">
+                                <SummaryEnd>
+                                    @if (PathPingShown)
+                                    {
+                                        @* The max tile's own classes, so the two read alike. *@
+                                        <div class="path-max-speed path-ping-tile" data-tooltip="@PathPingTooltip">
+                                            @if (_pathPingWaiting)
+                                            {
+                                                <span class="speed-value path-ping-pending"><span class="spinner-sm"></span></span>
+                                                <span class="speed-label path-ping-label">ping</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="speed-value">@PathPingText</span>
+                                                <span class="speed-label path-ping-label"><span class="path-ping-dot @(_pathPing?.RttMs == null ? "no-reply" : "")"></span>ping</span>
+                                            }
+                                        </div>
+                                    }
+                                </SummaryEnd>
+                            </SpeedTestDetails>
                         </div>
                     }
 
@@ -1909,6 +1937,8 @@
             }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
             return;
         }
+
+        StartPathPing();
 
         // Start polling - 500ms ticks on the AP Agent, 1s on WiFiman, 5s on stat/sta alone.
         // Full poll (stat/sta + trace + storage) stays on 5s whichever live source is in use.
@@ -3065,6 +3095,9 @@
                 _client = _latestPoll.Client;
                 // A pinned client back at a new address is followed there.
                 if (_pinnedMac != null && !string.IsNullOrEmpty(_client.Ip)) _clientIp = _client.Ip;
+                // The path has just arrived and nothing has pinged yet: ping now, not at the next 5 s tick.
+                if (_latestPoll.PathAnalysis != null && _pathPingWaiting)
+                    _pathPingTimer?.Change(TimeSpan.Zero, TimeSpan.FromSeconds(5));
                 TrackPresence();
                 await RefreshSteeringAsync();
                 await RefreshThroughputAsync();
@@ -3577,6 +3610,7 @@
         _tickCount = 0;
         var interval = LivePollInterval();
         _pollTimer?.Change(TimeSpan.Zero, interval);
+        if (tab == "connection") _pathPingTimer?.Change(TimeSpan.Zero, TimeSpan.FromSeconds(5));
 
         _ = InvokeAsync(async () =>
         {
@@ -4792,12 +4826,87 @@
         });
     }
 
+    // ===== Network Path: live ping =====
+    // While Connection is open and the page is visible, the Client is pinged every 5 seconds from the
+    // site's LAN probe vantage. A tick is skipped while the last ping is out: an agent ping can take seconds.
+    private System.Threading.Timer? _pathPingTimer;
+    private readonly CancellationTokenSource _pathPingCts = new();
+    private int _pathPingBusy;
+    private NetworkOptimizer.Web.Services.Monitoring.ClientPingResult? _pathPing;
+    private string? _pathPingFor;
+
+    // The Client's IPv4 address while it can be pinged (online, not a VPN client), else null.
+    private string? PathPingIp =>
+        _client is { IsOffline: false, IsVpn: false }
+        && NetworkUtilities.NormalizeToIPv4String(_clientIp) is { } ip
+        && System.Net.IPAddress.TryParse(ip, out var addr)
+        && addr.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? ip : null;
+
+    // Pending from the moment the path shows until this Client's first reading is in: read off the page's
+    // state, not a timer tick, so the spinner is up for the whole wait.
+    private bool _pathPingWaiting => PathPingIp is { } ip && (_pathPing == null || _pathPingFor != ip);
+
+    // Shown while a reading is in, or while the first one is on its way; hidden when nothing could send it.
+    private bool PathPingShown => _pathPingWaiting || (_pathPing is { Ran: true } && PathPingIp != null);
+
+    private void StartPathPing()
+    {
+        _pathPingTimer ??= new System.Threading.Timer(async _ =>
+        {
+            if (Interlocked.Exchange(ref _pathPingBusy, 1) == 1) return;
+            try { await PathPingTickAsync(); }
+            catch { /* prevent timer death */ }
+            finally { Interlocked.Exchange(ref _pathPingBusy, 0); }
+        }, null, TimeSpan.Zero, TimeSpan.FromSeconds(5));
+    }
+
+    private async Task PathPingTickAsync()
+    {
+        // IPv4 only: the probe has no address-family switch, and a Client's IPv4 is the one the path shows.
+        var ip = PathPingIp;
+        var live = _activeTab == "connection" && !_pageHidden && !_disposed
+            && _latestPoll?.PathAnalysis != null && ip != null;
+        if (!live) return;
+
+        // On the circuit's dispatcher, as the poll's own calls are: the gate reads the signed-in user from it.
+        await InvokeAsync(async () =>
+        {
+            var series = PathPingSeries(_client!);
+            var result = await PingService.PingAsync(ip!, series, _pathPingCts.Token);
+            if (_disposed) return;
+            _pathPing = result;
+            _pathPingFor = ip;
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>The Client's own series for its pings: its switch and port, or its access point and band. Null when unknown.</summary>
+    private static NetworkOptimizer.Web.Services.Monitoring.ClientPingSeries? PathPingSeries(ClientIdentity client)
+    {
+        if (string.IsNullOrEmpty(client.Mac)) return null;
+        if (client.IsWired)
+            return string.IsNullOrEmpty(client.SwitchMac) ? null
+                : new(client.Mac, true, client.SwitchMac, null, client.SwitchPort);
+        var band = MonitoringCollectionAgent.MapBand(client.Band);
+        return string.IsNullOrEmpty(client.ApMac) || band.Length == 0 ? null
+            : new(client.Mac, false, client.ApMac, band, null);
+    }
+
+    // Live View's RTT tile format: the figure changes every 5 seconds, and fixed decimals keep its width steady.
+    private string PathPingText => _pathPing?.RttMs is double ms
+        ? NetworkOptimizer.Web.Services.Monitoring.MonitoringStatFormat.Rtt(ms) : "No reply";
+    // No tooltip until a first ping has said where it came from.
+    private string? PathPingTooltip => _pathPing?.Vantage is { } vantage ? $"Pinged every 5 s from {vantage}" : null;
+
     public async ValueTask DisposeAsync()
     {
         _disposed = true;
         ConnectionService.OnConnectionChanged -= OnConsoleConnectionChanged;
         CircuitReconnect.Reconnected -= OnCircuitReconnected;
         _pollTimer?.Dispose();
+        _pathPingTimer?.Dispose();
+        _pathPingCts.Cancel();
+        _pathPingCts.Dispose();
         _identityRetryTimer?.Dispose();
         _pickerRefreshTimer?.Dispose();
         _liveFeed?.Dispose();
@@ -5615,6 +5724,62 @@
     .trace-card h3 {
         margin: 0 0 12px;
         font-size: 1rem;
+    }
+
+    /* The title's own margin is the gap: app.css's top margin on the path box would stack on it. */
+    .trace-card .path-analysis {
+        margin-top: 0;
+        /* A one-row path's height (summary row plus one row of hops), so the card keeps its size from loading to loaded. */
+        min-height: 190px;
+    }
+    .trace-card .path-analysis-pending {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Network Path's live ping: a tile at the right end of the path's summary row. */
+    @@media (max-width: 768px) {
+        /* The row wraps and centers on a phone: the tile centers with it, not pushed to the right edge. */
+        .path-analysis .path-max-speed.path-ping-tile { margin-left: 0; }
+    }
+    /* The tile takes the max tile's look from .path-max-speed; only its place and its label's are its own. */
+    /* Half the max tile's bottom padding: the label's box runs from under the value nearly to the tile's edge. */
+    .path-analysis .path-ping-tile {
+        margin-left: auto;
+        align-self: stretch;
+        padding-bottom: 0.375rem;
+        cursor: help;
+    }
+    .path-analysis .path-ping-tile .speed-value {
+        white-space: nowrap;
+    }
+    /* The spinner takes the value's own height, so the tile does not move when the reading arrives. */
+    .path-analysis .path-ping-tile .path-ping-pending {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 1.25rem;
+    }
+    /* The label fills everything between the value and the tile's bottom edge, and sits in its middle. */
+    .path-analysis .path-ping-tile .path-ping-label {
+        flex: 1;
+        min-height: 2rem;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+    .path-ping-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--success-color);
+        box-shadow: 0 0 0 3px rgba(36, 188, 112, 0.18);
+        flex-shrink: 0;
+    }
+    .path-ping-dot.no-reply {
+        background: var(--warning-color);
+        box-shadow: 0 0 0 3px rgba(231, 150, 19, 0.18);
     }
 
     /* Results Table */

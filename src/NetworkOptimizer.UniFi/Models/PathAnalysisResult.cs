@@ -6,6 +6,9 @@ namespace NetworkOptimizer.UniFi.Models;
 /// </summary>
 public class PathAnalysisResult
 {
+    /// <summary>The note on a path with a wireless hop. Left out where no speed was measured (Client Performance's path).</summary>
+    public const string WirelessSegmentInsight = "Path includes wireless segment - speeds may vary with signal quality";
+
     /// <summary>The network path from iperf3 server to target device</summary>
     public NetworkPath Path { get; set; } = new();
 
@@ -104,7 +107,7 @@ public class PathAnalysisResult
         // Wireless connection warning (client->AP or AP->AP, not AP->Switch)
         if (Path.HasWirelessConnection)
         {
-            Insights.Add("Path includes wireless segment - speeds may vary with signal quality");
+            Insights.Add(WirelessSegmentInsight);
         }
 
         // Performance-based insights (note: enum comparison - higher value = worse grade)
