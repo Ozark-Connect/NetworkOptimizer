@@ -556,6 +556,22 @@ window.fpEditor = {
         fs.setAttribute('data-tooltip', on ? 'Exit fullscreen (Esc)' : 'Fullscreen');
         fs.setAttribute('aria-label', on ? 'Exit fullscreen' : 'Fullscreen');
         if (fs._tippy) fs._tippy.setContent(fs.getAttribute('data-tooltip'));
+        if (!on) this._restorePreFullscreenScroll();
+    },
+
+    // Puts the page back where it was before fullscreen, once the editor is back in the page's flow.
+    _restorePreFullscreenScroll: function () {
+        var saved = this._preFullscreenScroll;
+        this._preFullscreenScroll = null;
+        if (!saved) return;
+        var apply = function () {
+            saved.forEach(function (s) {
+                if (s.el && Math.abs(s.el.scrollTop - s.top) > 1) s.el.scrollTop = s.top;
+            });
+        };
+        // Again a beat later: the layout can still be settling (Blazor's render, the map's resize).
+        requestAnimationFrame(function () { requestAnimationFrame(apply); });
+        setTimeout(apply, 250);
     },
 
     setDotNetRef: function (ref) {
@@ -677,6 +693,14 @@ window.fpEditor = {
         var self = this, m = this._map;
         var snap = { size: m.getSize(), center: m.getCenter() };
         this._sizeSnapshot = snap;
+        // Entering fullscreen: keep the page's scroll, which leaving it would otherwise reset to the
+        // top (the app scrolls .main-content on a phone, .page-content on desktop, or the window).
+        if (!m.getContainer().closest('.fp-fullscreen')) {
+            this._preFullscreenScroll = ['.main-content', '.page-content'].map(function (sel) {
+                var el = document.querySelector(sel);
+                return el ? { el: el, top: el.scrollTop } : null;
+            }).filter(Boolean).concat([{ el: document.scrollingElement, top: window.scrollY }]);
+        }
         // A snapshot the layout never answered: drop it and re-measure plainly.
         setTimeout(function () {
             if (self._sizeSnapshot !== snap) return;
