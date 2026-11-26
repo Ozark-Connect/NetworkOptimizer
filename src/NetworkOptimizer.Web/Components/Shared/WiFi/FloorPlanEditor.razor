@@ -33,7 +33,7 @@
 
 <div class="floor-plan-editor @(_isFullscreen ? "fp-fullscreen" : "")" @onkeydown="OnEditorKeyDown" tabindex="-1">
     <!-- Toolbar -->
-    <div class="fp-toolbar">
+    <div class="fp-toolbar @(!IsReadOnly && _selectedBuilding == null ? "fp-toolbar-browse" : "")">
         <div class="fp-toolbar-left">
             @if (!IsReadOnly)
             {
@@ -52,7 +52,9 @@
                 else
                 {
                     <button class="fp-btn" @onclick="ShowAddBuildingDialog" data-tooltip="Add new building" data-tooltip-hover-only>+ Building</button>
-                    <button class="fp-btn fp-btn-primary" @onclick="OpenInnerSpaceImport" data-tour="innerspace-import"
+                    @* On mobile, Import leads the second row, ahead of the view toggles. *@
+                    <span class="fp-row-break"></span>
+                    <button class="fp-btn fp-btn-primary fp-import-btn" @onclick="OpenInnerSpaceImport" data-tour="innerspace-import"
                             data-tooltip="Import a building from UniFi InnerSpace" data-tooltip-hover-only>Import</button>
                 }
             }
@@ -644,6 +646,7 @@
     .fp-floor-add { font-weight: bold; }
 
     .fp-toolbar-group { display: flex; align-items: center; gap: 4px; }
+    .fp-row-break { display: none; }
     .fp-toolbar-sep { width: 1px; height: 20px; background: var(--border-color, #232326); flex-shrink: 0; }
 
     .fp-map-container { position: relative; z-index: 1; }
@@ -1670,6 +1673,16 @@
         /* The map toolbox carries APs and Planned APs on mobile; the view toggles sit on the right. */
         .fp-toolbar-aps { display: none; }
         .fp-toolbar-view { margin-left: auto; justify-content: flex-end; min-width: 0; max-width: 100%; }
+        /* No building selected: row 1 is the building select, + Building, and the floor picker;
+           row 2 starts with Import, then the view toggles. The left group's items join the
+           toolbar's own row, and a zero-height break splits them (4px row gaps either side of it
+           make the usual 8px). */
+        .fp-toolbar.fp-toolbar-browse { flex-direction: row; align-items: center; justify-content: flex-start; row-gap: 4px; }
+        .fp-toolbar-browse > .fp-toolbar-left { display: contents; }
+        .fp-toolbar-browse .fp-row-break { display: block; flex-basis: 100%; height: 0; order: 1; }
+        .fp-toolbar-browse .fp-import-btn { order: 2; }
+        /* The rest of row 2: the toggles wrap inside it rather than dropping below Import. */
+        .fp-toolbar-browse > .fp-toolbar-right { order: 3; width: auto; flex: 1 1 0; min-width: 0; }
         .fp-edit-hint {
             top: auto;
             bottom: 110px;
