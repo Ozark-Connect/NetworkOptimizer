@@ -51,6 +51,15 @@ public class PortStatsClientTests
     }
 
     [Fact]
+    public void ASwitchToSwitchPortIsFabricAndAnAccessPortIsNot()
+    {
+        // The uplink once carried a client for a minute (a recabling): it still names no one.
+        PortStatsEndpoints.IsFabricPort(Port(9, LinkKind.FabricWired), Switch, 9).Should().BeTrue();
+        PortStatsEndpoints.IsFabricPort(Port(2), Switch, 2).Should().BeFalse();
+        PortStatsEndpoints.IsFabricPort(Port(2), Switch, 3).Should().BeFalse();
+    }
+
+    [Fact]
     public void APortWithNoClientMacIsNoClient()
     {
         PortStatsEndpoints.LanHealthPortClient(Port(4, clientMac: null), Switch, 4).Should().BeNull();

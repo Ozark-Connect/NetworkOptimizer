@@ -115,22 +115,6 @@ public static class PortStatsEndpoints
                     friendlyByMacIf[k] = m.FriendlyName!;
             }
 
-            // Historic: a port with no client at the instant (asleep, unlisted) shows the last one recorded on it
-            // before then, as the live table shows the port's last client. A port shared at the instant stays empty.
-            if (histClients != null && at.HasValue)
-            {
-                var empty = points
-                    .Select(p => (Mac: Norm(p.DeviceMac), Port: mapByKey.GetValueOrDefault((Norm(p.DeviceMac), p.IfName))?.PortNumber))
-                    .Where(p => p.Port is int n && !histClients.ContainsKey((p.Mac, n)) && !histShared.Contains((p.Mac, n)))
-                    .Select(p => (p.Mac, p.Port!.Value)).Distinct().ToList();
-                try
-                {
-                    foreach (var last in await influx.QueryLastWiredPortClientsAsync(empty, at.Value.ToUniversalTime(), HistoricLastClientLookback, ct))
-                        histClients.TryAdd((Norm(last.DeviceMac), last.Port), last);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException) { /* The column shows the instant's clients only. */ }
-            }
-
             var poeByPort = at.HasValue
                 ? await HistoricPoeAsync(influx, at.Value, mapByKey, ct)
                 : await LivePoeAsync(connectionService, ct);
@@ -143,6 +127,23 @@ public static class PortStatsEndpoints
                 lanByPort = NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanHealthLinkMatch.ByPort(report.Links);
             }
             catch (Exception ex) when (ex is not OperationCanceledException) { /* The table renders without the links. */ }
+
+            // Historic: a port with no client at the instant (asleep, unlisted) shows the last one recorded on it
+            // before then, as the live table shows the port's last client. A port shared at the instant stays empty.
+            if (histClients != null && at.HasValue)
+            {
+                var empty = points
+                    .Select(p => (Mac: Norm(p.DeviceMac), Port: mapByKey.GetValueOrDefault((Norm(p.DeviceMac), p.IfName))?.PortNumber))
+                    .Where(p => p.Port is int n && !histClients.ContainsKey((p.Mac, n)) && !histShared.Contains((p.Mac, n))
+                        && !IsFabricPort(lanByPort, p.Mac, n))
+                    .Select(p => (p.Mac, p.Port!.Value)).Distinct().ToList();
+                try
+                {
+                    foreach (var last in await influx.QueryLastWiredPortClientsAsync(empty, at.Value.ToUniversalTime(), HistoricLastClientLookback, ct))
+                        histClients.TryAdd((Norm(last.DeviceMac), last.Port), last);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException) { /* The column shows the instant's clients only. */ }
+            }
 
             NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkRecord? LanClient(string deviceMac, int port) =>
                 LanHealthPortClient(lanByPort, deviceMac, port);
@@ -195,7 +196,8 @@ public static class PortStatsEndpoints
                                 // Client Dashboard). Keyed on the port's OWN number so a
                                 // VLAN sub-interface doesn't borrow the parent's client.
                                 string? clientMac = null, clientIp = null, clientName = null;
-                                if (nm?.PortNumber is int pnum)
+                                // A switch-to-switch (fabric) port carries no client, whatever was once recorded on it.
+                                if (nm?.PortNumber is int pnum && !IsFabricPort(lanByPort, mac, pnum))
                                 {
                                     if (histClients != null)
                                     {
@@ -321,6 +323,12 @@ public static class PortStatsEndpoints
         lanByPort.TryGetValue((deviceMac, port), out var lh)
             && lh.Link.Kind == NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkKind.Access && lh.Link.Upstream.DeviceMac == deviceMac
             && !string.IsNullOrEmpty(lh.Link.ClientMac) && lh.Link.OccupantMacs.Count <= 1 ? lh.Link : null;
+
+    /// <summary>True when LAN Health has a fabric link (device to device: uplink, mesh) on the port.</summary>
+    internal static bool IsFabricPort(
+        IReadOnlyDictionary<(string Mac, int Port), NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkHealth> lanByPort,
+        string deviceMac, int port) =>
+        lanByPort.TryGetValue((deviceMac, port), out var lh) && lh.Link.IsFabric;
 
     /// <summary>
     /// A client's name and ip for the Client column: its own, then LAN Health's for the same client on the port,
