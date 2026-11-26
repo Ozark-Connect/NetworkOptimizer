@@ -343,7 +343,12 @@ window.fpEditor = {
             }
             // The wheel zooms, and one finger pans, after a rest or a tap on the map (wheel-gate.js); always in fullscreen.
             if (window.WheelGate) {
-                window.WheelGate.leaflet(m, { exempt: function () { return !!container.closest('.fp-fullscreen'); }, touch: true });
+                window.WheelGate.leaflet(m, {
+                    exempt: function () { return !!container.closest('.fp-fullscreen'); },
+                    touch: true,
+                    // Select keeps map dragging on, but a finger draws its box, not a page scroll.
+                    touchExempt: function () { return self._wallTool === 'select' && !!self._selectUsable; }
+                });
             }
 
             // Dynamic zoom delta: 0.5 at building level (zoom >= 21), 1 otherwise
@@ -2212,7 +2217,9 @@ window.fpEditor = {
         }, true);
 
         container.addEventListener(DOWN, function (e) {
-            if (usePointer && e.pointerType === 'touch') return;
+            // Touch has no Shift: a finger draws the box only with the Select tool on, else it pans.
+            var touch = usePointer && e.pointerType === 'touch';
+            if (touch && self._wallTool !== 'select') return;
             if (e.button !== 0 || !(e.shiftKey || self._wallTool === 'select')) return;
             if (!self._wallsEditable || self._isDrawing || self._placementActive || self._activeMoveHandlers || self._moveMarker) return;
             if (!self._allWalls || self._allWalls.length === 0 || !self._wallLayer || self._wallLayer.getLayers().length === 0) return;
@@ -2241,9 +2248,9 @@ window.fpEditor = {
                 var end = m.mouseEventToContainerPoint(ev);
                 self._swallowClickUntil = Date.now() + 400;
                 if (!rect) {
-                    // No drag: this press is the click. Pick the segment with a 9px tolerance; an
-                    // empty spot clears the selection, as a map click does.
-                    var hit = self._segAtPoint(end, 9);
+                    // No drag: this press is the click. Pick the segment with a 9px tolerance (18px for
+                    // a finger); an empty spot clears the selection, as a map click does.
+                    var hit = self._segAtPoint(end, touch ? 18 : 9);
                     if (hit) {
                         self._handleSegClick({ latlng: m.containerPointToLatLng(end), originalEvent: ev }, hit.wi, hit.si);
                     } else {

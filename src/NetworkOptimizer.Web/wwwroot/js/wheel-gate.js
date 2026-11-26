@@ -231,7 +231,9 @@
             if (opts && opts.touch) {
                 options.touchSurfaces = function () { return [container]; };
                 // A map whose dragging is off (an editor's drawing mode) has no pan to gate: the finger is the tool's.
-                options.touchExempt = function () { return !map.dragging.enabled(); };
+                // The caller's own touchExempt adds tools that keep dragging on (the Signal Map's Select).
+                var callerExempt = opts.touchExempt;
+                options.touchExempt = function () { return !map.dragging.enabled() || !!(callerExempt && callerExempt()); };
             }
             return window.WheelGate.attach(container, options);
         }
