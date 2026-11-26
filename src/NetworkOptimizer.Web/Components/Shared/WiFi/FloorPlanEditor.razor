@@ -102,7 +102,8 @@
                        TODO.md "Signal Map: retire the toolbar buttons the map toolbox replaced". The wall
                        material select stays: the toolbox has no material picker. *@
                     <div class="fp-toolbar-group">
-                        <button class="fp-btn @(_mode == "walls" ? "fp-btn-warning" : "fp-btn-primary")" @onclick="ToggleWallDrawMode">
+                        @* On mobile the toolbox carries Draw Layout and Undo; the material select stays. *@
+                        <button class="fp-btn hide-mobile @(_mode == "walls" ? "fp-btn-warning" : "fp-btn-primary")" @onclick="ToggleWallDrawMode">
                             @(_mode == "walls" ? "Done Drawing" : "Draw Layout")
                         </button>
                         @if (_mode == "walls")
@@ -118,7 +119,7 @@
                         }
                         else
                         {
-                            <button class="fp-btn fp-btn-danger-sm" @onclick="DeleteLastWall"
+                            <button class="fp-btn fp-btn-danger-sm hide-mobile" @onclick="DeleteLastWall"
                                     data-tooltip="Delete last wall" data-tooltip-hover-only>Undo Wall</button>
                         }
                     </div>
@@ -408,7 +409,7 @@
     }
     else if (!IsReadOnly && _selectedBuilding != null)
     {
-        <div class="fp-bottom-bar fp-bottom-bar-building">
+        <div class="fp-bottom-bar">
             <button class="fp-btn" @onclick="StartBuildingMove">Move Building</button>
             <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteBuilding = true">Delete Building</button>
         </div>
@@ -1680,8 +1681,10 @@
             gap: 6px 8px;
             padding: 6px 8px;
         }
-        /* The last bar on the page: room below Move / Delete Building, clear of the screen edge. */
-        .fp-bottom-bar-building {
+        /* Whichever bar is last (the floor bar or the building bar): room below Delete Building,
+           clear of the screen edge. */
+        .floor-plan-editor > .fp-bottom-bar:last-child,
+        .floor-plan-editor > .fp-crop-panel:last-child {
             padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
         }
         .fp-bottom-bar .fp-btn,
@@ -1689,11 +1692,10 @@
             padding: 3px 7px;
             font-size: 12px;
         }
+        /* The groups' items flow on their own, so Floor: sits beside Upload Floorplan until it has
+           to wrap, rather than the whole group dropping to a new line. */
         .fp-bar-group {
-            gap: 4px;
-            flex-wrap: wrap;
-            max-width: 100%;
-            flex-shrink: 1;
+            display: contents;
         }
         .fp-separator { display: none; }
         .fp-opacity-slider { width: 70px; }
