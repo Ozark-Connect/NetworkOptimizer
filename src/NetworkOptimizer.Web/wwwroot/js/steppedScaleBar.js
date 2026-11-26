@@ -65,6 +65,13 @@ window.SteppedScaleBar = {
             if (nice[i] >= raw) { stepFt = nice[i]; break; }
         }
 
+        // Never wider than the map leaves beside the bottom-right legend (~180px with margins): on a
+        // phone the round-up above could otherwise run the bar under it. A wide map never hits this.
+        var maxPx = Math.max(60, size.x - 200);
+        for (var k = nice.indexOf(stepFt); k > 0 && (stepFt * steps / 3.28084) / mPerPx > maxPx; k--) {
+            stepFt = nice[k - 1];
+        }
+
         var barPx = (stepFt * steps / 3.28084) / mPerPx;
         var segPx = barPx / steps;
 

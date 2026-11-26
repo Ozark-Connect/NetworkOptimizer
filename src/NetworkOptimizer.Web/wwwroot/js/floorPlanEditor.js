@@ -562,9 +562,10 @@ window.fpEditor = {
     },
 
     setScaleSteps: function (steps) {
-        // On mobile, only show scale bar in fullscreen (steps > 3)
+        // On mobile, only show scale bar in fullscreen (steps > 3), and with 3 steps: 5 do not fit
+        // beside the signal legend on a phone
         var isMobile = window.innerWidth <= 768;
-        SteppedScaleBar.setSteps(this._scaleBar, (isMobile && steps <= 3) ? 0 : steps);
+        SteppedScaleBar.setSteps(this._scaleBar, isMobile ? (steps <= 3 ? 0 : 3) : steps);
     },
 
     // ── View ─────────────────────────────────────────────────────────
