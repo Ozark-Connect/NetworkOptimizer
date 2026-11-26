@@ -55,6 +55,9 @@ public static class UniFiProductDatabase
         "USW-Ultra-60W",
         "USW-Ultra-210W",
 
+        // LR Series (MCU-based, like Flex and Ultra)
+        "USW-LR-Switch-8-PoE",
+
         // Lite Series (non-rackmount)
         "USW-Lite-8-PoE",
         "USW-Lite-16-PoE",
@@ -221,6 +224,9 @@ public static class UniFiProductDatabase
         { "USM8P60", "USW-Ultra-60W" },
         { "USM8P210", "USW-Ultra-210W" },
 
+        // ----- Official: USW LR Series -----
+        { "USWED99", "USW-LR-Switch-8-PoE" },
+
         // ----- Official: USW Lite Series -----
         { "USL8LP", "USW-Lite-8-PoE" },
         { "USL8LPB", "USW-Lite-8-PoE" },
@@ -349,6 +355,7 @@ public static class UniFiProductDatabase
         // ----- Official: WiFi 7 Hardware Revision Codes -----
         { "UAPA693", "U7-Lite" },
         { "UAPA69E", "U7-Mesh" },
+        { "UAPA6BF", "U7-Mesh-Wall" },
         { "UAPA6A4", "U7-Pro-XGS" },
         { "UAPA6A5", "U7-IW" },
         { "UAPA6A6", "U7-Pro-Outdoor" },
@@ -548,6 +555,8 @@ public static class UniFiProductDatabase
         { "USM25G8", "USW-Flex-2.5G-8" },
         { "USM25G8P", "USW-Flex-2.5G-8-PoE" },
         { "USWULTRA", "USW-Ultra" },
+        { "USMLR8P", "USW-LR-Switch-8-PoE" },
+        { "USW-LR-Switch-8-PoE", "USW-LR-Switch-8-PoE" },
         { "USWLITE8", "USW-Lite-8-PoE" },
         { "USWLITE16", "USW-Lite-16-PoE" },
         { "USID8", "USW-Industrial-DIN-8" },
@@ -626,6 +635,8 @@ public static class UniFiProductDatabase
         { "G7LT", "U7-Lite" },
         { "U7MESH", "U7-Mesh" },
         { "U7-MESH", "U7-Mesh" },
+        { "U7MW", "U7-Mesh-Wall" },
+        { "U7-Mesh-Wall", "U7-Mesh-Wall" },
         { "G7IW", "U7-IW" },
         { "E7", "E7" },
         { "E7CEU", "E7-Campus-EU" },
@@ -862,6 +873,9 @@ public static class UniFiProductDatabase
         "USW-Ultra",
         "USW-Ultra-60W",
         "USW-Ultra-210W",
+
+        // LR Series (MCU-based, like Flex and Ultra)
+        "USW-LR-Switch-8-PoE",
     };
 
     /// <summary>
