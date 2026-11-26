@@ -1934,7 +1934,7 @@
         if (_focusCatalogSearch)
         {
             _focusCatalogSearch = false;
-            try { await _catalogSearchInput.FocusAsync(); }
+            try { await JS.InvokeVoidAsync("fpEditor.focusUnlessTouch", _catalogSearchInput); }
             catch (Exception ex) when (ex is InvalidOperationException or JSException) { /* panel closed before it rendered */ }
         }
         if (firstRender)
@@ -3296,7 +3296,7 @@
         if (_mode == "plan-aps")
         {
             _showPlannedAps = true;
-            // Opening the model list puts the cursor in its search box, starting empty
+            // Opening the model list puts the cursor in its search box (desktop only), starting empty
             _catalogSearch = "";
             _focusCatalogSearch = true;
         }

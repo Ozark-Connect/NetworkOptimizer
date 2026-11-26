@@ -1582,6 +1582,12 @@ window.fpEditor = {
         });
     },
 
+    // Focus a field on desktop only: on a touch device the keyboard would cover the map.
+    focusUnlessTouch: function (el) {
+        if (!el || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)) return;
+        el.focus();
+    },
+
     _setPlannedAntennaMode: function (plannedId, mode) {
         if (this._dotNetRef) this._dotNetRef.invokeMethodAsync('OnPlannedApAntennaModeChangedFromJs', plannedId, mode);
     },
