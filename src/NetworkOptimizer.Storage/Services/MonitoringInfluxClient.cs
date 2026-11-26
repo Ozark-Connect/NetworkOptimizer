@@ -1727,8 +1727,8 @@ public partial class MonitoringInfluxClient : IAsyncDisposable
         CancellationToken ct = default) =>
         (await QueryWiredPortClientsWindowAsync(deviceMacs, at, ct)).Clients;
 
-    /// <summary>The clients around a historic instant, and the ports more than one client shared in that window.</summary>
-    public sealed record WiredPortClientWindow(IReadOnlyList<WiredPortClientPoint> Clients, IReadOnlySet<(string DeviceMac, int Port)> SharedPorts);
+    /// <summary>The clients around a historic instant, and how many clients shared each port that had more than one.</summary>
+    public sealed record WiredPortClientWindow(IReadOnlyList<WiredPortClientPoint> Clients, IReadOnlyDictionary<(string DeviceMac, int Port), int> SharedPorts);
 
     /// <summary><see cref="QueryWiredPortClientsAsync"/>, with the shared ports it leaves out.</summary>
     public async Task<WiredPortClientWindow> QueryWiredPortClientsWindowAsync(
@@ -1736,7 +1736,7 @@ public partial class MonitoringInfluxClient : IAsyncDisposable
         DateTime at,
         CancellationToken ct = default)
     {
-        var shared = new HashSet<(string, int)>();
+        var shared = new Dictionary<(string, int), int>();
         if (!IsConfigured) return new WiredPortClientWindow(Array.Empty<WiredPortClientPoint>(), shared);
 
         // Same snapshot window as QueryPortStatsAsync so the Client column lines up
@@ -1779,9 +1779,10 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
         var result = new List<WiredPortClientPoint>();
         foreach (var group in rows.GroupBy(r => (r.DeviceMac, r.Port)))
         {
-            if (group.Select(r => r.ClientMac).Distinct(StringComparer.OrdinalIgnoreCase).Count() != 1)
+            var distinct = group.Select(r => r.ClientMac).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+            if (distinct != 1)
             {
-                shared.Add(group.Key); // multiple clients in the window - trunk/uplink, never label
+                shared[group.Key] = distinct; // multiple clients in the window - never one client's label
                 continue;
             }
             // Nearest to the scrub instant, matching the counter selection in

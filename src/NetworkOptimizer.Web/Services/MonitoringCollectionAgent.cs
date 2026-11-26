@@ -1382,7 +1382,8 @@ public class MonitoringCollectionAgent : BackgroundService
             // (no live DHCP lease) still resolve, matching the UniFi client table.
             portClients[key] = new MonitoringLiveStats.PortClient(pc.Mac, pc.BestIp ?? string.Empty, pcName);
         }
-        _liveStats.RecordPortClients(portClients);
+        _liveStats.RecordPortClients(portClients,
+            wiredByPort.Where(kv => kv.Value.Count > 1).ToDictionary(kv => kv.Key, kv => kv.Value.Count));
 
         long tickOffset = 0; // nanosecond offset per client to avoid InfluxDB dedup
         foreach (var c in clients)

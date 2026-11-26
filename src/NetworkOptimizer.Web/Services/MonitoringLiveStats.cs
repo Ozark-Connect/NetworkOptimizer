@@ -454,11 +454,22 @@ public class MonitoringLiveStats
     private volatile IReadOnlyDictionary<(string DeviceMac, int Port), PortClient> _portClients =
         new Dictionary<(string, int), PortClient>();
 
-    /// <summary>Replaces the whole (device, port) → wired-client map.</summary>
-    public void RecordPortClients(IReadOnlyDictionary<(string DeviceMac, int Port), PortClient> map)
+    // How many wired clients the console lists on each port that has more than one.
+    private volatile IReadOnlyDictionary<(string DeviceMac, int Port), int> _sharedPortCounts =
+        new Dictionary<(string, int), int>();
+
+    /// <summary>Replaces the whole (device, port) → wired-client map, and the client counts of shared ports.</summary>
+    public void RecordPortClients(IReadOnlyDictionary<(string DeviceMac, int Port), PortClient> map,
+        IReadOnlyDictionary<(string DeviceMac, int Port), int>? sharedPortCounts = null)
     {
-        if (map != null) _portClients = map;
+        if (map == null) return;
+        _portClients = map;
+        _sharedPortCounts = sharedPortCounts ?? new Dictionary<(string, int), int>();
     }
+
+    /// <summary>How many wired clients the console lists on the port, when more than one; otherwise null.</summary>
+    public int? GetSharedPortCount(string deviceMac, int port) =>
+        !string.IsNullOrEmpty(deviceMac) && _sharedPortCounts.TryGetValue((Normalize(deviceMac), port), out var n) ? n : null;
 
     /// <summary>The wired client on a device port, or null when none / ambiguous.</summary>
     public PortClient? GetPortClient(string deviceMac, int port)

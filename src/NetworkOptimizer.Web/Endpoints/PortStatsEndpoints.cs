@@ -68,7 +68,7 @@ public static class PortStatsEndpoints
             // points at the same instant; live keeps the in-memory map. Pre-2.0 history
             // has no port tag and simply yields no client labels.
             Dictionary<(string Mac, int Port), MonitoringInfluxClient.WiredPortClientPoint>? histClients = null;
-            IReadOnlySet<(string DeviceMac, int Port)> histShared = new HashSet<(string, int)>();
+            IReadOnlyDictionary<(string DeviceMac, int Port), int> histShared = new Dictionary<(string, int), int>();
             if (at.HasValue)
             {
                 var window = await influx.QueryWiredPortClientsWindowAsync(filterMacs, at.Value.ToUniversalTime(), ct);
@@ -134,7 +134,7 @@ public static class PortStatsEndpoints
             {
                 var empty = points
                     .Select(p => (Mac: Norm(p.DeviceMac), Port: mapByKey.GetValueOrDefault((Norm(p.DeviceMac), p.IfName))?.PortNumber))
-                    .Where(p => p.Port is int n && !histClients.ContainsKey((p.Mac, n)) && !histShared.Contains((p.Mac, n))
+                    .Where(p => p.Port is int n && !histClients.ContainsKey((p.Mac, n)) && !histShared.ContainsKey((p.Mac, n))
                         && !IsFabricPort(lanByPort, p.Mac, n))
                     .Select(p => (p.Mac, p.Port!.Value)).Distinct().ToList();
                 try
@@ -196,6 +196,8 @@ public static class PortStatsEndpoints
                                 // Client Dashboard). Keyed on the port's OWN number so a
                                 // VLAN sub-interface doesn't borrow the parent's client.
                                 string? clientMac = null, clientIp = null, clientName = null;
+                                // A port several clients share names none of them: the table shows how many.
+                                int? clientCount = null;
                                 // A switch-to-switch (fabric) port carries no client, whatever was once recorded on it.
                                 if (nm?.PortNumber is int pnum && !IsFabricPort(lanByPort, mac, pnum))
                                 {
@@ -203,10 +205,16 @@ public static class PortStatsEndpoints
                                     {
                                         if (histClients.TryGetValue((mac, pnum), out var hc))
                                             (clientMac, clientIp, clientName) = Fill(mac, pnum, hc.ClientMac, hc.ClientIp, hc.ClientName);
+                                        else if (histShared.TryGetValue((mac, pnum), out var hn))
+                                            clientCount = hn;
                                     }
                                     else if (liveStats.GetPortClient(mac, pnum) is { } lc)
                                     {
                                         (clientMac, clientIp, clientName) = Fill(mac, pnum, lc.Mac, lc.Ip, lc.Name);
+                                    }
+                                    else if (liveStats.GetSharedPortCount(mac, pnum) is int ln)
+                                    {
+                                        clientCount = ln;
                                     }
                                     else if (presentByPort.TryGetValue((mac, pnum), out var present))
                                     {
@@ -226,6 +234,7 @@ public static class PortStatsEndpoints
                                     connectedMac = clientMac,
                                     connectedIp = clientIp,
                                     connectedName = clientName,
+                                    connectedCount = clientCount,
                                     // The port's own number, as the client: a VLAN sub-interface draws no power.
                                     // The port's own number: a VLAN sub-interface is not a link.
                                     lanHealthHref = nm?.PortNumber is int lp && lanByPort.TryGetValue((mac, lp), out var lh)
