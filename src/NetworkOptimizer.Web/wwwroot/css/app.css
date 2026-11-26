@@ -5756,6 +5756,10 @@ input.form-control::-webkit-date-and-time-value {
     .identity-bar.identity-collapsed:has(.signal-gauge) {
         padding-top: 0;
     }
+    /* Collapsed but not yet pinned (page still above it): a touch of padding so the row is not flush with its edge. */
+    .identity-bar.identity-collapsed:not(.identity-stuck):has(.signal-gauge) {
+        padding-top: 6px;
+    }
 
     .identity-bar.identity-collapsed:has(.signal-gauge) .identity-name,
     .identity-bar.identity-collapsed:has(.signal-gauge) .identity-name-cell,
@@ -5776,6 +5780,12 @@ input.form-control::-webkit-date-and-time-value {
     .identity-bar.identity-collapsed:has(.signal-gauge) .identity-info-icon {
         flex-shrink: 0;
         align-self: center;
+    }
+    /* Back to its 40 px collapsed: at the header's 52 px it no longer fits beside the signal row, and wraps. */
+    .identity-bar.identity-collapsed:has(.signal-gauge) .identity-client-icon {
+        width: 40px;
+        height: 40px;
+        margin: 0;
     }
     .identity-bar.identity-collapsed:has(.signal-gauge) .identity-info-icon .identity-text {
         display: none;
