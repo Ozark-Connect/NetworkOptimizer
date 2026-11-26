@@ -11,9 +11,9 @@ public static class ClientNames
     /// <summary>
     /// A UniFi device (a Protect camera, an AI Key, a CloudKey) is named in its own app, and UniFi
     /// Network's display name follows that name. UniFi OS hands some of those names over in hostname
-    /// form ("SecurityAIKey" for "[Security] AI Key"): a name equal to the hostname is that form, and
-    /// the alias set in UniFi Network is then the real one. Any other client: display name, alias,
-    /// device name, hostname.
+    /// form ("SecurityAIKey" for "[Security] AI Key"): a name equal to the hostname, or to the alias with
+    /// only its letters and digits kept, is that form, and the alias set in UniFi Network is then the real
+    /// one. Any other client: display name, alias, device name, hostname.
     /// </summary>
     /// <param name="displayName">UniFi's display name (v2 active clients), or null.</param>
     /// <param name="alias">The alias set in UniFi Network (<c>name</c>), or null.</param>
@@ -31,7 +31,10 @@ public static class ClientNames
 
         if (isUniFiDevice && (device ?? display) is { } appName)
         {
-            var hostnameForm = host != null && string.Equals(appName, host, StringComparison.OrdinalIgnoreCase);
+            // The hostname is not always that form ("ai-key" while the app name reads "SecurityAIKey"), so the
+            // alias reduced to its letters and digits counts too.
+            var hostnameForm = (host != null && string.Equals(appName, host, StringComparison.OrdinalIgnoreCase))
+                || (given != null && string.Equals(appName, LettersAndDigits(given), StringComparison.OrdinalIgnoreCase));
             if (!hostnameForm || given == null) return appName;
             return given;
         }
@@ -47,4 +50,6 @@ public static class ClientNames
         Choose(client.DisplayName, client.Name, null, client.Hostname, client.UnifiDevice, hostnameFallback);
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string LettersAndDigits(string value) => string.Concat(value.Where(char.IsLetterOrDigit));
 }

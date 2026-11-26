@@ -39,6 +39,16 @@ public class ClientNamesTests
     }
 
     [Fact]
+    public void UniFiDevice_WhoseAppNameIsTheAliasStripped_KeepsTheAlias_WhateverItsHostname()
+    {
+        // As the Console sends it now: no display name, hostname "ai-key", app name "SecurityAIKey".
+        ClientNames.Choose(null, "[Security] AI Key", "SecurityAIKey", "ai-key", isUniFiDevice: true)
+            .Should().Be("[Security] AI Key");
+        ClientNames.Choose(null, "[Security] Old Name", "SecurityAIKey", "ai-key", isUniFiDevice: true)
+            .Should().Be("SecurityAIKey", "a rename in Protect still beats an alias it no longer matches");
+    }
+
+    [Fact]
     public void V2Client_UsesUnifiDeviceToApplyTheDeviceRule()
     {
         var aiKey = new Models.UniFiClientDetailResponse
