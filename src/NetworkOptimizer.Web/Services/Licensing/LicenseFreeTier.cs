@@ -11,7 +11,11 @@ namespace NetworkOptimizer.Web.Services.Licensing;
 /// </summary>
 /// <param name="PersonalUse">True when the admin has declared personal, non-commercial use.</param>
 /// <param name="SiteIds">Site ids on a free-tier slot. Counted only while <paramref name="PersonalUse"/> is true.</param>
-public sealed record LicenseFreeTier(bool PersonalUse, IReadOnlyList<int> SiteIds)
+/// <param name="Answered">
+/// True once anyone has answered personal use either way (the activation question or the checkbox),
+/// so the activation question asks once per install, not after every key.
+/// </param>
+public sealed record LicenseFreeTier(bool PersonalUse, IReadOnlyList<int> SiteIds, bool Answered = false)
 {
     /// <summary>No declaration and no slots in use: the state of every install before this feature.</summary>
     public static readonly LicenseFreeTier None = new(false, []);
@@ -25,7 +29,8 @@ public sealed record LicenseFreeTier(bool PersonalUse, IReadOnlyList<int> SiteId
         var rows = await db.SystemSettings.AsNoTracking()
             .Where(s => s.Key == SystemSettingKeys.LicensingPersonalUse || s.Key == SystemSettingKeys.LicensingFreeTierSites)
             .ToListAsync();
-        var personalUse = rows.FirstOrDefault(r => r.Key == SystemSettingKeys.LicensingPersonalUse)?.Value == "true";
+        var declaration = rows.FirstOrDefault(r => r.Key == SystemSettingKeys.LicensingPersonalUse)?.Value;
+        var personalUse = declaration == "true";
         var json = rows.FirstOrDefault(r => r.Key == SystemSettingKeys.LicensingFreeTierSites)?.Value;
         List<int> ids = [];
         if (!string.IsNullOrEmpty(json))
@@ -39,7 +44,7 @@ public sealed record LicenseFreeTier(bool PersonalUse, IReadOnlyList<int> SiteId
                 ids = [];
             }
         }
-        return new LicenseFreeTier(personalUse, ids.Distinct().ToList());
+        return new LicenseFreeTier(personalUse, ids.Distinct().ToList(), declaration != null);
     }
 
     /// <summary>Writes both settings onto <paramref name="db"/>; the caller saves.</summary>

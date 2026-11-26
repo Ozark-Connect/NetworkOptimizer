@@ -326,16 +326,11 @@
     private async Task AnswerPersonalUseAsync(bool personal)
     {
         _askError = null;
-        if (!personal)
-        {
-            _askPersonalUse = false;
-            return;
-        }
-
         _savingPersonalUse = true;
         try
         {
-            await Activation.SetPersonalUseAsync(true);
+            // Either answer is saved, so the question never asks this install again.
+            await Activation.SetPersonalUseAsync(personal);
             await LoadDataAsync();
             _askPersonalUse = false;
         }
@@ -404,7 +399,7 @@
             {
                 _enteredKey = "";
                 await LoadDataAsync();
-                _askPersonalUse = !_freeTier.PersonalUse;
+                _askPersonalUse = !_freeTier.Answered;
                 _askError = null;
             }
         }
