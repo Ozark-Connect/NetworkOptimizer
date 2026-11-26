@@ -47,6 +47,9 @@ public class LicenseStateService : BackgroundService, NetworkOptimizer.Core.ISit
     /// <summary>Sum of active, current key allowances (grace keys grant no new-site headroom).</summary>
     public int TotalAllowance => _snapshot?.TotalAllowance ?? 0;
 
+    /// <summary>True when personal use is declared, so the free-tier slots count beside the keys.</summary>
+    public bool PersonalUse => _snapshot?.PersonalUse ?? false;
+
     /// <summary>
     /// Cheap per-site gate for hot paths: false only when the site is known to
     /// be Restricted. Unknown slugs and the pre-compute window read as operational.
@@ -103,6 +106,7 @@ public class LicenseStateService : BackgroundService, NetworkOptimizer.Core.ISit
             List<LicenseKeyRecord> keys;
             List<SiteLicenseAssignment> assignments;
             Dictionary<string, DateTime> uncoveredSince;
+            LicenseFreeTier freeTier;
 
             await using (var db = await _mainDbFactory.CreateDbContextAsync())
             {
@@ -110,13 +114,14 @@ public class LicenseStateService : BackgroundService, NetworkOptimizer.Core.ISit
                 keys = await db.LicenseKeyRecords.AsNoTracking().ToListAsync();
                 assignments = await db.SiteLicenseAssignments.AsNoTracking().ToListAsync();
                 uncoveredSince = await LoadUncoveredSinceAsync(db);
+                freeTier = await LicenseFreeTier.LoadAsync(db);
             }
 
-            var states = ComputeStates(sites, keys, assignments, uncoveredSince, now);
+            var states = ComputeStates(sites, keys, assignments, uncoveredSince, now, freeTier.EffectiveSiteIds);
 
             var anyActive = keys.Any(k => IsActiveCurrent(k, now));
             var totalAllowance = keys.Where(k => IsActiveCurrent(k, now)).Sum(k => k.SiteAllowance);
-            var fresh = new LicenseSnapshot(states, anyActive, totalAllowance, now);
+            var fresh = new LicenseSnapshot(states, anyActive, totalAllowance, now, freeTier.PersonalUse);
 
             await PersistUncoveredSinceAsync(states, uncoveredSince, now);
 
@@ -152,15 +157,31 @@ public class LicenseStateService : BackgroundService, NetworkOptimizer.Core.ISit
     /// <param name="assignments">All site-to-key assignments.</param>
     /// <param name="uncoveredSince">When each currently uncovered site (by slug) lost coverage; missing entries mean coverage was lost now.</param>
     /// <param name="nowUtc">Evaluation time (UTC).</param>
+    /// <param name="freeTierSiteIds">
+    /// Sites on a personal-use free-tier slot (empty or null when personal use is not declared).
+    /// At most <see cref="Services.SiteManagementService.FreeSiteLimit"/> count, default site then oldest first.
+    /// </param>
     public static IReadOnlyDictionary<string, SiteLicenseStatus> ComputeStates(
         IReadOnlyList<Site> sites,
         IReadOnlyList<LicenseKeyRecord> keys,
         IReadOnlyList<SiteLicenseAssignment> assignments,
         IReadOnlyDictionary<string, DateTime> uncoveredSince,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        IReadOnlyCollection<int>? freeTierSiteIds = null)
     {
         var result = new Dictionary<string, SiteLicenseStatus>();
         var keysById = keys.ToDictionary(k => k.Id);
+
+        // Cap the free-tier slots like a key's allowance, so a stale list can never over-cover.
+        var freeSlotSiteIds = freeTierSiteIds is { Count: > 0 }
+            ? sites.Where(s => freeTierSiteIds.Contains(s.Id))
+                .OrderByDescending(s => s.IsDefault)
+                .ThenBy(s => s.CreatedAt)
+                .ThenBy(s => s.Id)
+                .Take(Services.SiteManagementService.FreeSiteLimit)
+                .Select(s => s.Id)
+                .ToHashSet()
+            : [];
 
         // Cap each key's assignments at its allowance, oldest first, so a
         // shrunk or stale allowance can never over-cover.
@@ -178,9 +199,12 @@ public class LicenseStateService : BackgroundService, NetworkOptimizer.Core.ISit
         var withinFreeTier = sites.Count <= Services.SiteManagementService.FreeSiteLimit;
 
         // Free-tier floor slots for the no-live-licensing case: the default
-        // site plus the two oldest non-default sites, deterministically.
+        // site plus the two oldest non-default sites, deterministically. Sites
+        // on a free-tier slot take the floor first, or the slots and the floor
+        // would each keep a different three running.
         var floorSlugs = sites
-            .OrderByDescending(s => s.IsDefault)
+            .OrderByDescending(s => freeSlotSiteIds.Contains(s.Id))
+            .ThenByDescending(s => s.IsDefault)
             .ThenBy(s => s.CreatedAt)
             .ThenBy(s => s.Id)
             .Take(Services.SiteManagementService.FreeSiteLimit)
@@ -198,8 +222,9 @@ public class LicenseStateService : BackgroundService, NetworkOptimizer.Core.ISit
             }
 
             // Free-tier floor: at or under the free limit, uncovered sites are
-            // simply free-tier regardless of what key rows exist.
-            if (withinFreeTier)
+            // simply free-tier regardless of what key rows exist. A personal-use
+            // free-tier slot covers its site at any site count.
+            if (withinFreeTier || freeSlotSiteIds.Contains(site.Id))
             {
                 result[site.Slug] = new SiteLicenseStatus(site.Slug, SiteLicenseState.FreeTier, null, LicenseRestrictionReason.None, null);
                 continue;
@@ -325,7 +350,8 @@ public class LicenseStateService : BackgroundService, NetworkOptimizer.Core.ISit
 
     private static bool SnapshotsEquivalent(LicenseSnapshot a, LicenseSnapshot b)
     {
-        if (a.AnyKeysActive != b.AnyKeysActive || a.TotalAllowance != b.TotalAllowance || a.States.Count != b.States.Count)
+        if (a.AnyKeysActive != b.AnyKeysActive || a.TotalAllowance != b.TotalAllowance
+            || a.PersonalUse != b.PersonalUse || a.States.Count != b.States.Count)
             return false;
         foreach (var (slug, status) in b.States)
         {

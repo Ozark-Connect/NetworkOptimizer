@@ -45,6 +45,26 @@ public interface ILicenseActivationService
     [AuditAction(AuditActions.LicenseChanged, Category = AuditCategories.License, TargetType = "site")]
     Task<string?> AssignAsync([SiteSlug] string siteSlug, int? licenseKeyRecordId);
 
+    /// <summary>The personal-use declaration and which sites sit on its free-tier slots. Admin-only.</summary>
+    [RequireRole(Roles.Admin)]
+    Task<LicenseFreeTier> GetFreeTierAsync();
+
+    /// <summary>
+    /// Declares (or withdraws) personal, non-commercial use. Declaring adds the free-tier slots beside
+    /// the keys and fills them with uncovered sites; withdrawing empties them.
+    /// </summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.LicenseChanged, Category = AuditCategories.License, TargetType = "personal_use", InstanceScoped = true)]
+    Task SetPersonalUseAsync(bool declared);
+
+    /// <summary>
+    /// Moves a site onto a free-tier slot, off any key. Returns a user-facing error when personal use is
+    /// not declared or every slot is in use, or null on success.
+    /// </summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.LicenseChanged, Category = AuditCategories.License, TargetType = "site")]
+    Task<string?> AssignFreeTierAsync([SiteSlug] string siteSlug);
+
     /// <summary>This install's stable installation id (shown in the licensing card). Admin-only.</summary>
     [RequireRole(Roles.Admin)]
     Task<Guid> GetOrCreateInstallationIdAsync();

@@ -51,6 +51,11 @@ public static class SystemSettingKeys
     // lost license coverage, anchoring the uncovered-site grace countdown.
     public const string LicensingUncoveredSince = "licensing.uncovered_since";
 
+    // Personal-use declaration ("true" when the admin declares personal, non-commercial use)
+    // and the JSON list of site ids on its free-tier slots. The slots count only while declared.
+    public const string LicensingPersonalUse = "licensing.personal_use";
+    public const string LicensingFreeTierSites = "licensing.free_tier_sites";
+
     // Per-site Client Speed Test target override (agent sites only): an IP/host or a
     // full URL the browser should hit for the LAN speed test, used when the agent's
     // auto-detected LAN IP isn't its client-facing address (e.g. behind a reverse

@@ -56,8 +56,10 @@ public sealed record SiteLicenseStatus(
 /// <param name="AnyKeysActive">True when at least one key is active and current.</param>
 /// <param name="TotalAllowance">Sum of active, current key allowances (grace keys excluded).</param>
 /// <param name="ComputedAt">When this snapshot was computed (UTC).</param>
+/// <param name="PersonalUse">True when personal use is declared, adding the free-tier slots beside the keys.</param>
 public sealed record LicenseSnapshot(
     IReadOnlyDictionary<string, SiteLicenseStatus> States,
     bool AnyKeysActive,
     int TotalAllowance,
-    DateTime ComputedAt);
+    DateTime ComputedAt,
+    bool PersonalUse = false);
