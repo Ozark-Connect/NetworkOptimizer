@@ -335,8 +335,11 @@ public class SqmService : ISqmService
                 ? root
                 : root.TryGetProperty("data", out var data) ? data : root;
 
+            var haFacts = devices.EnumerateArray().Select(NetworkOptimizer.UniFi.GatewayHa.FromJson).ToList();
+            var deviceIndex = -1;
             foreach (var device in devices.EnumerateArray())
             {
+                deviceIndex++;
                 // Only consider gateway-capable device types (ugw, udm, uxg).
                 // Note: UDMs adopted as APs (e.g., UX7 in AP-only mode) still report type="udm"
                 // but won't have active WAN interfaces - we handle that below by checking wan1-wan6.
@@ -345,6 +348,15 @@ public class SqmService : ISqmService
                 {
                     var deviceModel = device.TryGetProperty("model", out var modelProp) ? modelProp.GetString() : "unknown";
                     _logger.LogDebug("Skipping non-gateway device type={Type} model={Model}", deviceType, deviceModel);
+                    continue;
+                }
+
+                // The HA standby carries the primary's ethernet_overrides, so it would pass every
+                // WAN check below while the VRRP master is the box Adaptive SQM shapes.
+                if (NetworkOptimizer.UniFi.GatewayHa.IsStandby(haFacts[deviceIndex], haFacts))
+                {
+                    _logger.LogDebug("Skipping HA standby gateway {Mac}",
+                        device.TryGetProperty("mac", out var standbyMac) ? standbyMac.GetString() : "(unknown)");
                     continue;
                 }
 

@@ -1959,6 +1959,9 @@ public class MonitoringCollectionAgent : BackgroundService
             if (string.IsNullOrEmpty(d.Ip) || string.IsNullOrEmpty(d.Mac)) continue;
             var mac = NormalizeMac(d.Mac);
             var address = ResolveSnmpAddress(d, devices, gatewayLanIp);
+            // The backup of a Managed Shadow pair has no LAN address: leave its target as it is, so
+            // it is back in place the moment a failover makes it master.
+            if (string.IsNullOrEmpty(address)) continue;
             var siblings = liveByMac.TryGetValue(mac, out var rows) ? rows : new List<MonitoringTarget>();
             var current = siblings.FirstOrDefault(
                 t => string.Equals(t.Address, address, StringComparison.OrdinalIgnoreCase));
@@ -2038,6 +2041,18 @@ public class MonitoringCollectionAgent : BackgroundService
                 _logger.LogInformation(
                     "Fabric target {Name} ({Mac}) returned to {Address}; resuming its existing target",
                     revived.Name, mac, address);
+            }
+            else if (PairTargetFor(allFabric, mac, address, _influx.GatewayPairMacs) is { } inherited)
+            {
+                // A Shadow Mode failover hands the VIP to the other unit, with its own MAC: one
+                // gateway, so one target and one latency history.
+                if (inherited.IsRetired) ApplyRevival(inherited, fallbackEnabled: enableLatency);
+                var from = inherited.DeviceMac;
+                inherited.DeviceMac = mac;
+                inherited.Name = string.IsNullOrEmpty(d.Name) ? d.Mac : d.Name;
+                _logger.LogInformation(
+                    "HA gateway {Mac} took over fabric target {Name} at {Address} from {From}",
+                    mac, inherited.Name, address, from);
             }
             else
             {
@@ -2155,6 +2170,24 @@ public class MonitoringCollectionAgent : BackgroundService
         if (target.Name == consoleName) return false;
         target.Name = consoleName;
         return true;
+    }
+
+    /// <summary>
+    /// The auto-discovered fabric target another member of the site's HA gateway pair holds at
+    /// <paramref name="address"/> (the LAN VIP), live before retired; null when
+    /// <paramref name="mac"/> is not a pair member or no member has one.
+    /// </summary>
+    internal static MonitoringTarget? PairTargetFor(
+        IEnumerable<MonitoringTarget> fabric, string mac, string address, IReadOnlyCollection<string> pairMacs)
+    {
+        if (!pairMacs.Contains(mac, StringComparer.OrdinalIgnoreCase)) return null;
+        return fabric
+            .Where(t => t.AutoDiscovered && !string.IsNullOrEmpty(t.DeviceMac)
+                && !string.Equals(t.DeviceMac, mac, StringComparison.OrdinalIgnoreCase)
+                && pairMacs.Contains(t.DeviceMac, StringComparer.OrdinalIgnoreCase)
+                && string.Equals(t.Address, address, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(t => t.IsRetired ? 1 : 0)
+            .FirstOrDefault();
     }
 
     /// <summary>
@@ -2470,6 +2503,7 @@ public class MonitoringCollectionAgent : BackgroundService
     // changes and the API call is heavy.
     private static readonly TimeSpan GatewayLanIpTtl = TimeSpan.FromHours(1);
     private string? _gatewayLanIp;
+    private GatewayLanAddress? _gatewayLan;
     private DateTime _gatewayLanIpAt = DateTime.MinValue;
     private readonly SemaphoreSlim _gatewayLanIpLock = new(1, 1);
 
@@ -2491,11 +2525,12 @@ public class MonitoringCollectionAgent : BackgroundService
 
             try
             {
-                var ip = await Monitoring.SnmpDeviceRules.ResolveGatewayLanIpAsync(_connectionService.Client, ct);
+                var lan = await Monitoring.SnmpDeviceRules.ResolveGatewayLanAsync(_connectionService.Client, ct);
 
-                _gatewayLanIp = ip;
+                _gatewayLan = lan;
+                _gatewayLanIp = lan?.Vip;
                 _gatewayLanIpAt = DateTime.UtcNow;
-                return ip;
+                return _gatewayLanIp;
             }
             catch (Exception ex)
             {
@@ -2513,9 +2548,12 @@ public class MonitoringCollectionAgent : BackgroundService
     /// Poll address for a device (SNMP and fabric latency targets). Rule shared
     /// with the agent-tunnel SNMP config push via SnmpDeviceRules.
     /// </summary>
-    private static string ResolveSnmpAddress(
+    private string ResolveSnmpAddress(
         UniFiDeviceResponse device, IEnumerable<UniFiDeviceResponse> devices, string? gatewayLanIp) =>
-        Monitoring.SnmpDeviceRules.ResolvePollAddress(device, devices, gatewayLanIp);
+        Monitoring.SnmpDeviceRules.ResolveUnitPollAddress(device, devices,
+            string.IsNullOrEmpty(gatewayLanIp) ? null
+            : _gatewayLan?.Vip == gatewayLanIp ? _gatewayLan
+            : new GatewayLanAddress(gatewayLanIp, null, null));
 
     /// <summary>
     /// Feeds upgrade/provisioning state and offline/recovered alerting for every adopted device.

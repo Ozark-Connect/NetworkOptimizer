@@ -3,6 +3,7 @@ using NetworkOptimizer.Core;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Diagnostics.Analyzers;
 using NetworkOptimizer.UniFi.Models;
+using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 
@@ -343,7 +344,7 @@ public static class LanSiteDetectors
     // ---- 24 Inter-VLAN hairpin load on the gateway trunk ----
     internal static IEnumerable<LinkFinding> HairpinLoad(SiteEvidence s)
     {
-        var gateway = s.Devices.FirstOrDefault(d => d.DeviceType == DeviceType.Gateway);
+        var gateway = GatewayHa.Active(s.Devices);
         if (gateway == null) yield break;
         var gwMac = LanLinkBuilder.Mac(gateway.Mac);
         var trunk = s.Links.Where(l => l.Link.Kind == LinkKind.FabricWired && l.Link.Upstream.DeviceMac == gwMac)
@@ -446,7 +447,7 @@ public static class LanSiteDetectors
     internal static IEnumerable<LinkFinding> GatewayForwarding(SiteEvidence s)
     {
         if (s.GatewayForwarding is not { } g || g.Tests < 2 || g.RatioToNorm >= 0.6) yield break;
-        var gateway = s.Devices.FirstOrDefault(d => d.DeviceType == DeviceType.Gateway);
+        var gateway = GatewayHa.Active(s.Devices);
         var link = s.Links.Where(l => gateway != null && l.Link.Upstream.DeviceMac == LanLinkBuilder.Mac(gateway.Mac) && l.Link.IsFabric)
             .OrderByDescending(l => l.Link.ClientsBehind).FirstOrDefault();
         yield return Site(Detectors.GatewayForwarding, "Gateway Forwarding", gateway?.Name ?? "Gateway",

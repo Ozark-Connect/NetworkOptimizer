@@ -36,9 +36,24 @@ public static class SnmpDeviceRules
     /// </summary>
     public static string ResolvePollAddress(
         UniFiDeviceResponse device, IEnumerable<UniFiDeviceResponse> allDevices, string? gatewayLanIp) =>
-        !string.IsNullOrEmpty(gatewayLanIp) && IsSiteGateway(device, allDevices)
-            ? gatewayLanIp!
-            : device.Ip;
+        ResolveUnitPollAddress(device, allDevices,
+            string.IsNullOrEmpty(gatewayLanIp) ? null : new GatewayLanAddress(gatewayLanIp, null, null));
+
+    /// <summary>
+    /// Poll address for a device. A gateway is reached on the LAN side, never at UniFi's WAN public
+    /// IP: the VIP for the active unit, its own address for a per-network VRRP unit. Empty for the
+    /// backup of a Managed Shadow pair, which no LAN address reaches (a poll at the VIP would record
+    /// the master's numbers under the backup's MAC), so callers skip it. A UDM in application mode is
+    /// a console only and keeps its own address.
+    /// </summary>
+    public static string ResolveUnitPollAddress(
+        UniFiDeviceResponse device, IEnumerable<UniFiDeviceResponse> allDevices, GatewayLanAddress? lan)
+    {
+        if (!IsSiteGateway(device, allDevices) || device.ApplicationModeEnabled == true) return device.Ip;
+        var list = allDevices as IList<UniFiDeviceResponse> ?? allDevices.ToList();
+        if (GatewayHa.IsUnreachableStandby(device, list)) return string.Empty;
+        return lan == null ? device.Ip : lan.AddressFor(device.GatewayVrrpMode);
+    }
 
     /// <summary>
     /// Resolves the gateway's LAN-side IP via the default-LAN network config,
@@ -46,17 +61,20 @@ public static class SnmpDeviceRules
     /// gateway's "ip" field as the WAN public IP, which never answers SNMP
     /// from inside the LAN. Returns null if no LAN gateway can be derived.
     /// </summary>
-    public static async Task<string?> ResolveGatewayLanIpAsync(UniFiApiClient client, CancellationToken ct)
+    public static async Task<string?> ResolveGatewayLanIpAsync(UniFiApiClient client, CancellationToken ct) =>
+        (await ResolveGatewayLanAsync(client, ct))?.Vip;
+
+    /// <summary>
+    /// The default LAN's gateway addresses: the VIP, plus each per-network VRRP unit's own address.
+    /// Null if no LAN gateway can be derived.
+    /// </summary>
+    public static async Task<GatewayLanAddress?> ResolveGatewayLanAsync(UniFiApiClient client, CancellationToken ct)
     {
         var networks = await client.GetNetworkConfigsAsync(ct);
         var defaultLan = networks
             .Where(n => n.Purpose == "corporate" && n.Enabled)
             .OrderBy(n => n.Vlan ?? 0) // prefer no VLAN (0) first
             .FirstOrDefault();
-        if (!string.IsNullOrEmpty(defaultLan?.DhcpdGateway))
-            return defaultLan!.DhcpdGateway;
-        if (!string.IsNullOrEmpty(defaultLan?.IpSubnet))
-            return defaultLan!.IpSubnet.Split('/')[0];
-        return null;
+        return GatewayLanAddress.FromNetwork(defaultLan);
     }
 }

@@ -1,6 +1,7 @@
 using NetworkOptimizer.AgentProtocol;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 
@@ -36,9 +37,8 @@ public sealed class SwitchPortLinkSink
         var influx = _influx.GetFor(siteSlug);
         if (!influx.IsConfigured) return true;
         var connection = _connections.GetFor(siteSlug);
-        var gateway = connection.CachedDevices?
-            .FirstOrDefault(d => d.Type == DeviceType.Gateway && !string.IsNullOrEmpty(d.Mac));
-        if (gateway == null)
+        var gateway = UniFiDiscovery.SiteGateway(connection.CachedDevices);
+        if (gateway == null || string.IsNullOrEmpty(gateway.Mac))
         {
             // Nothing has read the device list yet: start a read so the next minute's batch lands.
             if (connection.CachedDevices == null && connection.IsConnected) _ = connection.GetDiscoveredDevicesAsync();

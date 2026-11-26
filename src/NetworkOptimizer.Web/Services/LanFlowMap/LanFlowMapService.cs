@@ -1650,7 +1650,7 @@ public class LanFlowMapService
             var h = host?.Trim() ?? "";
             if (CellularModemProviders.ModemProviderKeys.UsesGatewaySsh(provider) && gateways.Count > 0)
             {
-                // An HA pair has two gateways: the one the host names, else the first.
+                // An HA pair has two gateways: the one the host names, else the first (the active one).
                 result[id] = gateways.FirstOrDefault(g => string.Equals(g.Ip, h, StringComparison.OrdinalIgnoreCase)).Id
                     ?? gateways[0].Id;
                 continue;
@@ -1719,8 +1719,11 @@ public class LanFlowMapService
         // Built before the node pass because MLO node rates read it too.
         var meshParentByChild = NetworkOptimizer.UniFi.UniFiDiscovery.BuildMeshParentByChild(topology.Devices);
 
-        // First pass: emit nodes for every device.
-        foreach (var d in topology.Devices)
+        // First pass: emit nodes for every device. The active gateway goes first: the 2D and 3D
+        // maps and history playback root on the first gateway node, and on an HA pair that must be
+        // the VRRP master.
+        var activeGateway = GatewayHa.Active(topology.Devices);
+        foreach (var d in topology.Devices.OrderBy(d => ReferenceEquals(d, activeGateway) ? 0 : 1))
         {
             var mac = NormalizeMac(d.Mac);
             anchors.TryGetValue(mac, out var anchor);
@@ -1890,6 +1893,42 @@ public class LanFlowMapService
                 }
             }
         }
+
+        // UniFi copies the primary's name onto the shadow, so the standby is told apart by its label.
+        foreach (var link in StandbyGatewayLinks(topology.Devices, snapshot.Links))
+        {
+            snapshot.Links.Add(link);
+            if (snapshot.Nodes.FirstOrDefault(n => n.Id == link.ToNodeId) is { } standby
+                && standby.Name is { } name && !name.EndsWith(StandbySuffix, StringComparison.Ordinal))
+                standby.Name = name + StandbySuffix;
+        }
+    }
+
+    // UniFi's own word for the member not carrying traffic, joined as the Dashboard's device card does.
+    private const string StandbySuffix = " · Standby";
+
+    /// <summary>
+    /// An edge from the active gateway to each HA standby with none. A standby's uplink is its own
+    /// WAN side, which names no device, so without one it draws as a second, unconnected gateway.
+    /// It carries no traffic, so the edge has no port and no capacity.
+    /// </summary>
+    internal static List<LanLink> StandbyGatewayLinks(IReadOnlyList<DiscoveredDevice> devices, IEnumerable<LanLink> existing)
+    {
+        var links = new List<LanLink>();
+        var active = GatewayHa.Active(devices);
+        if (active == null || string.IsNullOrEmpty(active.Mac)) return links;
+        var linked = existing.Select(l => l.ToNodeId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var activeId = "dev-" + NormalizeMac(active.Mac);
+        foreach (var d in devices)
+        {
+            // A UDM in application mode is a console, not a pair member.
+            if (ReferenceEquals(d, active) || d.ApplicationModeEnabled || string.IsNullOrEmpty(d.Mac)
+                || !GatewayHa.IsStandby(d, devices)) continue;
+            var id = "dev-" + NormalizeMac(d.Mac);
+            if (!linked.Add(id)) continue;
+            links.Add(new LanLink { Id = "ha-standby-" + NormalizeMac(d.Mac), FromNodeId = activeId, ToNodeId = id, Kind = LanLinkKind.Uplink });
+        }
+        return links;
     }
 
     /// <summary>

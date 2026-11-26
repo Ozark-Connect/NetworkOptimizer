@@ -865,6 +865,7 @@ Requires Gateway SSH.
   - Consoles: UniFi Express (UX, UX7), Enterprise Fortress Gateways (EFG, EF-Core), CloudKey
   - Consoles: self-hosted UniFi OS Server, or the legacy UniFi Network Server
   - Every UniFi gateway, switch, and access point, with or without SNMP support
+  - High Availability gateway pairs (Shadow Mode): WAN, monitoring, and speed tests follow the active gateway through a failover
   - New models are added as Ubiquiti releases them
 - **Cable modems**
   - ARRIS Surfboard - S33, S34, SB8200, SB6183, SB6141, T25

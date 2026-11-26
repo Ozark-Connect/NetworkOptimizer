@@ -67,6 +67,7 @@ public class UniFiDiscovery
         var discoveredDevices = devices
             .Select(d => MapDevice(d, DetermineDeviceType(d, allDeviceMacs, _logger), defaultLanGatewayIp))
             .ToList();
+        ApplyGatewayHa(discoveredDevices, GatewayLanAddress.FromNetwork(DefaultLan(networks)));
 
         // Log wireless uplink details for debugging
         foreach (var d in devices.Where(d => d.Uplink?.Type == "wireless"))
@@ -122,6 +123,9 @@ public class UniFiDiscovery
             Type = effectiveType,
             HardwareType = d.HardwareType,
             DeviceModeOverride = d.DeviceModeOverride,
+            VrrpState = d.Vrrp?.State,
+            GatewayVrrpMode = d.GatewayVrrpMode,
+            ApplicationModeEnabled = d.ApplicationModeEnabled == true,
             Model = d.Model,
             Shortname = d.Shortname,
             IpAddress = d.Ip,
@@ -197,17 +201,35 @@ public class UniFiDiscovery
     private static string NormalizeMac(string mac) => mac.ToLowerInvariant().Replace('-', ':');
 
     /// <summary>
-    /// The site's gateway: the first device whose role is Gateway, else the first gateway-class
-    /// device whose role the mode field did not set (a Wi-Fi gateway the uplink rule demoted).
-    /// An Express adopted as an AP never shadows the real gateway; a site with only one gets null.
+    /// The site's gateway as UniFi picks it: the active one (<see cref="GatewayHa.Active{T}"/>),
+    /// which on an HA pair is the shadow while it is VRRP master. Use it for anything that reads
+    /// traffic: WAN counters, live rates, speed tests. Else the first gateway-class device whose
+    /// role the mode field did not set (a Wi-Fi gateway the uplink rule demoted). An Express
+    /// adopted as an AP never shadows the real gateway; a site with only one gets null.
     /// </summary>
     public static DiscoveredDevice? SiteGateway(IEnumerable<DiscoveredDevice>? devices)
     {
         if (devices == null) return null;
         var all = devices as IList<DiscoveredDevice> ?? devices.ToList();
-        return all.FirstOrDefault(d => d.Type == DeviceType.Gateway)
-            ?? all.FirstOrDefault(IsHardwareGatewayFallback);
+        return GatewayHa.Active(all) ?? FirstHardwareFallback(all);
     }
+
+    /// <summary>
+    /// The gateway that owns the config (<see cref="GatewayHa.Primary{T}"/>): on an HA pair the
+    /// primary, even after a failover. Use it for config reads and writes, the Security Audit,
+    /// and Change Control. Falls back as <see cref="SiteGateway"/> does.
+    /// </summary>
+    public static DiscoveredDevice? PrimaryGateway(IEnumerable<DiscoveredDevice>? devices)
+    {
+        if (devices == null) return null;
+        var all = devices as IList<DiscoveredDevice> ?? devices.ToList();
+        return GatewayHa.Primary(all) ?? FirstHardwareFallback(all);
+    }
+
+    // A Wi-Fi gateway the uplink rule demoted. A UDM in application mode or a VRRP secondary keeps
+    // its Gateway role for display but is never picked, so it is excluded here too.
+    private static DiscoveredDevice? FirstHardwareFallback(IList<DiscoveredDevice> all) =>
+        all.FirstOrDefault(d => d.Type != DeviceType.Gateway && IsHardwareGatewayFallback(d));
 
     /// <summary>
     /// Every gateway on the site (an HA pair has two), by the same rule as <see cref="SiteGateway"/>:
@@ -619,6 +641,34 @@ public class UniFiDiscovery
         => WifiCapableGateways.Contains(friendlyModelName);
 
     /// <summary>
+    /// Sets each device's place in an HA pair, and gives each gateway the LAN address that reaches
+    /// that unit: its own for a per-network VRRP unit, none for the backup of a Managed Shadow pair
+    /// (no LAN address reaches it, and the VIP would reach the master), and none for a UDM in
+    /// application mode (a console only, reached at its own address).
+    /// </summary>
+    internal static void ApplyGatewayHa(List<DiscoveredDevice> devices, GatewayLanAddress? lan)
+    {
+        var active = GatewayHa.Active(devices);
+        foreach (var d in devices)
+        {
+            d.HaRole = GatewayHa.RoleOf(d, devices);
+            d.IsActiveGateway = ReferenceEquals(d, active);
+            if (d.LanIpAddress == null) continue;
+            if (d.ApplicationModeEnabled || GatewayHa.IsUnreachableStandby(d, devices))
+                d.LanIpAddress = null;
+            else if (lan != null)
+                d.LanIpAddress = lan.AddressFor(d.GatewayVrrpMode);
+        }
+    }
+
+    // The default LAN: purpose "corporate", enabled, untagged first.
+    private static UniFiNetworkConfig? DefaultLan(List<UniFiNetworkConfig>? networks) =>
+        networks?
+            .Where(n => n.Purpose == "corporate" && n.Enabled)
+            .OrderBy(n => n.Vlan ?? 0)
+            .FirstOrDefault();
+
+    /// <summary>
     /// Gets the gateway IP from the default LAN network configuration.
     /// This is the gateway's LAN-facing IP (not the WAN IP).
     /// </summary>
@@ -630,10 +680,7 @@ public class UniFiDiscovery
         // Find the default LAN network - typically:
         // 1. Purpose = "corporate" with no VLAN (the default LAN)
         // 2. Or the first "corporate" network if all have VLANs
-        var defaultLan = networks
-            .Where(n => n.Purpose == "corporate" && n.Enabled)
-            .OrderBy(n => n.Vlan ?? 0) // Prefer no VLAN (0) first
-            .FirstOrDefault();
+        var defaultLan = DefaultLan(networks);
 
         if (defaultLan == null)
             return null;
@@ -1060,8 +1107,15 @@ public class UniFiDiscovery
 
 #region Discovery Result Models
 
-public class DiscoveredDevice
+public class DiscoveredDevice : IGatewayHaFacts
 {
+    DeviceType IGatewayHaFacts.HaRoleType => Type;
+    string? IGatewayHaFacts.HaModeOverride => DeviceModeOverride;
+    string? IGatewayHaFacts.HaVrrpState => VrrpState;
+    string? IGatewayHaFacts.HaGatewayVrrpMode => GatewayVrrpMode;
+    bool IGatewayHaFacts.HaApplicationMode => ApplicationModeEnabled;
+    bool IGatewayHaFacts.HaOnline => UniFiDeviceStateMap.IsOnline(State);
+
     public string Id { get; set; } = string.Empty;
     public string Mac { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
@@ -1083,6 +1137,31 @@ public class DiscoveredDevice
     /// or null when absent. A non-null value means the mode field, not topology, set the role.
     /// </summary>
     public string? DeviceModeOverride { get; set; }
+
+    /// <summary>VRRP state of an HA pair member ("master", "backup", ...), or null for a lone gateway.</summary>
+    public string? VrrpState { get; set; }
+
+    /// <summary>Per-network VRRP role ("primary", "secondary"), or null.</summary>
+    public string? GatewayVrrpMode { get; set; }
+
+    /// <summary>A UDM running as a console only. UniFi does not count it as a gateway.</summary>
+    public bool ApplicationModeEnabled { get; set; }
+
+    /// <summary>This unit's place in a high-availability pair, set at discovery from the whole device list.</summary>
+    public GatewayHaRole HaRole { get; set; }
+
+    /// <summary>
+    /// The gateway carrying the site's traffic (<see cref="GatewayHa.Active{T}"/>). Both members of
+    /// a pair keep <see cref="Type"/> Gateway; only one is active. Discovery sets it from the whole
+    /// device list: on its own a primary still passes UniFi's per-device rule after a failover.
+    /// </summary>
+    public bool IsActiveGateway
+    {
+        get => _isActiveGateway ?? GatewayHa.IsActive(this);
+        set => _isActiveGateway = value;
+    }
+
+    private bool? _isActiveGateway;
 
     /// <summary>
     /// True when this is a gateway-class device (UDR, UX, etc.) with HardwareType = Gateway

@@ -74,6 +74,19 @@ public class FirewallRuleParserTests
     }
 
     [Fact]
+    public void ExtractFirewallRules_ShadowGatewayCopy_IsNotReadTwice()
+    {
+        const string rules = @"""firewall_rules"": [{ ""_id"": ""rule1"", ""name"": ""Block All"", ""action"": ""drop"", ""enabled"": true }]";
+        var json = JsonDocument.Parse(@"[
+            { ""type"": ""uxg"", ""model"": ""UXGENT"", ""name"": ""Gateway"", " + rules + @" },
+            { ""type"": ""uxg"", ""model"": ""UXGENT"", ""name"": ""Gateway"", ""device_mode_override"": ""managed_shadow_gateway"",
+              ""vrrp"": { ""state"": ""master"" }, " + rules + @" }
+        ]").RootElement;
+
+        _parser.ExtractFirewallRules(json).Should().ContainSingle();
+    }
+
+    [Fact]
     public void ExtractFirewallRules_UdmDevice_ReturnsRules()
     {
         var json = JsonDocument.Parse(@"[{

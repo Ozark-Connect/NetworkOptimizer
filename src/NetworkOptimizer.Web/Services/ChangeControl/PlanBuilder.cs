@@ -175,6 +175,14 @@ public static class PlanBuilder
 
             foreach (var pair in match.Pairs)
             {
+                // UniFi copies the primary's name and port and ethernet overrides onto a Managed Shadow
+                // Gateway and blocks edits on it: the primary's write is the one that lands.
+                if (def.Key == "device" && pair.Right is { } liveDevice && ConfigCollections.IsShadowGateway(liveDevice))
+                {
+                    if (pair.Left != null && ConfigDiffEngine.CompareObjects(def, liveDevice, pair.Left) != null)
+                        doc.Notes.Add($"{ConfigState.DisplayName(def, liveDevice)}: Shadow Gateway, not written. UniFi copies its settings from the primary gateway.");
+                    continue;
+                }
                 if (options.OnlyObjects != null)
                 {
                     var id = pair.Left != null ? ConfigState.IdOf(pair.Left) : ConfigState.IdOf(pair.Right!);

@@ -278,6 +278,14 @@ public class PortSecurityAnalyzer
                 continue;
             }
 
+            // A Managed Shadow Gateway's port config is a copy of the primary's, and UniFi blocks edits
+            // on it: auditing it repeats every gateway port finding under the same name.
+            if (NetworkOptimizer.UniFi.GatewayHa.IsShadow(NetworkOptimizer.UniFi.GatewayHa.FromJson(device)))
+            {
+                _logger.LogDebug("Skipping Managed Shadow Gateway {Mac}", device.GetStringOrNull("mac"));
+                continue;
+            }
+
             var switchInfo = ParseSwitch(device, networks, clientsByPort, historyByPort, profilesById, allDeviceMacs, deviceUplinkLookup, historyMacsByPort);
             if (switchInfo != null)
             {

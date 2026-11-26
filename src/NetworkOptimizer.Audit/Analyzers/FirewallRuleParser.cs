@@ -79,6 +79,9 @@ public class FirewallRuleParser
             var deviceType = typeElement.GetString();
             if (deviceType is not ("ugw" or "udm" or "uxg"))
                 continue;
+            // A Managed Shadow Gateway carries a copy of the primary's config: reading both doubles every rule.
+            if (NetworkOptimizer.UniFi.GatewayHa.IsShadow(NetworkOptimizer.UniFi.GatewayHa.FromJson(device)))
+                continue;
 
             // Check for firewall_rules or firewall_groups
             if (device.TryGetProperty("firewall_rules", out var fwRules) && fwRules.ValueKind == JsonValueKind.Array)

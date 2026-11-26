@@ -47,6 +47,9 @@ public sealed class DeviceSshRouter
 {
     internal const string GatewayCredentialsMissing = "Gateway SSH credentials are not configured for this site.";
 
+    internal const string StandbyUnreachable =
+        "Shadow Mode standby: unreachable over SSH until it becomes the active gateway.";
+
     /// <summary>Bounds the no-op login that settles a route before a caller needs its credentials.</summary>
     private static readonly TimeSpan SettleTimeout = TimeSpan.FromSeconds(15);
 
@@ -98,7 +101,14 @@ public sealed class DeviceSshRouter
         DeviceSshTarget target, string command, TimeSpan? timeout, CancellationToken ct = default)
     {
         if (target.Role == DeviceType.Gateway)
-            return await _gatewaySsh.RunCommandAsync(command, timeout, ct);
+        {
+            return await GatewayReachAsync(target, ct) switch
+            {
+                GatewayReach.Unreachable => (false, StandbyUnreachable),
+                GatewayReach.OwnAddress => await RunWithGatewayCredentialsAsync(target.Host, command, timeout, ct),
+                _ => await _gatewaySsh.RunCommandAsync(command, timeout, ct),
+            };
+        }
 
         var gatewayHardware = await IsGatewayHardwareAsync(target, ct);
         var mac = NormalizeMac(target.Mac);
@@ -162,7 +172,14 @@ public sealed class DeviceSshRouter
     {
         var route = await ResolveAsync(target, ct);
         if (route == SshCredentialRoute.Gateway)
-            return await _gatewaySsh.GetConnectionInfoAsync();
+        {
+            switch (await GatewayReachAsync(target, ct))
+            {
+                case GatewayReach.Unreachable: return null;
+                case GatewayReach.OwnAddress: route = SshCredentialRoute.GatewayCredentialsAtDevice; break;
+                default: return await _gatewaySsh.GetConnectionInfoAsync();
+            }
+        }
 
         var device = await _deviceSsh.GetSettingsAsync();
         var username = device.Username;
@@ -201,6 +218,8 @@ public sealed class DeviceSshRouter
         var route = await ResolveAsync(target, ct);
         if (route == SshCredentialRoute.DeviceCredentials)
             return "Device SSH credentials are not configured for this site.";
+        if (route == SshCredentialRoute.Gateway && await GatewayReachAsync(target, ct) == GatewayReach.Unreachable)
+            return StandbyUnreachable;
 
         var gateway = await _gatewaySsh.GetSettingsAsync();
         if (!gateway.Enabled)
@@ -233,6 +252,29 @@ public sealed class DeviceSshRouter
 
         return await _deviceSsh.RunCommandAsync(
             host, command, gateway.Username, gateway.Password, gateway.PrivateKeyPath, timeout, ct);
+    }
+
+    private enum GatewayReach { SiteGateway, OwnAddress, Unreachable }
+
+    /// <summary>
+    /// How a Gateway-role target is reached. The configured Gateway SSH host is the LAN gateway
+    /// address, which on an HA pair lands on whichever unit is active, so a command aimed at one
+    /// unit cannot use it: a per-network VRRP unit or a UDM in application mode is dialed at its
+    /// own address, and the backup of a Managed Shadow pair has no LAN address at all.
+    /// </summary>
+    private async Task<GatewayReach> GatewayReachAsync(DeviceSshTarget target, CancellationToken ct)
+    {
+        var mac = NormalizeMac(target.Mac);
+        IReadOnlyList<DiscoveredDevice> devices;
+        // Gateway SSH works without the console; a device list it cannot read changes nothing.
+        try { devices = await _devices(ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { return GatewayReach.SiteGateway; }
+        var device = devices.FirstOrDefault(d => NormalizeMac(d.Mac) == mac);
+        if (device == null) return GatewayReach.SiteGateway;
+        if (GatewayHa.IsUnreachableStandby(device, devices)) return GatewayReach.Unreachable;
+        if (device.ApplicationModeEnabled || !string.IsNullOrEmpty(device.GatewayVrrpMode))
+            return string.IsNullOrEmpty(target.Host) ? GatewayReach.SiteGateway : GatewayReach.OwnAddress;
+        return GatewayReach.SiteGateway;
     }
 
     private async Task<bool> IsGatewayHardwareAsync(DeviceSshTarget target, CancellationToken ct)

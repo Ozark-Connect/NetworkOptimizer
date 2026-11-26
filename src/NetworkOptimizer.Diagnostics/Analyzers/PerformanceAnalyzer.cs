@@ -7,6 +7,7 @@ using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Diagnostics.Models;
 using NetworkOptimizer.UniFi.Helpers;
 using NetworkOptimizer.UniFi.Models;
+using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Diagnostics.Analyzers;
 
@@ -95,7 +96,7 @@ public class PerformanceAnalyzer
     {
         var issues = new List<PerformanceIssue>();
 
-        var gateway = devices.FirstOrDefault(d => d.DeviceType == DeviceType.Gateway);
+        var gateway = GatewayHa.Primary(devices);
         if (gateway == null)
         {
             _logger?.LogDebug("No gateway found, skipping Hardware Acceleration check");
@@ -472,7 +473,7 @@ public class PerformanceAnalyzer
     {
         var issues = new List<PerformanceIssue>();
 
-        var gateway = devices.FirstOrDefault(d => d.DeviceType == DeviceType.Gateway);
+        var gateway = GatewayHa.Primary(devices);
         if (gateway == null)
             return issues;
 
@@ -534,7 +535,7 @@ public class PerformanceAnalyzer
         if (wanShaperStates == null || wanShaperStates.Count == 0)
             return issues;
 
-        var gatewayName = devices.FirstOrDefault(d => d.DeviceType == DeviceType.Gateway)?.Name;
+        var gatewayName = GatewayHa.Primary(devices)?.Name;
 
         foreach (var state in wanShaperStates)
         {
@@ -609,7 +610,7 @@ public class PerformanceAnalyzer
     {
         var issues = new List<PerformanceIssue>();
 
-        var gateway = devices.FirstOrDefault(d => d.DeviceType == DeviceType.Gateway);
+        var gateway = GatewayHa.Primary(devices);
         if (gateway == null)
         {
             return issues;

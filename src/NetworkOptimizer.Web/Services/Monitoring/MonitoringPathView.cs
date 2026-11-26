@@ -282,10 +282,16 @@ public class MonitoringPathView
                 ? root
                 : root.TryGetProperty("data", out var data) ? data : root;
 
+            var haFacts = devices.EnumerateArray().Select(NetworkOptimizer.UniFi.GatewayHa.FromJson).ToList();
+            var deviceIndex = -1;
             foreach (var device in devices.EnumerateArray())
             {
+                deviceIndex++;
                 var deviceType = device.TryGetProperty("type", out var typeProp) ? typeProp.GetString() : null;
                 if (deviceType != "ugw" && deviceType != "udm" && deviceType != "uxg")
+                    continue;
+                // An HA standby carries the primary's ethernet_overrides: listing it would show every WAN twice.
+                if (NetworkOptimizer.UniFi.GatewayHa.IsStandby(haFacts[deviceIndex], haFacts))
                     continue;
 
                 var gwMac = device.TryGetProperty("mac", out var macProp) ? macProp.GetString() : null;

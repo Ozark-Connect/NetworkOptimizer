@@ -49,6 +49,21 @@ public sealed record RolloutDeviceObservation
 
     /// <summary>Whether this is the site's gateway, the root of the uplink tree.</summary>
     public bool IsGateway { get; init; }
+
+    /// <summary>
+    /// Whether this gateway carries the site's traffic. Both members of an HA pair are
+    /// <see cref="IsGateway"/>; only the VRRP master is active, and only it darkens the site.
+    /// </summary>
+    public bool IsActiveGateway { get; init; }
+
+    /// <summary>
+    /// The MAC of the gateway that carries the site's traffic: the active one, else the first gateway.
+    /// </summary>
+    public static string? ActiveGatewayMac(IEnumerable<RolloutDeviceObservation> devices)
+    {
+        var list = devices as IReadOnlyCollection<RolloutDeviceObservation> ?? devices.ToList();
+        return (list.FirstOrDefault(d => d.IsActiveGateway) ?? list.FirstOrDefault(d => d.IsGateway))?.Mac;
+    }
 }
 
 /// <summary>
@@ -109,6 +124,7 @@ public class RolloutDeviceObserver : IRolloutDeviceObserver
                     LastUplinkMac = string.IsNullOrEmpty(d.LastUplinkMac) ? null : MacNormalizer.Normalize(d.LastUplinkMac),
                     WirelessUplink = string.Equals(d.UplinkType, "wireless", StringComparison.OrdinalIgnoreCase),
                     IsGateway = d.Type.IsGateway(),
+                    IsActiveGateway = d.IsActiveGateway,
                 })
                 .ToList();
         }

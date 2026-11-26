@@ -762,12 +762,12 @@ public class IspHealthService
         if (pppoeSession == true)
             profile = IspHealthProfiles.ApplyPppoeSession(profile, technology);
 
-        // First gateway from the device list above (shadow-mode multi-gateway isn't handled
-        // yet - first gateway is fine), matched to its fabric monitoring target by MAC so we can pull
+        // The active gateway from the device list above (on an HA pair, the VRRP master), matched
+        // to its fabric monitoring target by MAC so we can pull
         // its loss for outage scoping. Null when no gateway is monitored - outage scoping then stays
         // unchanged (no Local scope possible).
         static string MacKey(string? m) => new string((m ?? "").Where(Uri.IsHexDigit).ToArray()).ToLowerInvariant();
-        var gatewayDevice = discoveredDevices.FirstOrDefault(d => d.Type.IsGateway());
+        var gatewayDevice = UniFiDiscovery.SiteGateway(discoveredDevices);
         var gatewayTarget = gatewayDevice == null ? null
             : fabricTargets.FirstOrDefault(t => MacKey(t.DeviceMac) == MacKey(gatewayDevice.Mac));
 

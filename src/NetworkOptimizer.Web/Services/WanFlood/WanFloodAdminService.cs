@@ -74,7 +74,7 @@ public sealed class WanFloodAdminService(WanFloodService service, IThreatSetting
         try
         {
             var devices = await connection.GetDiscoveredDevicesAsync(ct);
-            var gateway = devices.FirstOrDefault(d => d.Type.IsGateway());
+            var gateway = UniFiDiscovery.PrimaryGateway(devices);
             _gatewayFirmware = NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.ShortOrNull(gateway?.Firmware);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

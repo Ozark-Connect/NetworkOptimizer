@@ -10,8 +10,15 @@ namespace NetworkOptimizer.UniFi.Models;
 /// Response from GET /api/s/{site}/stat/device
 /// Represents a UniFi network device (AP, Switch, Gateway, etc.)
 /// </summary>
-public class UniFiDeviceResponse
+public class UniFiDeviceResponse : IGatewayHaFacts
 {
+    DeviceType IGatewayHaFacts.HaRoleType => DeviceType;
+    string? IGatewayHaFacts.HaModeOverride => DeviceModeOverride;
+    string? IGatewayHaFacts.HaVrrpState => Vrrp?.State;
+    string? IGatewayHaFacts.HaGatewayVrrpMode => GatewayVrrpMode;
+    bool IGatewayHaFacts.HaApplicationMode => ApplicationModeEnabled == true;
+    bool IGatewayHaFacts.HaOnline => UniFiDeviceStateMap.IsOnline(State);
+
     [JsonPropertyName("_id")]
     public string Id { get; set; } = string.Empty;
 
@@ -45,6 +52,32 @@ public class UniFiDeviceResponse
     /// </summary>
     [JsonPropertyName("device_mode_override")]
     public string? DeviceModeOverride { get; set; }
+
+    /// <summary>
+    /// VRRP status of a gateway in a high-availability pair: present on a Managed Shadow Gateway,
+    /// absent on a lone gateway.
+    /// </summary>
+    [JsonPropertyName("vrrp")]
+    [JsonConverter(typeof(FlexibleObjectConverter<VrrpStatus>))]
+    [VendorSpecific("UniFi", "stat/device vrrp {state, lastTransition}: HA pair VRRP state")]
+    public VrrpStatus? Vrrp { get; set; }
+
+    /// <summary>
+    /// Per-network VRRP role set at adoption: "primary", "secondary", or empty. UniFi never
+    /// treats a "secondary" unit as the site gateway.
+    /// </summary>
+    [JsonPropertyName("gateway_vrrp_mode")]
+    [JsonConverter(typeof(FlexibleScalarStringConverter))]
+    [VendorSpecific("UniFi", "stat/device gateway_vrrp_mode: per-network VRRP role")]
+    public string? GatewayVrrpMode { get; set; }
+
+    /// <summary>
+    /// True when a UDM runs as a console only (application mode). It is then not a gateway.
+    /// </summary>
+    [JsonPropertyName("application_mode_enabled")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    [VendorSpecific("UniFi", "stat/device application_mode_enabled: UDM console-only mode")]
+    public bool? ApplicationModeEnabled { get; set; }
 
     [JsonPropertyName("model")]
     public string Model { get; set; } = string.Empty;
@@ -503,6 +536,23 @@ public class UniFiDeviceResponse
 
         return result;
     }
+}
+
+/// <summary>
+/// The <c>vrrp</c> block of a gateway in a high-availability pair. UniFi writes it from the
+/// gateway's inform; a failover changes only this, never the primary / shadow label.
+/// </summary>
+public class VrrpStatus
+{
+    /// <summary>VRRP state: "master", "backup", "fault", "init", "stop", or "unknown".</summary>
+    [JsonPropertyName("state")]
+    [JsonConverter(typeof(FlexibleScalarStringConverter))]
+    public string? State { get; set; }
+
+    /// <summary>When the state last changed, as UniFi reports it.</summary>
+    [JsonPropertyName("lastTransition")]
+    [JsonConverter(typeof(FlexibleNullableLongConverter))]
+    public long? LastTransition { get; set; }
 }
 
 /// <summary>One LAN network in a gateway's network_table.</summary>
