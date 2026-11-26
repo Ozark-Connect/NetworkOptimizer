@@ -4390,6 +4390,8 @@
 
     private async Task ToggleFullscreen()
     {
+        // Before the layout changes, so the proportional zoom below compares old and new size.
+        await JS.InvokeVoidAsync("fpEditor.snapshotSize");
         _isFullscreen = !_isFullscreen;
         StateHasChanged();
         await JS.InvokeVoidAsync("fpEditor.setFullscreenState", _isFullscreen);

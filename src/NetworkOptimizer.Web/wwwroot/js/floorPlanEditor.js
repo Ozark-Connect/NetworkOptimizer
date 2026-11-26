@@ -329,6 +329,18 @@ window.fpEditor = {
                 maxZoom: 24, maxNativeZoom: 19, attribution: 'OpenStreetMap', className: 'map-tiles-dark'
             }).addTo(m);
             self._map = m;
+            // The map's height follows the toolbar and bottom bar (fullscreen fills what they leave),
+            // and Leaflet re-measures only on a window resize. Without this, getBounds stays short after
+            // a bar appears or goes, and the heatmap leaves a strip at the bottom undrawn.
+            // invalidateSize fires moveend, which recomputes the heatmap.
+            if (window.ResizeObserver) {
+                if (self._resizeObserver) self._resizeObserver.disconnect();
+                self._resizeObserver = new ResizeObserver(function () {
+                    if (self._map !== m || self._sizeSnapshot) return;
+                    m.invalidateSize({ pan: false });
+                });
+                self._resizeObserver.observe(container);
+            }
             // The wheel zooms, and one finger pans, after a rest or a tap on the map (wheel-gate.js); always in fullscreen.
             if (window.WheelGate) {
                 window.WheelGate.leaflet(m, { exempt: function () { return !!container.closest('.fp-fullscreen'); }, touch: true });
@@ -645,12 +657,33 @@ window.fpEditor = {
         }
     },
 
+    /**
+     * Records the map's size and center before a layout change that invalidateSizeProportional
+     * will follow (fullscreen). Until then the resize observer leaves the map alone, so the
+     * proportional zoom still sees the old size.
+     */
+    snapshotSize: function () {
+        if (!this._map) return;
+        var self = this, m = this._map;
+        var snap = { size: m.getSize(), center: m.getCenter() };
+        this._sizeSnapshot = snap;
+        // Never leave the observer off if the proportional resize does not follow.
+        setTimeout(function () {
+            if (self._sizeSnapshot !== snap) return;
+            self._sizeSnapshot = null;
+            if (self._map === m) m.invalidateSize({ pan: false });
+        }, 1000);
+    },
+
     // Recalculate container size and adjust zoom proportionally to the viewport
     // width change so the same geographic area stays visible.
     invalidateSizeProportional: function () {
         if (!this._map) return;
-        var oldSize = this._map.getSize();
-        var center = this._map.getCenter();
+        // The size and center from before the layout changed (snapshotSize), when the caller took them.
+        var snap = this._sizeSnapshot;
+        this._sizeSnapshot = null;
+        var oldSize = snap ? snap.size : this._map.getSize();
+        var center = snap ? snap.center : this._map.getCenter();
         var oldZoom = this._map.getZoom();
         this._map.invalidateSize();
         var newSize = this._map.getSize();
@@ -4413,6 +4446,8 @@ window.fpEditor = {
         }
         this._savedView = null;
         SteppedScaleBar.remove(this._scaleBar); this._scaleBar = null;
+        if (this._resizeObserver) { this._resizeObserver.disconnect(); this._resizeObserver = null; }
+        this._sizeSnapshot = null;
         if (this._map) { this._map.remove(); this._map = null; }
         this._dotNetRef = null;
         this._overlay = null;
