@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Web.Services.Licensing;
@@ -308,8 +307,9 @@ public class LicenseActivationService : ILicenseActivationService
     /// <summary>
     /// Assigns uncovered sites to free slots, default site first then oldest
     /// first, so activating a key never leaves working sites uncovered when
-    /// slots are available. Declared personal use fills its free-tier slots
-    /// before any key, so a key's paid slots go to the sites past the free three.
+    /// slots are available. Keys fill before the free-tier slots of declared
+    /// personal use: an install can mix personal and commercial sites, and a
+    /// site with no say in the matter belongs on paid coverage.
     /// </summary>
     public async Task AutoAssignAsync()
     {
@@ -331,22 +331,6 @@ public class LicenseActivationService : ILicenseActivationService
             .ThenBy(s => s.Id)
             .ToList();
 
-        if (freeTier.PersonalUse)
-        {
-            var freeAdded = false;
-            while (freeSiteIds.Count < SiteManagementService.FreeSiteLimit && uncovered.Count > 0)
-            {
-                var site = uncovered[0];
-                uncovered.RemoveAt(0);
-                freeSiteIds.Add(site.Id);
-                freeAdded = true;
-                _logger.LogInformation("Auto-assigned site {Slug} to the free tier", site.Slug);
-            }
-            // Also drops ids of deleted sites, which would otherwise hold a slot.
-            if (freeAdded || freeSiteIds.Count != freeTier.SiteIds.Count)
-                await LicenseFreeTier.StageAsync(db, freeTier with { SiteIds = freeSiteIds }, now);
-        }
-
         foreach (var key in keys.Where(k => LicenseStateService.IsActiveCurrent(k, now)).OrderBy(k => k.CreatedAt))
         {
             var spare = key.SiteAllowance - assignments.Count(a => a.LicenseKeyRecordId == key.Id);
@@ -366,6 +350,22 @@ public class LicenseActivationService : ILicenseActivationService
                 _logger.LogInformation("Auto-assigned site {Slug} to license {Key}",
                     site.Slug, LicenseKeyUtilities.MaskKey(key.LicenseKey));
             }
+        }
+
+        if (freeTier.PersonalUse)
+        {
+            var freeAdded = false;
+            while (freeSiteIds.Count < SiteManagementService.FreeSiteLimit && uncovered.Count > 0)
+            {
+                var site = uncovered[0];
+                uncovered.RemoveAt(0);
+                freeSiteIds.Add(site.Id);
+                freeAdded = true;
+                _logger.LogInformation("Auto-assigned site {Slug} to the free tier", site.Slug);
+            }
+            // Also drops ids of deleted sites, which would otherwise hold a slot.
+            if (freeAdded || freeSiteIds.Count != freeTier.SiteIds.Count)
+                await LicenseFreeTier.StageAsync(db, freeTier with { SiteIds = freeSiteIds }, now);
         }
 
         await db.SaveChangesAsync();
