@@ -1924,6 +1924,46 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
         return result;
     }
 
+    /// <summary>
+    /// Whether a switch port linked faster than <paramref name="mbps"/> in any hour a wired client was on it, within
+    /// <paramref name="lookback"/>: evidence that a slow link to that client is a fault rather than the device's own
+    /// speed. Reads the console's negotiated speed on the port's console series (<c>pt:N</c>) and the client's
+    /// port-tagged <c>wired_client</c> points, each as one series reduced per hour (about 50 ms each for 30 days).
+    /// Null when InfluxDB is not configured.
+    /// </summary>
+    public async Task<bool?> PortRanFasterWithClientAsync(
+        string switchMac, int port, string clientMac, int mbps, TimeSpan lookback, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return null;
+        var device = FluxLiteral.Quote(NormalizeMac(switchMac));
+        var range = $"range(start: {ToFluxInstant(DateTime.UtcNow - lookback)})";
+
+        var fasterFlux = $@"
+from(bucket: {FluxLiteral.Quote(_bucket)})
+  |> {range}
+  |> filter(fn: (r) => r._measurement == ""interface_counters"" and r.device_mac == {device} and r.port_id == {FluxLiteral.Quote($"pt:{port}")} and r._field == {FluxLiteral.Quote(InfluxFieldNames.LinkSpeedMbps)})
+  |> aggregateWindow(every: 1h, fn: max, createEmpty: false)
+  |> filter(fn: (r) => r._value > {mbps})
+  |> keep(columns: [""_time""])
+";
+        var fasterHours = new HashSet<DateTime>();
+        await foreach (var record in QueryFluxAsync(fasterFlux, ct))
+            if (record.GetTimeInDateTime() is { } t) fasterHours.Add(ToUtc(t));
+        if (fasterHours.Count == 0) return false;
+
+        var clientFlux = $@"
+from(bucket: {FluxLiteral.Quote(_bucket)})
+  |> {range}
+  |> filter(fn: (r) => r._measurement == ""wired_client"" and r.device_mac == {device} and r.port == {FluxLiteral.Quote(port.ToString())} and r._field == ""client_mac"")
+  |> filter(fn: (r) => r._value == {FluxLiteral.Quote(NormalizeMac(clientMac))})
+  |> aggregateWindow(every: 1h, fn: count, createEmpty: false)
+  |> keep(columns: [""_time""])
+";
+        await foreach (var record in QueryFluxAsync(clientFlux, ct))
+            if (record.GetTimeInDateTime() is { } t && fasterHours.Contains(ToUtc(t))) return true;
+        return false;
+    }
+
     /// <summary>The latest persisted DDM reading of one SFP port (see <see cref="QueryLatestSfpAsync"/>).</summary>
     public class SfpLatestPoint
     {

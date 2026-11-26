@@ -9,6 +9,30 @@ public class PathAnalysisResult
     /// <summary>The note on a path with a wireless hop. Left out where no speed was measured (Client Performance's path).</summary>
     public const string WirelessSegmentInsight = "Path includes wireless segment - speeds may vary with signal quality";
 
+    /// <summary>The note on a wired path whose slowest link is 10 or 100 Mbps. Shown only with evidence the link ran faster.</summary>
+    public const string SlowLinkRecommendation = "10/100 Mbps link detected - cable quality or auto-negotiation may be faulty";
+
+    /// <summary>
+    /// The client access port behind a slow-link note: the wired client, the switch it hangs off, the port, and the
+    /// link's speed. Null when the slow link is not a client's own port (a 10/100 link between two switches).
+    /// </summary>
+    public (string ClientMac, string SwitchMac, int Port, int Mbps)? SlowClientPort()
+    {
+        if (!Recommendations.Contains(SlowLinkRecommendation)) return null;
+        var hops = Path.Hops;
+        for (var i = 0; i < hops.Count; i++)
+        {
+            var hop = hops[i];
+            if (hop.Type != HopType.Client || hop.EgressPort is not int port) continue;
+            if (hop.EgressSpeedMbps != Path.TheoreticalMaxMbps) continue;
+            // The switch is the client's neighbour on the path, whichever way the path runs.
+            var sw = i + 1 < hops.Count ? hops[i + 1] : i > 0 ? hops[i - 1] : null;
+            if (sw == null || string.IsNullOrEmpty(sw.DeviceMac) || string.IsNullOrEmpty(hop.DeviceMac)) return null;
+            return (hop.DeviceMac, sw.DeviceMac, port, hop.EgressSpeedMbps);
+        }
+        return null;
+    }
+
     /// <summary>The network path from iperf3 server to target device</summary>
     public NetworkPath Path { get; set; } = new();
 
@@ -134,7 +158,7 @@ public class PathAnalysisResult
             // 10/100 Mbps links on UniFi gear typically indicate cable or auto-negotiation issues
             if ((Path.TheoreticalMaxMbps == 10 || Path.TheoreticalMaxMbps == 100) && !Path.HasWirelessConnection)
             {
-                Recommendations.Add("10/100 Mbps link detected - cable quality or auto-negotiation may be faulty");
+                Recommendations.Add(SlowLinkRecommendation);
             }
             else if (Path.TheoreticalMaxMbps == 1000 && avgEfficiency >= 90)
             {
