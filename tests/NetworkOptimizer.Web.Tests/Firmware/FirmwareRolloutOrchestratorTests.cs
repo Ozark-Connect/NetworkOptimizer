@@ -327,6 +327,69 @@ public class FirmwareRolloutOrchestratorTests
     }
 
     [Fact]
+    public async Task APlannedImage_IsCommandedAtOnce_WithoutWaitingForTheConsoleToStageIt()
+    {
+        // A shared-catalog build the Console never offers: the URL decides the build, so staging is moot.
+        using var harness = new RolloutHarness();
+        var document = Document(Wave(1, PlanStep(ApMac)));
+        document.TargetImages.Add(new PlanTargetImage { Mac = ApMac, Version = ToVersion, Url = "https://example.test/shared.bin" });
+        var plan = await harness.SeedRunningPlanAsync(document, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion);
+
+        await harness.TickAsync();
+
+        harness.Commands.ExternalCommands.Should().ContainSingle()
+            .Which.Url.Should().Be("https://example.test/shared.bin");
+        harness.Commands.UpgradeCommands.Should().BeEmpty();
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Commanded);
+    }
+
+    [Fact]
+    public async Task NoPlannedImage_StillWaitsForTheConsoleToStageTheBuild()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedRunningPlanAsync(Document(Wave(1, PlanStep(ApMac))), Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion);
+
+        await harness.TickAsync();
+        harness.Commands.UpgradeCommands.Should().BeEmpty();
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Pending);
+
+        await harness.TickAsync(FirmwareRolloutOrchestrator.CatalogReflectWait);
+
+        harness.Commands.UpgradeCommands.Should().ContainSingle();
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Commanded);
+    }
+
+    [Fact]
+    public async Task APlannedImageTheConsoleRefuses_BeforeStaging_WaitsThenRunsEveryPath()
+    {
+        // The Console's own upgrade would install whatever it has staged, so it never runs before staging.
+        using var harness = new RolloutHarness();
+        harness.Commands.ExternalResult = FirmwareCommandResult.Failed("404");
+        var document = Document(Wave(1, PlanStep(ApMac)));
+        document.TargetImages.Add(new PlanTargetImage { Mac = ApMac, Version = ToVersion, Url = "https://example.test/shared.bin" });
+        var plan = await harness.SeedRunningPlanAsync(document, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion);
+
+        await harness.TickAsync();
+
+        harness.Commands.ExternalCommands.Should().ContainSingle();
+        harness.Commands.UpgradeCommands.Should().BeEmpty();
+        harness.Commands.SshCommands.Should().BeEmpty();
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Pending);
+        harness.Suppression.IsInRolloutWindow(SiteManagementService.DefaultSiteSlug, ApMac, harness.Time.GetUtcNow().UtcDateTime)
+            .Should().BeFalse();
+
+        // The Console stages the target: the next pass runs the full chain, Console build included.
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        await harness.TickAsync();
+
+        harness.Commands.UpgradeCommands.Should().ContainSingle();
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Commanded);
+    }
+
+    [Fact]
     public async Task SecondCycleStillOnTheWrongVersion_FailsAndDropsTheModel()
     {
         using var harness = new RolloutHarness();
