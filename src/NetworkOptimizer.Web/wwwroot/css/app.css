@@ -31259,6 +31259,12 @@ tr:hover .hop-loc-edit,
 .leaflet-layer.map-tiles-dark {
     filter: invert(1) hue-rotate(180deg) brightness(0.8) contrast(0.92) saturate(0.45);
 }
+/* leaflet.css blends tiles with plus-lighter to close the gaps between scaled tiles, but where two
+   tiles both cover a boundary pixel the light land doubles to white, which the invert above turns
+   into a black seam line at fractional zooms. Normal blending leaves the boundary at the ground color. */
+.leaflet-container .map-tiles-dark img.leaflet-tile {
+    mix-blend-mode: normal;
+}
 
 .trace-map.leaflet-container {
     background: var(--bg-primary);

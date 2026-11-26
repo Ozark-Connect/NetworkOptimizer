@@ -74,7 +74,7 @@ export function createMap(host, options) {
     const map = L.map(host, {
         scrollWheelZoom: false,
         // Quarter steps, so a route fits closely instead of dropping a whole level; the tiles
-        // overlap by a pixel (app.css) so a fractional zoom shows no seams.
+        // blend normally (app.css, .map-tiles-dark) so a fractional zoom shows no seams.
         zoomSnap: 0.25,
         minZoom: 2,
         worldCopyJump: false,
