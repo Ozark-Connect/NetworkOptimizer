@@ -13,7 +13,7 @@ import { createAxisDateCaption } from './chart-axis-date.js?v=5';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=3';
-import { formatBps, formatBpsAxis } from './chart-format.js?v=2';
+import { formatBps, formatBpsAxis, formatMs } from './chart-format.js?v=3';
 
 // Storage scope for this tab's remembered time window.
 const WINDOW_TAB = 'latency';
@@ -246,8 +246,17 @@ function baseChartOpts(type, yTitle, yFormatter, extraOpts, group = SYNC_GROUP) 
 
 
 function buildRttOpts() {
+    // The axis keeps one decimal; the tooltip names the unit and keeps two below 1 ms.
     return baseChartOpts('line', 'ms',
-        v => v != null ? v.toFixed(1) : '');
+        v => v != null ? v.toFixed(1) : '',
+        {
+            tooltip: {
+                theme: 'dark',
+                shared: true,
+                x: { formatter: noTime.chartTooltipFormatter() },
+                custom: ctx => valueSortedTooltip(ctx, { format: formatMs }),
+            },
+        });
 }
 
 function buildLossOpts() {

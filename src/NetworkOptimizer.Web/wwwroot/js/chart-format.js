@@ -9,6 +9,13 @@ export function formatBps(v) {
     return v.toFixed(0) + ' bps';
 }
 
+/** A round trip in milliseconds: two decimals under 1 ms ("0.25 ms"), one from there ("2.5 ms", "54.5 ms"). */
+export function formatMs(v) {
+    if (v == null) return '';
+    // 0.995 and up rounds to "1.00": that reads as "1.0 ms" like the rest.
+    return (v < 0.995 ? v.toFixed(2) : v.toFixed(1)) + ' ms';
+}
+
 /**
  * A rate for a y-axis label: no trailing ".0" ("500 Mbps", "1 Gbps"), and on a phone the unit
  * letter alone ("500M", "1G"). Tooltips keep formatBps; a chart whose tooltip falls back to the

@@ -16,7 +16,7 @@ import { valueSortedTooltip } from './chart-tooltip.js?v=22';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { createMarkLayer } from './chart-event-marks.js?v=14';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
-import { formatBps, formatBpsAxis } from './chart-format.js?v=2';
+import { formatBps, formatBpsAxis } from './chart-format.js?v=3';
 import { createTimeSlide, LEAD_MS } from './chart-slide.js?v=6';
 
 const HISTORY_MINUTES = 5;

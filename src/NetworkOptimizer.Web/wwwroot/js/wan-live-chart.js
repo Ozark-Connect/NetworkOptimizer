@@ -6,7 +6,7 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import * as flowData from './lan-flow-data.js?v=18';
 import { valueSortedTooltip } from './chart-tooltip.js?v=22';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
-import { formatBps, formatBpsAxis } from './chart-format.js?v=2';
+import { formatBps, formatBpsAxis } from './chart-format.js?v=3';
 import { createTimeSlide, LEAD_MS, leadMs } from './chart-slide.js?v=6';
 
 const HISTORY_MINUTES = 5;

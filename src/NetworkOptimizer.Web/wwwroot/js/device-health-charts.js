@@ -11,7 +11,7 @@ import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=3';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
-import { formatBps, formatBpsAxis } from './chart-format.js?v=2';
+import { formatBps, formatBpsAxis } from './chart-format.js?v=3';
 
 // Storage scope for this tab's remembered time window.
 const WINDOW_TAB = 'device-health';

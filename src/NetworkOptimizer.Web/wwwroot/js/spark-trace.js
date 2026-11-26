@@ -4,7 +4,7 @@
 // (data-trace-*), read on every move because Blazor redraws it. The dot and label live on <body>:
 // Blazor owns the tile's children and would drop anything added among them.
 
-import { formatBps } from './chart-format.js?v=2';
+import { formatBps } from './chart-format.js?v=3';
 
 const bound = new WeakSet();
 let dot = null;
