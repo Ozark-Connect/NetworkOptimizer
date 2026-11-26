@@ -129,6 +129,14 @@ public static class ApModelCatalog
             ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 3 },
             ["5"] = new() { DefaultTxPowerDbm = 24, MinTxPowerDbm = 1, MaxTxPowerDbm = 24, AntennaGainDbi = 10 },
         },
+        ["E7-Campus-Indoor"] = new()
+        {
+            // Website specs (public.json swaps 2.4 and 5 GHz: 30/12, 23/9, 30/12)
+            // 6 GHz: 36 dBm EIRP cap with 12 dBi gain → max 24 dBm TX
+            ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 9 },
+            ["5"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 12 },
+            ["6"] = new() { DefaultTxPowerDbm = 24, MinTxPowerDbm = 1, MaxTxPowerDbm = 24, AntennaGainDbi = 12 },
+        },
         ["U7-Industrial"] = new()
         {
             // public.json (built-in antenna): 23/4, 24/5
