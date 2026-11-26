@@ -1263,10 +1263,11 @@ class LanFlowMap2D {
         }
         // A shared-port hub carries the IP of its busiest interface, so it opens like a client.
         if(d.kind!==NK.WifiClient&&d.kind!==NK.WiredClient&&d.kind!==NK.VirtualHub)return;
-        if(!d.ip)return;
-        // The default tab (Speed): what the device is doing is the usual question; Signal is a click away.
-        const url=`/client-dashboard?ip=${encodeURIComponent(d.ip)}`;
-        navigate(url);
+        // A client opens by MAC, so one with no recent address (and a past one whose address moved on) opens
+        // as itself. The default tab (Speed): what the device is doing is the usual question.
+        const q=d.kind!==NK.VirtualHub&&d.mac?`mac=${encodeURIComponent(d.mac)}`:d.ip?`ip=${encodeURIComponent(d.ip)}`:null;
+        if(!q)return;
+        navigate(`/client-dashboard?${q}`);
     }
 
     _hitTest(sx,sy){
@@ -1497,7 +1498,7 @@ class LanFlowMap2D {
         if(d.cellularModemId!=null&&d.kind!==NK.Gateway)hint=`${gesture} for Stats`;
         else if(d.kind===NK.AP&&d.mac)hint=`${gesture} for Clients`;
         else if((d.kind===NK.Switch||d.kind===NK.Gateway)&&d.mac&&(window.__portStatsTable||this._liveOnly))hint=`${gesture} for Port Statistics`;
-        else if((d.kind===NK.WifiClient||d.kind===NK.WiredClient)&&d.ip)hint=`${gesture} for client details`;
+        else if((d.kind===NK.WifiClient||d.kind===NK.WiredClient)&&(d.mac||d.ip))hint=`${gesture} for client details`;
 
         // An overlay tip (Firmware Rollout) leads: it is why the node is marked at all.
         const ovTip=this._nodeOverlays?.[d.id]?.tip;

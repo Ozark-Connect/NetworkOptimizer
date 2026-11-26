@@ -546,7 +546,7 @@ else
                 <div class="lan-health-sub">Port @p</div>
             }
         </text>;
-        var target = EndTarget(end, clientIp);
+        var target = EndTarget(end, clientMac, clientIp);
         <div class="lan-health-end">
             @* The restart button stays outside the link: a control inside an anchor would navigate too. *@
             @if (target is { PortStats: true })
@@ -571,9 +571,9 @@ else
     };
 
     /// <summary>An end's name as a link with a link icon, to where its icon goes; plain text when it goes nowhere.</summary>
-    private RenderFragment EndNameLink(LinkEnd end, string name, string? clientIp = null) => __builder =>
+    private RenderFragment EndNameLink(LinkEnd end, string name, string? clientMac = null, string? clientIp = null) => __builder =>
     {
-        var target = EndTarget(end, clientIp);
+        var target = EndTarget(end, clientMac, clientIp);
         if (target is { PortStats: true })
         {
             <a class="lan-health-device-link" href="@target.Href" data-tooltip="@target.Tooltip"
@@ -596,13 +596,17 @@ else
     /// gateway its Port Statistics, a client Client Performance. Null when there is nowhere to go.
     /// </summary>
     // TODO: point the network device links at the Network Device dashboard once it exists.
-    private static EndLink? EndTarget(LinkEnd end, string? clientIp)
+    private static EndLink? EndTarget(LinkEnd end, string? clientMac, string? clientIp)
     {
         if (end.IsUniFi && !string.IsNullOrEmpty(end.DeviceMac))
             return end.IsAccessPoint
                 ? new($"/wifi-optimizer?tab=client&ap={Uri.EscapeDataString(end.DeviceMac)}", "View Clients")
                 : new("/monitoring?tab=live", "View Port Statistics", PortStats: true);
-        return !end.IsUniFi && !string.IsNullOrEmpty(clientIp)
+        if (end.IsUniFi) return null;
+        // By MAC where known: an asleep client's last address may be another device's now.
+        if (!string.IsNullOrEmpty(clientMac))
+            return new($"/client-dashboard?mac={Uri.EscapeDataString(clientMac)}", "View in Client Performance");
+        return !string.IsNullOrEmpty(clientIp)
             ? new($"/client-dashboard?ip={Uri.EscapeDataString(clientIp)}", "View in Client Performance")
             : null;
     }
@@ -880,7 +884,7 @@ else
                 <div class="card-body">
                     <div class="table-responsive">
                         <table class="data-table lan-health-ends">
-                            <thead><tr><th></th><th>@EndNameLink(link.Upstream, link.UpstreamName)</th><th>@EndNameLink(link.Downstream, link.Downstream.DeviceName, link.ClientIp)</th></tr></thead>
+                            <thead><tr><th></th><th>@EndNameLink(link.Upstream, link.UpstreamName)</th><th>@EndNameLink(link.Downstream, link.Downstream.DeviceName, link.ClientMac, link.ClientIp)</th></tr></thead>
                             <tbody>
                                 <tr><td>Link drops recorded</td><td>@DropCount(link.Upstream, l.UpLinkDownCount, null)</td><td>@DropCount(link.Downstream, l.DownLinkDownCount, l.DownCarrierChanges)</td></tr>
                                 <tr><td>Receive errors</td><td>@($"{l.ErrorsUpstreamRx:0}")</td><td>@(link.Downstream.IsUniFi ? $"{l.ErrorsDownstreamRx:0}" : "-")</td></tr>

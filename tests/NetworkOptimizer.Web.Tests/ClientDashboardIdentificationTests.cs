@@ -217,6 +217,89 @@ public class ClientDashboardIdentificationTests
         Assert.True(identity.IsOffline);
     }
 
+    // --- ?mac= links: the page is pinned to one client, whatever its old address now belongs to ---
+
+    [Fact]
+    public async Task ByMacAListedClientAnswersAtItsCurrentAddress()
+    {
+        using var fixture = new Fixture();
+        fixture.Api.Stats.Add(new UniFiClientResponse { Mac = Owner, Ip = "192.0.2.50", Name = "Laptop" });
+
+        var identity = await fixture.Service.IdentifyClientByMacAsync("00-11-22-33-44-55");
+
+        Assert.NotNull(identity);
+        Assert.Equal(Owner, identity.Mac);
+        Assert.Equal("192.0.2.50", identity.Ip);
+        Assert.False(identity.IsOffline);
+    }
+
+    [Fact]
+    public async Task ByMacAnOfflineClientAnswersFromHistoryWithItsLastAddress()
+    {
+        using var fixture = new Fixture();
+        fixture.Api.History.Add(Detail(Previous, null, "Living Room TV", lastIp: Ip));
+
+        var identity = await fixture.Service.IdentifyClientByMacAsync(Previous);
+
+        Assert.NotNull(identity);
+        Assert.Equal(Previous, identity.Mac);
+        Assert.Equal("Living Room TV", identity.Name);
+        Assert.Equal(Ip, identity.Ip);
+        Assert.True(identity.IsOffline);
+    }
+
+    [Fact]
+    public async Task ByMacAnUnknownClientIsNull()
+    {
+        using var fixture = new Fixture();
+        Assert.Null(await fixture.Service.IdentifyClientByMacAsync(Previous));
+    }
+
+    [Fact]
+    public async Task APinnedClientWhoseAddressMovedOnStaysItselfNotTheNewOwner()
+    {
+        using var fixture = new Fixture();
+        fixture.Api.Active.Add(Detail(Owner, Ip, "New owner"));
+        fixture.Api.History.Add(Detail(Previous, null, "Old owner", lastIp: Ip));
+
+        var pinned = await fixture.Service.IdentifyClientAsync(Ip, Previous);
+        var byAddress = await fixture.Service.IdentifyClientAsync(Ip);
+
+        Assert.Equal(Previous, pinned?.Mac);
+        Assert.True(pinned?.IsOffline);
+        Assert.Equal(Owner, byAddress?.Mac);
+    }
+
+    [Fact]
+    public async Task APinnedClientBackAtANewAddressIsFollowedThere()
+    {
+        using var fixture = new Fixture();
+        fixture.Api.Stats.Add(new UniFiClientResponse { Mac = Previous, Ip = "192.0.2.99", Name = "Back" });
+
+        var identity = await fixture.Service.IdentifyClientAsync(Ip, Previous);
+
+        Assert.Equal(Previous, identity?.Mac);
+        Assert.Equal("192.0.2.99", identity?.Ip);
+        Assert.False(identity?.IsOffline);
+    }
+
+    [Fact]
+    public async Task APinnedLivePollNeverReadsAnAddressAnotherClientHolds()
+    {
+        using var fixture = new Fixture();
+        fixture.Api.Active.Add(Detail(Owner, Ip, "New owner"));
+        fixture.Api.History.Add(Detail(Previous, null, "Old owner", lastIp: Ip));
+        await fixture.Service.IdentifyClientAsync(Ip, Previous);
+        fixture.Api.Requests.Clear();
+
+        Assert.Null(await fixture.Service.PollLiveClientAsync(Ip, Previous));
+        Assert.DoesNotContain(fixture.Api.Requests, p => p.Contains("/wifiman/", StringComparison.Ordinal));
+
+        // Unpinned, the same address is the new owner's, and its live signal is asked for.
+        await fixture.Service.PollLiveClientAsync(Ip);
+        Assert.Contains(fixture.Api.Requests, p => p.Contains("/wifiman/", StringComparison.Ordinal));
+    }
+
     private static UniFiClientDetailResponse Detail(string mac, string? ip, string name,
         string? lastIp = null, bool wired = false) => new()
     {
@@ -292,7 +375,7 @@ public class ClientDashboardIdentificationTests
                 if (ThrowActive) throw new InvalidOperationException("v2 unavailable");
                 body = Active;
             }
-            else if (path == "/v2/api/site/default/clients/history?withinHours=720")
+            else if (path.StartsWith("/v2/api/site/default/clients/history?withinHours=", StringComparison.Ordinal))
                 body = History;
             else if (path.StartsWith("/v2/api/site/default/wifiman/", StringComparison.Ordinal))
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));

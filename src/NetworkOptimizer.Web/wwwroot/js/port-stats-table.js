@@ -175,12 +175,15 @@ function portCell(p) {
     return `<a class="port-cell port-lan-health" href="${escapeHtml(p.lanHealthHref)}" data-tooltip="View this port on LAN Health" data-tooltip-hover-only>${inner}${icon}</a>`;
 }
 
-// The single wired client on this port, linked to its Client Performance dashboard.
+// The single wired client on this port, linked to its Client Performance dashboard. By MAC where known: a past
+// client's last address may be another device's now.
 function clientCell(p) {
     const label = p.connectedName || p.connectedMac || p.connectedIp;
     if (!label) return '';
-    if (p.connectedIp) {
-        return `<a class="port-client-link" href="/client-dashboard?ip=${encodeURIComponent(p.connectedIp)}" data-tooltip="Open the Client Performance dashboard" data-tooltip-hover-only>${escapeHtml(label)}</a>`;
+    const target = p.connectedMac ? `mac=${encodeURIComponent(p.connectedMac)}`
+        : p.connectedIp ? `ip=${encodeURIComponent(p.connectedIp)}` : null;
+    if (target) {
+        return `<a class="port-client-link" href="/client-dashboard?${target}" data-tooltip="Open the Client Performance dashboard" data-tooltip-hover-only>${escapeHtml(label)}</a>`;
     }
     return escapeHtml(label);
 }

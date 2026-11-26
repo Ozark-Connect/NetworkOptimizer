@@ -295,9 +295,13 @@ public class ClientDashboardService
     /// After first identification, uses the single-client endpoint (stat/sta/{mac})
     /// instead of fetching all clients. Falls back to client history for offline devices.
     /// </summary>
-    public async Task<ClientIdentity?> IdentifyClientAsync(string clientIp)
+    /// <param name="pinnedMac">The client a <c>?mac=</c> link opened. When the address now belongs to another
+    /// client (an old lease reassigned), the pinned client answers by its MAC instead.</param>
+    public async Task<ClientIdentity?> IdentifyClientAsync(string clientIp, string? pinnedMac = null)
     {
         var identity = await IdentifyListedClientAsync(clientIp);
+        if (!string.IsNullOrEmpty(pinnedMac) && !MacEquals(identity?.Mac, pinnedMac))
+            identity = await IdentifyClientByMacAsync(pinnedMac, clientIp);
         // A LAN host that is the tailnet's exit node or subnet router says so beside its name.
         if (identity != null && _tailscale != null)
             identity.TailnetRouterBadge = _tailscale.Get(_siteContext.Slug).RouterAtLanAddress(identity.Ip)?.RouterBadge;
@@ -317,7 +321,10 @@ public class ClientDashboardService
 
         var namesGeneration = ClientDisplayNameCache.Generation(_connectionService.Client);
         if (Interlocked.Exchange(ref _namesGeneration, namesGeneration) != namesGeneration)
+        {
             _offlineIdentityCache.Clear();
+            _offlineByMacCache.Clear();
+        }
 
         try
         {
@@ -457,6 +464,81 @@ public class ClientDashboardService
             return null;
         }
     }
+
+    // LAN Health's and the LAN map's lookback, so every client they link opens here.
+    private const int MacLookbackHours = 2160;
+
+    // Offline identities found by MAC, kept apart from the address-keyed cache: their last address may be
+    // another client's now, and must never answer an address lookup.
+    private readonly ConcurrentDictionary<string, ClientIdentity> _offlineByMacCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The client with this MAC, online or not: what a <c>?mac=</c> link opens. A listed client answers with
+    /// its current address; one the console no longer lists answers from client history as offline, with its
+    /// last address, and comes back online when its port vouches for it. Null when nothing knows the MAC.
+    /// </summary>
+    /// <param name="clientIp">The address the page holds, used only when the client has none of its own.</param>
+    public async Task<ClientIdentity?> IdentifyClientByMacAsync(string mac, string? clientIp = null)
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null || string.IsNullOrWhiteSpace(mac))
+            return null;
+        mac = mac.Trim().ToLowerInvariant().Replace('-', ':');
+        try
+        {
+            var clients = await _connectionService.Client.GetClientsAsync() ?? new List<UniFiClientResponse>();
+            var listed = clients.FirstOrDefault(c => MacEquals(c.Mac, mac));
+            if (listed != null)
+            {
+                _offlineByMacCache.TryRemove(mac, out _);
+                if (TryNormalizeIp(listed.BestIp ?? clientIp) is { } listedIp)
+                    return await IdentifyLegacyClientAsync(listed, listedIp);
+                return MapClientToIdentity(listed);
+            }
+
+            if (_offlineByMacCache.TryGetValue(mac, out var cached))
+            {
+                if (cached.IsOffline && cached.Ip is { Length: > 0 } cachedIp) await TryVouchByPortAsync(cached, cachedIp);
+                return cached;
+            }
+
+            var history = await _connectionService.Client.GetClientHistoryAsync(withinHours: MacLookbackHours) ?? new();
+            var hist = history.FirstOrDefault(c => MacEquals(c.Mac, mac));
+            if (hist == null) return null;
+
+            var identity = new ClientIdentity
+            {
+                Mac = mac,
+                Name = ClientNames.For(hist, hostnameFallback: false),
+                Hostname = hist.Hostname,
+                Ip = TryNormalizeIp(hist.BestIp ?? clientIp) ?? "",
+                FixedIp = hist.UseFixedIp && !string.IsNullOrEmpty(hist.FixedIp) ? hist.FixedIp : null,
+                IsWired = hist.IsWired,
+                Oui = hist.Oui,
+                IsOffline = true,
+            };
+            if (identity.IsWired)
+            {
+                if (identity.Ip.Length > 0 && await TryVouchByPortAsync(identity, identity.Ip))
+                    return identity;
+                if (await LastKnownPortAsync(mac) is { } port)
+                {
+                    identity.SwitchMac = port.DeviceMac;
+                    identity.SwitchPort = port.Port;
+                }
+            }
+            _offlineByMacCache[mac] = identity;
+            _logger.LogDebug("Identified offline client {Mac} as {Name} by its MAC", mac, identity.DisplayName);
+            return identity;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to identify client {Mac}", mac);
+            return null;
+        }
+    }
+
+    private static string? TryNormalizeIp(string? ip) =>
+        TryParseClientIp(ip, out var address) ? address!.ToString() : null;
 
     private async Task<ClientIdentity> IdentifyLegacyClientAsync(
         UniFiClientResponse client, string requestedIp, string? displayName = null)
@@ -656,7 +738,8 @@ public class ClientDashboardService
         double? gpsLat = null,
         double? gpsLng = null,
         int? gpsAccuracy = null,
-        bool persist = true)
+        bool persist = true,
+        string? pinnedMac = null)
     {
         var pollSw = System.Diagnostics.Stopwatch.StartNew();
 
@@ -666,10 +749,13 @@ public class ClientDashboardService
             await SeedTraceHashesAsync();
         }
 
-        var identity = await IdentifyClientAsync(clientIp);
+        var identity = await IdentifyClientAsync(clientIp, pinnedMac);
         var identifyMs = pollSw.ElapsedMilliseconds;
         if (identity == null)
             return null;
+        // A pinned client back at a new address is traced and stored at that address.
+        if (!string.IsNullOrEmpty(pinnedMac) && !string.IsNullOrEmpty(identity.Ip))
+            clientIp = identity.Ip;
 
         var result = new SignalPollResult
         {
@@ -1334,8 +1420,13 @@ public class ClientDashboardService
     /// on holding it, and falls back to <see cref="PollWiFiManOnlyAsync"/> - today's path, byte for
     /// byte - whenever no agent can answer. Returns null when neither source has anything.
     /// </summary>
-    public async Task<ClientIdentity?> PollLiveClientAsync(string clientIp)
+    /// <param name="pinnedMac">The client a <c>?mac=</c> link opened: nothing live is read for an address that now
+    /// belongs to another client.</param>
+    public async Task<ClientIdentity?> PollLiveClientAsync(string clientIp, string? pinnedMac = null)
     {
+        if (!string.IsNullOrEmpty(pinnedMac)
+            && (!_ipToMacCache.TryGetValue(clientIp, out var owner) || !MacEquals(owner, pinnedMac)))
+            return null;
         var fromAgent = await PollApAgentAsync(clientIp);
         return fromAgent ?? await PollWiFiManOnlyAsync(clientIp);
     }
@@ -1344,11 +1435,12 @@ public class ClientDashboardService
     /// Whether any agent-covered access point holds this client right now. Reads the membership the
     /// collector already refreshes site-wide, so it is a lookup and polls nothing.
     /// </summary>
-    public bool AgentHoldsClient(string clientIp)
+    public bool AgentHoldsClient(string clientIp, string? pinnedMac = null)
     {
         if (_apAgentTelemetry == null) return false;
         clientIp = NetworkUtilities.NormalizeToIPv4String(clientIp) ?? clientIp;
-        if (!_ipToMacCache.TryGetValue(clientIp, out var mac)) return false;
+        var mac = pinnedMac;
+        if (string.IsNullOrEmpty(mac) && !_ipToMacCache.TryGetValue(clientIp, out mac)) return false;
 
         return _apAgentTelemetry.GetFor(_siteContext.Slug).PresenceFor(null, mac)
             == NetworkOptimizer.Core.Helpers.AgentClientPresence.Present;
