@@ -137,10 +137,21 @@ public class SiteManagementService : ISiteManagementService
     /// limit with no active licensing, otherwise the summed allowance of the
     /// active license keys. Keys in their post-expiry grace period grant no
     /// headroom for creating new sites (their already-assigned sites keep
-    /// working through grace).
+    /// working through grace). Declared personal use adds the free-tier
+    /// slots on top of the keys.
     /// </summary>
     public Task<int> GetSiteLimitAsync() => Task.FromResult(
-        _licenseState.AnyKeysActive ? _licenseState.TotalAllowance : FreeSiteLimit);
+        ComputeSiteLimit(_licenseState.AnyKeysActive, _licenseState.TotalAllowance, _licenseState.PersonalUse));
+
+    /// <summary>
+    /// Pure site-limit arithmetic behind <see cref="GetSiteLimitAsync"/>: the free-tier limit with
+    /// no active key, otherwise the active keys' allowance plus the free-tier slots when personal use
+    /// is declared.
+    /// </summary>
+    public static int ComputeSiteLimit(bool anyKeysActive, int totalAllowance, bool personalUse) =>
+        anyKeysActive
+            ? totalAllowance + (personalUse ? FreeSiteLimit : 0)
+            : FreeSiteLimit;
 
     /// <summary>How many more sites may be created before hitting the limit.</summary>
     public async Task<int> RemainingSiteSlotsAsync()
