@@ -313,6 +313,17 @@ window.fpEditor = {
             var container = document.getElementById(containerId);
             if (!container) { setTimeout(init, 100); return; }
 
+            // Blazor can rebuild the editor without disposing the old one (a dropped circuit), so an
+            // earlier map may still be held here. The toolbox and the one-time map bindings belong to
+            // it: drop them, or the new map gets no toolbox.
+            if (self._map && self._map.getContainer() !== container) {
+                try { self._map.remove(); } catch (e) { /* its container is already gone */ }
+                self._map = null;
+                self._wallToolbox = null;
+                self._marqueeBound = false;
+                self._wallMapClickBound = false;
+            }
+
             var m = L.map(containerId, { center: [centerLat, centerLng], zoom: zoom, zoomControl: true, maxZoom: 24, zoomSnap: 0.5, zoomDelta: zoom >= 21 ? 0.5 : 1 });
             var osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 maxZoom: 24, maxNativeZoom: 19, attribution: 'OpenStreetMap', className: 'map-tiles-dark'
