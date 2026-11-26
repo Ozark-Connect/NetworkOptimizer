@@ -128,9 +128,9 @@
                 <label class="checkbox-label">
                     <input type="checkbox" checked="@_freeTier.PersonalUse" disabled="@_savingPersonalUse"
                            @onchange="OnPersonalUseChangedAsync" />
-                    <span>These Sites are for personal, non-commercial use</span>
+                    <span>Some of these Sites are for personal, non-commercial use</span>
                 </label>
-                <small class="form-help">Adds @SiteManagementService.FreeSiteLimit free-tier Site slots beside your license keys, so a key only has to cover the Sites past the first @SiteManagementService.FreeSiteLimit.</small>
+                <small class="form-help">Adds @SiteManagementService.FreeSiteLimit free-tier Site slots beside your license keys for your personal Sites. Set each personal Site to Free tier below.</small>
                 @if (!string.IsNullOrEmpty(_personalUseError))
                 {
                     <div class="alert alert-danger" style="margin-top: 0.5rem;">@_personalUseError</div>
