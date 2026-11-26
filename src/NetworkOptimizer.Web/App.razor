@@ -657,6 +657,16 @@
         var tipLinkIcon = ' <svg class="tip-link-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>';
         // The same mark for JS-built links elsewhere (Port Statistics), so there is one drawing.
         window.noLinkOutIcon = function (cls) { return tipLinkIcon.trim().replace('tip-link-icon', cls || 'tip-link-icon'); };
+        // A Client's Client Performance page, as ClientPerformanceLink.Href builds it: by MAC where known, with
+        // the IP as the fallback the page uses only when UniFi Network has never heard of the MAC. Null with neither.
+        window.noClientPerformanceUrl = function (mac, ip, query) {
+            var parts = [];
+            if (mac) parts.push('mac=' + encodeURIComponent(mac));
+            if (ip) parts.push('ip=' + encodeURIComponent(ip));
+            if (!parts.length) return null;
+            if (query) parts.push(query);
+            return '/client-dashboard?' + parts.join('&');
+        };
         function tipLink(href, text) {
             return '<a href="' + escapeHtml(href) + '">' + escapeHtml(text) + tipLinkIcon + '</a>';
         }

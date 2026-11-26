@@ -1001,7 +1001,7 @@
                                         </button>
                                         @if (showDashLink)
                                         {
-                                            <a href="/client-dashboard?ip=@result.DeviceHost&tab=speed&range=30d" class="client-dashboard-link"
+                                            <a href="@ClientPerformanceLink.Href(result.ClientMac, result.DeviceHost, "tab=speed&range=30d")" class="client-dashboard-link"
                                                @onclick:stopPropagation data-tooltip="View in Client Performance">
                                                 <LinkOutIcon Size="13" />
                                             </a>
@@ -1015,7 +1015,7 @@
                                         </button>
                                         @if (showDashLink)
                                         {
-                                            <a href="/client-dashboard?ip=@result.DeviceHost&tab=speed&range=30d" class="client-dashboard-link"
+                                            <a href="@ClientPerformanceLink.Href(result.ClientMac, result.DeviceHost, "tab=speed&range=30d")" class="client-dashboard-link"
                                                @onclick:stopPropagation data-tooltip="View in Client Performance">
                                                 <LinkOutIcon Size="13" />
                                             </a>

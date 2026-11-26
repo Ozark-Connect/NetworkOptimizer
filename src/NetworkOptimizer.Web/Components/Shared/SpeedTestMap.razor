@@ -1718,8 +1718,8 @@ else
         }
         if (ShowDashboardLinks && !string.IsNullOrEmpty(result.DeviceHost))
         {
-            var ip = System.Net.WebUtility.HtmlEncode(result.DeviceHost);
-            html += $"<a href='/client-dashboard?ip={ip}&amp;tab=speed&amp;range=30d' class='map-popup-link'>Client Performance \u2192</a>";
+            var href = System.Net.WebUtility.HtmlEncode(ClientPerformanceLink.Href(result.ClientMac, result.DeviceHost, "tab=speed&range=30d"));
+            html += $"<a href='{href}' class='map-popup-link'>Client Performance \u2192</a>";
         }
         html += "</span>";
         html += "</div>";
