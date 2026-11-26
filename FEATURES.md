@@ -359,6 +359,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 
 - Detects your own device, or pick any client from the client selector
 - Opens a client from the maps, LAN Health, Port Statistics, and speed test results, even offline or after its IP moved on
+- **Network Path** pings the client every 5 seconds while you watch, from the site's probe vantage, and records it for later diagnosis
 - The client's UniFi Network icon (custom icons included) beside its name
 - Live signal gauge, AP TX and RX rates, and live download and upload
 - Wired clients: switch port, link speed, live throughput, and port errors and drops (SNMP)

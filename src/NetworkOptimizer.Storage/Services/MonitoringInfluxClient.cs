@@ -1285,6 +1285,56 @@ public partial class MonitoringInfluxClient : IAsyncDisposable
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// One live ping of a client, written as added fields on <c>wifi_client</c> under its access point and band, or
+    /// <c>wired_client</c> under its switch and port, tagged <c>client_mac</c>. Read it with <c>r._field =~ /^ping_/</c>
+    /// and <c>r.client_mac</c>. <c>ping_received</c> is 1 or 0,
+    /// <c>ping_rtt_ms</c> is present only with a reply, and <c>ping_vantage</c> names where it came from. Written
+    /// only while someone has the client's Client Performance open, so the samples have gaps by design.
+    /// </summary>
+    public Task WriteClientPingAsync(
+        string clientMac,
+        bool wired,
+        string parentMac,
+        string? band,
+        int? port,
+        double? rttMs,
+        string vantage,
+        DateTime timestamp)
+    {
+        if (!IsConfigured) return Task.CompletedTask;
+        if (BuildClientPingPoint(clientMac, wired, parentMac, band, port, rttMs, vantage, timestamp) is { } point)
+            Enqueue(point, longterm: false);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>The point <see cref="WriteClientPingAsync"/> writes, or null without a client, a parent, or a Wi-Fi band.</summary>
+    internal static PointData? BuildClientPingPoint(
+        string clientMac, bool wired, string parentMac, string? band, int? port, double? rttMs, string vantage, DateTime timestamp)
+    {
+        if (string.IsNullOrEmpty(clientMac) || string.IsNullOrEmpty(parentMac)) return null;
+        if (!wired && string.IsNullOrEmpty(band)) return null;
+        var point = PointData.Measurement(wired ? "wired_client" : "wifi_client")
+            .Tag("device_mac", NormalizeMac(parentMac));
+        if (wired)
+        {
+            if (port is > 0) point = point.Tag("port", port.Value.ToString());
+        }
+        else
+        {
+            point = point.Tag("band", band!.ToLowerInvariant());
+        }
+        // The client is a TAG here, never the client_mac field: readers of these measurements pivot on that field
+        // and would take a ping point for a sample with no throughput or signal. The usage rollup tags it the same way.
+        point = point
+            .Tag("client_mac", NormalizeMac(clientMac))
+            .Field("ping_received", rttMs.HasValue ? 1L : 0L)
+            .Field("ping_vantage", vantage)
+            .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
+        if (rttMs is double ms) point = point.Field("ping_rtt_ms", ms);
+        return point;
+    }
+
     public Task WriteWiredClientAsync(
         string switchMac,
         string clientMac,
