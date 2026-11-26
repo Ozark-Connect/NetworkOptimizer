@@ -128,7 +128,7 @@
                 @* ── APs group ── *@
                 @* TODO: Place/Edit APs and Add/Edit Planned APs duplicate the map toolbox (APs / Planned
                    APs). Remove them together with the walls group above, with the same tour step. *@
-                <div class="fp-toolbar-group">
+                <div class="fp-toolbar-group fp-toolbar-aps">
                     <button class="fp-btn @(_mode == "aps" ? "fp-btn-warning" : "")" @onclick="ToggleApEditMode">
                         @(_mode == "aps" ? "Done" : _apMarkers.Any(a => a.Latitude.HasValue) ? "Edit APs" : "Place APs")
                     </button>
@@ -141,7 +141,7 @@
             }
 
             @* ── View group ── *@
-            <div class="fp-toolbar-group">
+            <div class="fp-toolbar-group fp-toolbar-view">
                 <button class="fp-btn @(_showHeatmap ? "active" : "")" @onclick="ToggleHeatmap">
                     Heatmap
                 </button>
@@ -1666,6 +1666,9 @@
         .fp-toolbar-right { width: 100%; }
         .fp-toolbar-group { flex-wrap: wrap; }
         .fp-toolbar-sep { display: none; }
+        /* The map toolbox carries APs and Planned APs on mobile; the view toggles sit on the right. */
+        .fp-toolbar-aps { display: none; }
+        .fp-toolbar-view { margin-left: auto; justify-content: flex-end; min-width: 0; max-width: 100%; }
         .fp-edit-hint {
             top: auto;
             bottom: 110px;
