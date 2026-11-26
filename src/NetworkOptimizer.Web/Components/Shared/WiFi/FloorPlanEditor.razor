@@ -663,6 +663,11 @@
         width: 100%;
         min-height: 400px;
         background: #0f0f11;
+        /* The map clips its own GPU tile layers. Leaving fullscreen (position: fixed, overflow:
+           hidden) otherwise left Chrome painting a stale fullscreen-sized map over the time
+           slider below it, with the layout itself correct. */
+        contain: paint;
+        isolation: isolate;
     }
 
     .fp-bottom-bar {
