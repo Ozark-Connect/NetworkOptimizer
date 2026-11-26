@@ -177,6 +177,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     // Pasted-build steps whose SSH session closed mid-command, by step: no other command until the device shows it or SshDropHold passes.
     private readonly ConcurrentDictionary<int, DateTime> _sshUnconfirmedAt = new();
     private readonly ConcurrentDictionary<int, DateTime> _commandWaitSince = new();
+    // Steps whose planned image the Console refused before staging: they wait for staging, then run every path.
+    private readonly ConcurrentDictionary<int, DateTime> _urlRefused = new();
     private readonly ConcurrentDictionary<int, DateTime> _offlineAtTurnSince = new();
     private readonly HashSet<string> _meshRepairsQueued = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _skuAbortsPublished = new(StringComparer.OrdinalIgnoreCase);
@@ -3070,13 +3072,34 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         }
         _offlineAtTurnSince.TryRemove(step.Id, out _);
 
-        // The console has to have staged this device's build before there is anything to command.
-        // After the wait it is commanded anyway: some models report nothing here even when ready.
+        // The image this plan committed to, captured on this device's own channel. Only used when it
+        // names the version this step is for - the catalog is matched by model code, so a
+        // disagreement means the entry is not this step's build and the URL cannot be trusted.
+        var image = document.TargetImages
+            .FirstOrDefault(i => string.Equals(i.Mac, step.DeviceMac, StringComparison.OrdinalIgnoreCase));
+        var planned = image != null
+            && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(image.Version, step.ToVersion)
+            ? image.Url
+            : null;
+
+        // Cellular modems can't reach the CDN (their management route goes through the LAN, but
+        // the CDN download runs on the device itself). Console-cached first for them, always.
+        var preferConsoleCached = string.Equals(step.DeviceType, "cellularmodem", StringComparison.OrdinalIgnoreCase);
+
+        var staged = VersionsMatch(observation.UpgradeToFirmware, step.ToVersion)
+            || VersionsMatch(observation.Firmware, step.ToVersion);
+
+        // A command by URL installs that build whatever the Console has staged, so it never waits for
+        // staging. Once the URL has been refused, the Console's own build is the fallback, and that waits.
+        var byUrl = !string.IsNullOrWhiteSpace(planned) && !preferConsoleCached && !_urlRefused.ContainsKey(step.Id);
+
+        // The console has to have staged this device's build before its own upgrade has anything to
+        // install. After the wait it is commanded anyway: some models report nothing here even when ready.
         // A pinned image installs by URL, and the Console never stages a build older than it runs.
-        if (!string.IsNullOrWhiteSpace(step.ToVersion)
+        if (!byUrl
+            && !string.IsNullOrWhiteSpace(step.ToVersion)
             && !RolloutPlanComposer.IsPinnedTarget(document.TargetImages, step.DeviceMac, step.ToVersion)
-            && !VersionsMatch(observation.UpgradeToFirmware, step.ToVersion)
-            && !VersionsMatch(observation.Firmware, step.ToVersion))
+            && !staged)
         {
             var waitingSince = _commandWaitSince.GetOrAdd(step.Id, _ => Now);
             if (ElapsedObserved(waitingSince) < CatalogReflectWait)
@@ -3118,20 +3141,6 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             await OpenStepWindowsAsync(step, byMac, cancellationToken);
         }
 
-        // The image this plan committed to, captured on this device's own channel. Only used when it
-        // names the version this step is for - the catalog is matched by model code, so a
-        // disagreement means the entry is not this step's build and the URL cannot be trusted.
-        var image = document.TargetImages
-            .FirstOrDefault(i => string.Equals(i.Mac, step.DeviceMac, StringComparison.OrdinalIgnoreCase));
-        var planned = image != null
-            && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(image.Version, step.ToVersion)
-            ? image.Url
-            : null;
-
-        // Cellular modems can't reach the CDN (their management route goes through the LAN, but
-        // the CDN download runs on the device itself). Console-cached first for them, always.
-        var preferConsoleCached = string.Equals(step.DeviceType, "cellularmodem", StringComparison.OrdinalIgnoreCase);
-
         // A build pasted by URL installs over SSH first, as a rollback does: upgrade-external has
         // cycled a device without flashing an older build. The SSH path is then spent.
         FirmwareCommandResult? sshFirst = null;
@@ -3156,9 +3165,25 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                     step.DeviceName, _siteSlug, sshFirst.Message);
         }
 
+        // Skipping the staging wait is only safe while the URL decides the build: the Console's own
+        // upgrade installs whatever it has staged, which right after a channel change is not the target.
+        var unstagedByUrl = byUrl && !staged && image?.Pinned != true;
         var (result, url) = sshFirst is { IsOk: true }
             ? (sshFirst, null)
-            : await CommandOverConsoleAsync(document, step, planned, image, preferConsoleCached, cancellationToken);
+            : await CommandOverConsoleAsync(document, step, planned, image, preferConsoleCached, cancellationToken,
+                allowConsoleBuild: !unstagedByUrl);
+
+        // Refused by URL before the wait: wait for staging after all, then run every path as usual.
+        if (!result.IsOk && unstagedByUrl)
+        {
+            CloseStepWindows(step);
+            _urlRefused[step.Id] = Now;
+            _commandWaitSince[step.Id] = Now;
+            _logger.LogWarning(
+                "The Console refused the planned image for {Device} on site {Site} ({Message}); waiting up to {Wait} for it to stage the build",
+                step.DeviceName, _siteSlug, result.Message, CatalogReflectWait);
+            return;
+        }
 
         // A pasted build already tried SSH with this link first; a second try only adds a timeout.
         if (!result.IsOk && url != null && sshFirst == null && !string.IsNullOrWhiteSpace(observation.IpAddress))
@@ -3181,6 +3206,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         step.State = FirmwareRolloutStepState.Commanded;
         step.CommandedAt = Now;
         _commandWaitSince.TryRemove(step.Id, out _);
+        _urlRefused.TryRemove(step.Id, out _);
         await PersistStepAsync(step, cancellationToken);
 
         // Refreshed again on return: an SSH install can hold the pass for minutes.
@@ -3903,6 +3929,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         _escalatedAt.Clear();
         _sshUnconfirmedAt.Clear();
         _commandWaitSince.Clear();
+        _urlRefused.Clear();
         _offlineAtTurnSince.Clear();
 
         var document = ParseDocument(plan);
@@ -3961,7 +3988,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// </summary>
     private async Task<(FirmwareCommandResult Result, string? Url)> CommandOverConsoleAsync(
         RolloutPlanDocument document, FirmwareRolloutStep step, string? planned, PlanTargetImage? image,
-        bool preferConsoleCached, CancellationToken cancellationToken)
+        bool preferConsoleCached, CancellationToken cancellationToken, bool allowConsoleBuild = true)
     {
         var result = string.IsNullOrWhiteSpace(planned) || preferConsoleCached
             ? await _commands.TriggerUpgradeAsync(step.DeviceMac, cancellationToken)
@@ -3969,8 +3996,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         // A build Ubiquiti has since pulled 404s, so the console's own catalog is still the fallback.
         // Not for a build chosen by hand: the console would install its newest one instead.
+        // Not before the console has staged the target either: the caller waits for that first.
         if (!result.IsOk && !string.IsNullOrWhiteSpace(planned) && !preferConsoleCached && image?.Pinned != true)
+        {
+            if (!allowConsoleBuild) return (result, planned);
             result = await _commands.TriggerUpgradeAsync(step.DeviceMac, cancellationToken);
+        }
 
         if (result.IsOk) return (result, null);
         var url = planned ?? await StepImageUrlAsync(document, step, cancellationToken);
