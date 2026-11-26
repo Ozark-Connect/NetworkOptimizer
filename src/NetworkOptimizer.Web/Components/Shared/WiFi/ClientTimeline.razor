@@ -174,7 +174,7 @@
                                       ReadOnly="@_selectedClient.IsProtectDevice" OnRenamed="OnClientRenamed">
                         @if (!string.IsNullOrEmpty(_selectedClient.Ip))
                         {
-                            <a href="/client-dashboard?ip=@_selectedClient.Ip&range=30d&tab=signal" class="client-name client-name-link"
+                            <a href="@ClientPerformanceLink.Href(_selectedClient.Mac, _selectedClient.Ip, "range=30d&tab=signal")" class="client-name client-name-link"
                                data-tooltip="View full speed and signal history">@_selectedClient.Name</a>
                         }
                         else
@@ -190,12 +190,12 @@
                     <span class="client-mac">@_selectedClient.Mac</span>
                     @if (!string.IsNullOrEmpty(_selectedClient.Ip))
                     {
-                        <a href="/client-dashboard?ip=@_selectedClient.Ip&range=30d&tab=signal" class="client-perf-link"
+                        <a href="@ClientPerformanceLink.Href(_selectedClient.Mac, _selectedClient.Ip, "range=30d&tab=signal")" class="client-perf-link"
                            data-tooltip="View full speed and signal history">
                             <LinkOutIcon Size="14" />
                             <span>Full Client Performance History</span>
                         </a>
-                        <a href="/client-dashboard?ip=@_selectedClient.Ip&range=30d&tab=signal" class="client-dashboard-link"
+                        <a href="@ClientPerformanceLink.Href(_selectedClient.Mac, _selectedClient.Ip, "range=30d&tab=signal")" class="client-dashboard-link"
                            data-tooltip="View full speed and signal history">
                             <LinkOutIcon Size="14" />
                         </a>

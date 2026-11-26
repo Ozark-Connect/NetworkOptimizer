@@ -1265,9 +1265,8 @@ class LanFlowMap2D {
         if(d.kind!==NK.WifiClient&&d.kind!==NK.WiredClient&&d.kind!==NK.VirtualHub)return;
         // A client opens by MAC, so one with no recent address (and a past one whose address moved on) opens
         // as itself. The default tab (Speed): what the device is doing is the usual question.
-        const q=d.kind!==NK.VirtualHub&&d.mac?`mac=${encodeURIComponent(d.mac)}`:d.ip?`ip=${encodeURIComponent(d.ip)}`:null;
-        if(!q)return;
-        navigate(`/client-dashboard?${q}`);
+        const url=window.noClientPerformanceUrl?.(d.kind!==NK.VirtualHub?d.mac:null,d.ip);
+        if(url)navigate(url);
     }
 
     _hitTest(sx,sy){

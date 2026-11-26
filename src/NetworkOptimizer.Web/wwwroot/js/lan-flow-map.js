@@ -4560,10 +4560,8 @@ export class LanFlowMap {
         if (node.kind !== NODE_KIND.WifiClient && node.kind !== NODE_KIND.WiredClient && node.kind !== NODE_KIND.VirtualHub) return;
         // A client opens by MAC, so one with no recent address (and a past one whose address moved on) opens
         // as itself. The default tab (Speed): what the device is doing is the usual question.
-        const q = node.kind !== NODE_KIND.VirtualHub && node.mac ? `mac=${encodeURIComponent(node.mac)}`
-            : node.ip ? `ip=${encodeURIComponent(node.ip)}` : null;
-        if (!q) return;
-        navigate(`/client-dashboard?${q}`);
+        const url = window.noClientPerformanceUrl?.(node.kind !== NODE_KIND.VirtualHub ? node.mac : null, node.ip);
+        if (url) navigate(url);
     }
 
     _showHover(node) {

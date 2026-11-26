@@ -3785,11 +3785,10 @@
         }
         if (!string.IsNullOrEmpty(result.DeviceHost))
         {
-            var ip = System.Net.WebUtility.HtmlEncode(result.DeviceHost);
             if (HideDashboardLinks)
-                html += $"<a href='/client-dashboard?ip={ip}&amp;tab=speed&amp;range=30d' class='map-popup-link'>Speed Results \u2192</a>";
+                html += $"<a href='{System.Net.WebUtility.HtmlEncode(ClientPerformanceLink.Href(result.ClientMac, result.DeviceHost, "tab=speed&range=30d"))}' class='map-popup-link'>Speed Results \u2192</a>";
             else
-                html += $"<a href='/client-dashboard?ip={ip}&amp;tab=signal&amp;range=30d' class='map-popup-link'>Client Performance \u2192</a>";
+                html += $"<a href='{System.Net.WebUtility.HtmlEncode(ClientPerformanceLink.Href(result.ClientMac, result.DeviceHost, "tab=signal&range=30d"))}' class='map-popup-link'>Client Performance \u2192</a>";
         }
         html += "</span>";
         html += "</div>";
@@ -3834,11 +3833,8 @@
             var htmlMac = System.Net.WebUtility.HtmlEncode(jsMac);
             html += $"<a href='javascript:void(0)' onclick='fpEditor._dotNetRef.invokeMethodAsync(\"OnSignalClientClick\",\"{htmlMac}\")' class='map-popup-link'>Client stats \u2192</a>";
         }
-        if (!HideDashboardLinks && !string.IsNullOrEmpty(point.ClientIp))
-        {
-            var ip = System.Net.WebUtility.HtmlEncode(point.ClientIp);
-            html += $"<a href='/client-dashboard?ip={ip}&amp;tab=signal&amp;range=30d' class='map-popup-link'>Client Performance \u2192</a>";
-        }
+        if (!HideDashboardLinks && ClientPerformanceLink.Href(point.ClientMac, point.ClientIp, "tab=signal&range=30d") is { } signalHref)
+            html += $"<a href='{System.Net.WebUtility.HtmlEncode(signalHref)}' class='map-popup-link'>Client Performance \u2192</a>";
         html += "</span>";
         html += "</div>";
         html += "</div>";

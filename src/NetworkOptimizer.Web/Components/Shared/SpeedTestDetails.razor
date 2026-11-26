@@ -65,7 +65,7 @@
                 }
                 @if (_isLanDevice && !HideClientDashboardLink)
                 {
-                    <a href="/client-dashboard?ip=@Result.DeviceHost&tab=speed&range=30d" class="btn-action-icon"
+                    <a href="@ClientPerformanceLink.Href(Result.ClientMac, Result.DeviceHost, "tab=speed&range=30d")" class="btn-action-icon"
                        data-tooltip="View full speed and signal history" data-tooltip-hover-only>
                         <LinkOutIcon Size="14" />
                     </a>

@@ -80,7 +80,7 @@ public class SiteSwitchService
         // ?run= is an action, not a view: a switch must not run the linked traceroute again on the new site.
         ["/network-tools"] = ["from", "run"],
         ["/wifi-optimizer"] = ["client", "ap", "edge"],
-        ["/client-dashboard"] = ["ip"],
+        ["/client-dashboard"] = ["ip", "mac"],
         ["/alerts"] = ["alert"],
         ["/speedtest"] = ["result"],
         ["/wan-speedtest"] = ["result"],

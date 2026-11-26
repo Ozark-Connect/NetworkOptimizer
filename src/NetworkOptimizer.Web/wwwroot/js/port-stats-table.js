@@ -180,10 +180,9 @@ function portCell(p) {
 function clientCell(p) {
     const label = p.connectedName || p.connectedMac || p.connectedIp;
     if (!label) return '';
-    const target = p.connectedMac ? `mac=${encodeURIComponent(p.connectedMac)}`
-        : p.connectedIp ? `ip=${encodeURIComponent(p.connectedIp)}` : null;
-    if (target) {
-        return `<a class="port-client-link" href="/client-dashboard?${target}" data-tooltip="Open the Client Performance dashboard" data-tooltip-hover-only>${escapeHtml(label)}</a>`;
+    const href = window.noClientPerformanceUrl?.(p.connectedMac, p.connectedIp);
+    if (href) {
+        return `<a class="port-client-link" href="${escapeHtml(href)}" data-tooltip="Open the Client Performance dashboard" data-tooltip-hover-only>${escapeHtml(label)}</a>`;
     }
     return escapeHtml(label);
 }

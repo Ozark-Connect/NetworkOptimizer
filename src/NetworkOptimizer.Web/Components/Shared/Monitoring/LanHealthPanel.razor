@@ -603,12 +603,7 @@ else
                 ? new($"/wifi-optimizer?tab=client&ap={Uri.EscapeDataString(end.DeviceMac)}", "View Clients")
                 : new("/monitoring?tab=live", "View Port Statistics", PortStats: true);
         if (end.IsUniFi) return null;
-        // By MAC where known: an asleep client's last address may be another device's now.
-        if (!string.IsNullOrEmpty(clientMac))
-            return new($"/client-dashboard?mac={Uri.EscapeDataString(clientMac)}", "View in Client Performance");
-        return !string.IsNullOrEmpty(clientIp)
-            ? new($"/client-dashboard?ip={Uri.EscapeDataString(clientIp)}", "View in Client Performance")
-            : null;
+        return ClientPerformanceLink.Href(clientMac, clientIp) is { } href ? new(href, "View in Client Performance") : null;
     }
 
     /// <summary>The speed tests that crossed the link in the window: the verdict the Slow Speed Tests finding reads, then the latest five.</summary>
