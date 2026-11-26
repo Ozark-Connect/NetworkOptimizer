@@ -856,9 +856,11 @@
         position: static;
     }
 
-    /* The 2D map's 4px step from the search above, not Leaflet's 10px control gap. */
+    /* The 2D map's 4px step from the search above, not Leaflet's 10px control gap. The 32px
+       buttons sit 2px further in than Leaflet's 10px, centered under the 36px search box. */
     .leaflet-top .leaflet-control.fp-view-controls {
         margin-top: 4px;
+        margin-right: 12px;
     }
 
     .fp-ap-panel {
