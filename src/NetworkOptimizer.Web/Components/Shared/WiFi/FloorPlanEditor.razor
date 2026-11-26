@@ -4201,11 +4201,13 @@
     {
         if (_selectedFloor == null) return;
         _showDeleteFloor = false;
-        // Exit draw/AP mode before deleting
+        // Exit draw/AP mode before deleting. ExitDrawMode, not the bare JS call: it turns back on the
+        // heatmap that drawing paused and makes the overlays interactive again.
         if (_mode == "walls")
         {
-            await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
+            await ExitDrawMode();
             _mode = "view";
+            _isDrawingShape = false;
         }
         else if (_mode == "aps" || _mode == "plan-aps")
         {
@@ -4254,11 +4256,12 @@
     {
         if (_selectedBuilding == null) return;
         _showDeleteBuilding = false;
-        // Exit draw/AP mode before deleting
+        // Exit draw/AP mode before deleting, through ExitDrawMode so the heatmap drawing paused comes back.
         if (_mode == "walls")
         {
-            await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
+            await ExitDrawMode();
             _mode = "view";
+            _isDrawingShape = false;
         }
         else if (_mode == "aps" || _mode == "plan-aps")
         {
