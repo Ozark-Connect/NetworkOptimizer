@@ -2208,13 +2208,24 @@ window.fpEditor = {
         container.addEventListener('mousedown', function (e) {
             if (self._marqueeActive) e.stopPropagation();
         }, true);
+        // On a touch screen Leaflet drags with native touch events, which follow the pointer events
+        // for the same finger: while the marquee has the finger they must not reach it, or the map
+        // pans under the box. The touch gate's own capture listener still cancels the page scroll.
+        ['touchstart', 'touchmove'].forEach(function (type) {
+            container.addEventListener(type, function (e) {
+                if (self._marqueeActive) e.stopPropagation();
+            }, { capture: true, passive: true });
+        });
         // After a gesture the marquee handled itself, the browser's click must not reach Leaflet:
         // its preclick would close the popup the gesture just opened.
+        // Never a click on a control: the toolbox and zoom buttons are href="#" links that cancel their
+        // own navigation, and a click stopped before they see it opens the app root (the Dashboard).
         container.addEventListener('click', function (e) {
-            if (Date.now() < self._swallowClickUntil) {
-                self._swallowClickUntil = 0;
-                e.stopPropagation();
-            }
+            if (Date.now() >= self._swallowClickUntil) return;
+            if (e.target.closest && e.target.closest('.leaflet-control')) return;
+            self._swallowClickUntil = 0;
+            e.stopPropagation();
+            e.preventDefault();
         }, true);
 
         container.addEventListener(DOWN, function (e) {
