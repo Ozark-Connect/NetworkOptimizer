@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using NetworkOptimizer.Storage.Services;
-using NetworkOptimizer.Web.Services.Monitoring;
 using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
 namespace NetworkOptimizer.Web.Services;
@@ -118,27 +117,31 @@ public class SignalSparklineService : ISignalSparklineService
                         _liveStats.SeedRttHistory(id, stored);
 
             var series = new Dictionary<LiveViewSpark, IReadOnlyList<SparkPoint>>();
-            void Put(LiveViewSpark tile, IEnumerable<(DateTime Time, double Value)>? rows)
+            // Each point is a minute's mean, drawn at the middle of its minute, so a click on a spike seeks
+            // into it. The latency read stamps a bucket at its start, the WAN and health reads at its end.
+            var half = TileBucket / 2;
+            void Put(LiveViewSpark tile, IEnumerable<(DateTime Time, double Value)>? rows, bool stampedAtEnd)
             {
-                var points = rows?.Select(r => new SparkPoint(r.Time, r.Value)).ToList();
+                var shift = stampedAtEnd ? -half : half;
+                var points = rows?.Select(r => new SparkPoint(r.Time + shift, r.Value)).ToList();
                 // Two points is the least that draws a line.
                 if (points is { Count: >= 2 }) series[tile] = points;
             }
             IEnumerable<(DateTime, double)>? Target(string? id, string field) =>
                 id != null && latency.TryGetValue((id, field), out var rows) ? rows : null;
 
-            Put(LiveViewSpark.GatewayRtt, Target(request.GatewayTargetId, RttField));
-            Put(LiveViewSpark.GatewayLoss, Target(request.GatewayTargetId, LossField));
+            Put(LiveViewSpark.GatewayRtt, Target(request.GatewayTargetId, RttField), stampedAtEnd: false);
+            Put(LiveViewSpark.GatewayLoss, Target(request.GatewayTargetId, LossField), stampedAtEnd: false);
             var (floor, floorLoss) = IspAccessFloor(latency, request.IspTargetIds);
-            Put(LiveViewSpark.IspRtt, floor.Where(s => s.RttAvgMs.HasValue).Select(s => (s.Time, s.RttAvgMs!.Value)));
-            Put(LiveViewSpark.IspLoss, floorLoss);
-            Put(LiveViewSpark.TransitRtt, BlendAcrossTargets(latency, request.TransitTargetIds));
-            Put(LiveViewSpark.TransitLoss, MeanAcrossTargets(latency, request.TransitTargetIds, LossField));
-            Put(LiveViewSpark.GatewayCpu, health.GetValueOrDefault(CpuField));
-            Put(LiveViewSpark.GatewayMemory, health.GetValueOrDefault(MemoryField));
-            Put(LiveViewSpark.GatewayTemperature, health.GetValueOrDefault(TemperatureField));
-            Put(LiveViewSpark.WanDownload, wan.Where(p => p.DownloadBps.HasValue).Select(p => (p.Time, p.DownloadBps!.Value)));
-            Put(LiveViewSpark.WanUpload, wan.Where(p => p.UploadBps.HasValue).Select(p => (p.Time, p.UploadBps!.Value)));
+            Put(LiveViewSpark.IspRtt, floor.Where(s => s.RttAvgMs.HasValue).Select(s => (s.Time, s.RttAvgMs!.Value)), stampedAtEnd: false);
+            Put(LiveViewSpark.IspLoss, floorLoss, stampedAtEnd: false);
+            Put(LiveViewSpark.TransitRtt, BlendAcrossTargets(latency, request.TransitTargetIds), stampedAtEnd: false);
+            Put(LiveViewSpark.TransitLoss, MeanAcrossTargets(latency, request.TransitTargetIds, LossField), stampedAtEnd: false);
+            Put(LiveViewSpark.GatewayCpu, health.GetValueOrDefault(CpuField), stampedAtEnd: true);
+            Put(LiveViewSpark.GatewayMemory, health.GetValueOrDefault(MemoryField), stampedAtEnd: true);
+            Put(LiveViewSpark.GatewayTemperature, health.GetValueOrDefault(TemperatureField), stampedAtEnd: true);
+            Put(LiveViewSpark.WanDownload, wan.Where(p => p.DownloadBps.HasValue).Select(p => (p.Time, p.DownloadBps!.Value)), stampedAtEnd: true);
+            Put(LiveViewSpark.WanUpload, wan.Where(p => p.UploadBps.HasValue).Select(p => (p.Time, p.UploadBps!.Value)), stampedAtEnd: true);
             return new LiveViewSparklines(series);
         }
         catch (Exception ex)
