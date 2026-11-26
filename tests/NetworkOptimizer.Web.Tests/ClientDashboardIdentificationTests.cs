@@ -249,6 +249,34 @@ public class ClientDashboardIdentificationTests
     }
 
     [Fact]
+    public async Task ByMacAListedClientNeverTakesALastAddressAnotherClientHolds()
+    {
+        // A TV in standby is listed with no ip; its last one is another client's now.
+        using var fixture = new Fixture();
+        fixture.Api.Stats.Add(new UniFiClientResponse { Mac = Previous, LastIp = Ip, Name = "TV" });
+        fixture.Api.Stats.Add(new UniFiClientResponse { Mac = Owner, Ip = Ip, Name = "Laptop" });
+
+        var identity = await fixture.Service.IdentifyClientByMacAsync(Previous);
+        var poll = await fixture.Service.PollSignalAsync(Ip, persist: false, pinnedMac: Previous);
+
+        Assert.Equal(Previous, identity?.Mac);
+        Assert.Equal("", identity?.Ip);
+        // Answered as the TV with no address, so nothing is traced or stored at the laptop's.
+        Assert.Equal(Previous, poll?.Client.Mac);
+        Assert.Equal("", poll?.Client.Ip);
+        Assert.Null(poll?.PathAnalysis);
+    }
+
+    [Fact]
+    public async Task ByMacAListedClientTakesItsLastAddressWhileNoOneElseHoldsIt()
+    {
+        using var fixture = new Fixture();
+        fixture.Api.Stats.Add(new UniFiClientResponse { Mac = Previous, LastIp = Ip, Name = "TV" });
+
+        Assert.Equal(Ip, (await fixture.Service.IdentifyClientByMacAsync(Previous))?.Ip);
+    }
+
+    [Fact]
     public async Task ByMacAnUnknownClientIsNull()
     {
         using var fixture = new Fixture();
