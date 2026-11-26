@@ -24,6 +24,18 @@
       "body": "The **Restart** button in the corner of a **Device Status** card restarts that device now, at a time you choose, or at its next quiet hour, measured from its own traffic and everything below it.\n\nRestarts close together run once each, top of the network first, and wait out firmware upgrades. A device powered from a switch port can be power-cycled instead.",
       "placement": "top",
       "optional": true
+    },
+    {
+      "id": "client-path-ping",
+      "level": "minor",
+      "badge": "improved",
+      "url": "/client-dashboard?ip={!client-ip}&tab=connection",
+      "selector": "[data-tour=\"client-path-ping\"]",
+      "title": "Live Ping on Network Path",
+      "listLabel": "Watch a client's RTT live on its Network Path",
+      "body": "On a client's **Connection** tab, **Network Path** now pings the client every 5 seconds while you watch and shows the round trip beside **max**.\n\nHover it to see where the ping came from: the Network Optimizer server, or the site's On-Site Agent.",
+      "placement": "left",
+      "optional": true
     }
   ]
 }
