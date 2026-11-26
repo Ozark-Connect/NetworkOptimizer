@@ -2176,6 +2176,59 @@ public class IspHealthScorerTests
         IxInvolvement(dim).Should().Contain("2 of 3 internet targets");
     }
 
+    private static string? TransitInvolvement(IspScoreDimension dim, string name) =>
+        dim.Factors.Single(f => f.Name == name).InvolvementTooltip;
+
+    [Fact]
+    public void Transit_involvement_counts_routes_through_the_asn_s_farther_routers()
+    {
+        // One destination names the graded hop in its ancestry, one crosses the ASN only at a farther
+        // router (its stored route), one never crosses it. Ancestry alone counted 1 of 3.
+        var viaGradedHop = IxDest("via-graded-hop", 13335, IxIspAsn, IxTransitAsn, 13335);
+        viaGradedHop.AncestorIps.Add("20.0.0.1");
+        var dim = IxDimension(IxTransits(), viaGradedHop,
+            IxDest("via-far-router", 15169, IxIspAsn, IxTransitAsn, 15169),
+            IxDest("peered", 20940, IxIspAsn, 20940));
+
+        TransitInvolvement(dim, "Transit").Should().StartWith("Carries 2 of 3 internet targets");
+    }
+
+    [Fact]
+    public void Transit_involvement_lifts_an_asn_seen_only_on_stored_routes_off_the_floor()
+    {
+        // No destination's ancestry names the second transit's monitored hop (21.0.0.1), so it read as
+        // off the forward path. Its stored routes show it carrying one destination.
+        var dim = IxDimension(IxTransits(7029),
+            IxDest("via-first", 13335, IxIspAsn, IxTransitAsn, 13335),
+            IxDest("via-second", 36692, IxIspAsn, 7029));
+
+        TransitInvolvement(dim, "Extra7029").Should().StartWith("Carries 1 of 2 internet targets");
+    }
+
+    [Fact]
+    public void Transit_involvement_route_arm_ignores_the_destination_s_own_asn_and_the_isp_s()
+    {
+        // Every route starts in the ISP and ends in the destination's network; neither makes the
+        // destination count toward that ASN graded in the transit role.
+        var dim = IxDimension(IxTransits(15169, IxIspAsn),
+            IxDest("google", 15169, IxIspAsn, 15169),
+            IxDest("via-first", 13335, IxIspAsn, IxTransitAsn, 13335));
+
+        TransitInvolvement(dim, "Extra15169").Should().StartWith("Off the forward path");
+        TransitInvolvement(dim, $"Extra{IxIspAsn}").Should().StartWith("Off the forward path");
+        TransitInvolvement(dim, "Transit").Should().StartWith("Carries 1 of 2 internet targets");
+    }
+
+    [Fact]
+    public void Transit_involvement_with_no_stored_routes_is_ancestry_alone()
+    {
+        var viaGradedHop = IxDest("via-graded-hop", 13335);
+        viaGradedHop.AncestorIps.Add("20.0.0.1");
+        var dim = IxDimension(IxTransits(), viaGradedHop, IxDest("no-route", 15169));
+
+        TransitInvolvement(dim, "Transit").Should().StartWith("Carries 1 of 2 internet targets");
+    }
+
     [Fact]
     public void Without_hop_order_a_transit_asn_is_graded_on_its_near_cluster()
     {

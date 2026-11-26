@@ -152,7 +152,8 @@ public class IspHealthScorer
         }
 
         // Arm 4: each transit ASN's "internet host involvement" - how many monitored internet
-        // destinations are proven to route through it (routes-through gated on stored ancestry).
+        // destinations are proven to route through it (a monitored hop of it in their stored ancestry,
+        // or the ASN on their stored route).
         // Feeds the involvement-weighted Transit dimension below. Zero for every ASN when transit
         // is traceroute-invisible on the destination paths, in which case the dimension falls back
         // to an equal-weighted average (the prior behavior).
@@ -161,7 +162,9 @@ public class IspHealthScorer
             .ToDictionary(g => g.Key, g => g.SelectMany(s => s.HopIps).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
         var transitReachByAsn = transitHopIpsByAsn.ToDictionary(
             kv => kv.Key,
-            kv => inputs.HopOrderKnown ? inputs.DestinationSeries.Count(d => RoutesThrough(d.AncestorIps, kv.Value)) : 0);
+            kv => inputs.HopOrderKnown
+                ? inputs.DestinationSeries.Count(d => RoutesThrough(d.AncestorIps, kv.Value) || RouteCrossesTransitAsn(inputs, d, kv.Key))
+                : 0);
         // Reach drives the involvement weight. Real transit ASNs use the routes-through count above;
         // the synthetic IX Peering entry carries exactly the direct-peered destinations it was built
         // from, so in a peering-dominant path it holds max reach (weight ~1) and its real grade - not
@@ -1942,23 +1945,27 @@ public class IspHealthScorer
             return double.IsNaN(min) ? (double?)null : Math.Max(0, min - baseline);
         }
 
-        // A graded transit series carries only its nearest cluster's hop IPs, so ancestry alone misses a
-        // route through that ASN's farther routers. The route's ASNs catch it. Only an ASN graded as transit
-        // here counts: an IX LAN, the destination's own sibling ASN, or an unmonitored network is not proof.
-        var transitAsns = inputs.TransitAsnSeries.Select(t => t.AsnNumber).Where(a => a > 0).ToHashSet();
-        transitAsns.ExceptWith(inputs.IspAsnSeries.Select(s => s.AsnNumber));
-        bool RouteCrossesTransitAsn(AsnSeries d) =>
-            d.PathAsns.Any(a => a != d.AsnNumber && transitAsns.Contains(a));
-
         // Min (best case), not mean: a peered-but-flapping anycast (a low floor with occasional spikes)
         // is still peering - the flapping belongs in the grade, not the peering/transit classification.
         return inputs.DestinationSeries
             .Where(d => d.AncestorIps.Count > 0
-                && !inputs.TransitAsnSeries.Any(t => RoutesThrough(d.AncestorIps, t.HopIps))
-                && !RouteCrossesTransitAsn(d)
+                && !inputs.TransitAsnSeries.Any(t => RoutesThrough(d.AncestorIps, t.HopIps)
+                    || RouteCrossesTransitAsn(inputs, d, t.AsnNumber))
                 && BestCaseDeltaMs(d) is double delta && delta < IxPeeringMaxBestCaseDeltaMs)
             .ToList();
     }
+
+    /// <summary>
+    /// Whether a destination's stored route crosses <paramref name="transitAsn"/> as transit. A graded
+    /// transit series carries only its nearest cluster's hop IPs, so ancestry alone misses a route through
+    /// that ASN's farther routers; the route's ASNs catch it. The destination's own ASN and the access
+    /// ISP's never count as transit for it.
+    /// </summary>
+    private static bool RouteCrossesTransitAsn(IspHealthInputs inputs, AsnSeries destination, int transitAsn) =>
+        transitAsn > 0
+        && transitAsn != destination.AsnNumber
+        && destination.PathAsns.Contains(transitAsn)
+        && !inputs.IspAsnSeries.Any(s => s.AsnNumber == transitAsn);
 
     /// <summary>
     /// Grades the direct-peered destinations (from <see cref="SelectPeeringReachedDestinations"/>) as one
