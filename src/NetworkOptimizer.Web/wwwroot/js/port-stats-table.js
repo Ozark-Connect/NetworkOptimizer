@@ -178,9 +178,10 @@ function portCell(p) {
 // The single wired client on this port, linked to its Client Performance dashboard. By MAC where known: a past
 // client's last address may be another device's now.
 function clientCell(p) {
-    // A port several clients share (a hypervisor's VMs, an unmanaged switch) names none of them.
-    if (p.connectedCount > 1) return `${p.connectedCount} Clients`;
-    const label = p.connectedName || p.connectedMac || p.connectedIp;
+    // A port several clients share (a hypervisor's VMs, an unmanaged switch) shows how many, and opens the one
+    // LAN Health names for the port, as its link page does.
+    const label = p.connectedCount > 1 ? `${p.connectedCount} Clients`
+        : p.connectedName || p.connectedMac || p.connectedIp;
     if (!label) return '';
     const href = window.noClientPerformanceUrl?.(p.connectedMac, p.connectedIp);
     if (href) {

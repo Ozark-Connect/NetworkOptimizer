@@ -216,6 +216,11 @@ public static class PortStatsEndpoints
                                     {
                                         clientCount = ln;
                                     }
+                                    // The count opens the client LAN Health's link names for the port, as its link page does.
+                                    if (clientCount != null && lanByPort.TryGetValue((mac, pnum), out var sharedLink)
+                                        && sharedLink.Link.Kind == NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkKind.Access
+                                        && !string.IsNullOrEmpty(sharedLink.Link.ClientMac))
+                                        (clientMac, clientIp) = (sharedLink.Link.ClientMac, sharedLink.Link.ClientIp);
                                     else if (presentByPort.TryGetValue((mac, pnum), out var present))
                                     {
                                         (clientMac, clientIp, clientName) = Fill(mac, pnum, present.ClientMac, present.Ip, present.Name);
