@@ -1617,7 +1617,7 @@ else
 
     private string BuildPopup(Iperf3Result result, bool isExternal)
     {
-        var deviceName = result.DeviceName ?? _tailnet.NameFor(result.DeviceHost) ?? result.DeviceHost;
+        var deviceName = SpeedTestClientSource.DisplayName(result, _tailnet) ?? result.DeviceHost;
         var time = result.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture);
 
         // Determine badge based on VPN detection

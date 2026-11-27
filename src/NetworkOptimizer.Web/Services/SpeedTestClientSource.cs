@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Sockets;
 using NetworkOptimizer.Core.Helpers;
+using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
+using NetworkOptimizer.Web.Services.Tailscale;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -75,6 +77,39 @@ public static class SpeedTestClientSource
     /// <param name="tailnetPeer">Whether the site's tailnet device list holds an address, for a custom IP pool.</param>
     public static bool IsTailscale(string? clientIp, Func<string, bool>? tailnetPeer = null) =>
         Detect(clientIp, networks: null, tailnetPeer: tailnetPeer) == "Tailscale";
+
+    /// <summary>
+    /// The name to show for a client speed test result in its tables and cards.
+    /// A Tailscale test shows its tailnet name, a Teleport test shows "Teleport Client",
+    /// and anything else shows the stored device name. Null when there is no name: the caller shows the IP.
+    /// Stored names are skipped for remote results - an older build stored the gateway name there.
+    /// </summary>
+    /// <param name="result">The result to name.</param>
+    /// <param name="tailnet">The site's tailnet, which names Tailscale devices.</param>
+    /// <param name="networks">The site's networks for the Teleport address guess; null skips that guess.</param>
+    public static string? DisplayName(Iperf3Result result, TailnetSnapshot tailnet, IReadOnlyCollection<NetworkInfo>? networks = null)
+    {
+        var hops = result.PathAnalysis?.Path?.Hops;
+
+        // The remote client's hop is the one prepended at order -1. A LAN test that merely transits
+        // a tailnet or Teleport tunnel carries those hops at later orders, not -1.
+        if (hops is { Count: > 0 })
+        {
+            if (hops.Any(h => h.Order == -1 && h.Type == NetworkOptimizer.UniFi.Models.HopType.Tailscale))
+                return tailnet.NameFor(result.DeviceHost);
+            if (hops.Any(h => h.Order == -1 && h.Type == NetworkOptimizer.UniFi.Models.HopType.Teleport))
+                return "Teleport Client";
+        }
+
+        var label = Detect(result.DeviceHost, networks, result.ClientMac, tailnet.IsPeer,
+            hops?.Select(h => h.Type).ToList());
+        return label switch
+        {
+            "Tailscale" => tailnet.NameFor(result.DeviceHost),
+            "Teleport" => "Teleport Client",
+            _ => string.IsNullOrEmpty(result.DeviceName) ? tailnet.NameFor(result.DeviceHost) : result.DeviceName
+        };
+    }
 
     /// <summary>
     /// RFC 1918 or CGNAT for IPv4; unique-local, link-local, or loopback for IPv6.

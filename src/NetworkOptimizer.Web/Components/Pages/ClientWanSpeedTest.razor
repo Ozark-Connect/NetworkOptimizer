@@ -21,6 +21,7 @@
 @inject PullToRefreshState PtrState
 @inject IDisplayTimeZone DisplayTime
 @inject IClientIcons ClientIcons
+@inject ITailscaleDirectory Tailscale
 
 <PageTitle>Client WAN Speed Test - Network Optimizer</PageTitle>
 
@@ -309,11 +310,14 @@
                                             @{
                                                 var isDeviceFiltered = string.Equals(_deviceFilter, result.DeviceHost, StringComparison.OrdinalIgnoreCase);
                                             }
-                                            <ResultClientIcon Host="@result.DeviceHost" Mac="@result.ClientMac" Icons="_clientIcons" />
-                                            @if (!string.IsNullOrEmpty(result.DeviceName))
+                                            <ResultClientIcon Host="@result.DeviceHost" Mac="@result.ClientMac" Tailnet="_tailnet" Icons="_clientIcons" />
+                                            @{
+                                                var deviceName = SpeedTestClientSource.DisplayName(result, _tailnet);
+                                            }
+                                            @if (deviceName is { } name)
                                             {
-                                                <span>@result.DeviceName</span>
-                                                <button class="device-filter-btn @(isDeviceFiltered ? "active" : "")" @onclick="() => ToggleDeviceFilter(result.DeviceHost, result.DeviceName ?? result.DeviceHost)" @onclick:stopPropagation data-tooltip="@(isDeviceFiltered ? "Clear device filter" : "Filter to this device")" data-tooltip-hover-only>
+                                                <span>@name</span>
+                                                <button class="device-filter-btn @(isDeviceFiltered ? "active" : "")" @onclick="() => ToggleDeviceFilter(result.DeviceHost, name)" @onclick:stopPropagation data-tooltip="@(isDeviceFiltered ? "Clear device filter" : "Filter to this device")" data-tooltip-hover-only>
                                                     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                                                 </button>
                                                 <br />
@@ -793,9 +797,14 @@
     /// <summary>The site's client icons, for the results table. Empty until loaded.</summary>
     private ClientIconMap _clientIcons = ClientIconMap.Empty;
 
+    /// <summary>The site's tailnet, which names a Tailscale result's device.</summary>
+    private TailnetSnapshot _tailnet = TailnetSnapshot.Empty;
+
     protected override async Task OnInitializedAsync()
     {
         _ = ClientIcons.LoadIntoAsync(map => InvokeAsync(() => { _clientIcons = map; StateHasChanged(); }));
+        try { _tailnet = await Tailscale.GetPeersAsync(); }
+        catch (Exception) { /* No tailnet configured: remote rows show their IP. */ }
         _canConfigure = AuthState is null
             || (await Authz.AuthorizeAsync((await AuthState).User, SiteContext.Slug, Policies.SiteAdmin)).Succeeded;
 

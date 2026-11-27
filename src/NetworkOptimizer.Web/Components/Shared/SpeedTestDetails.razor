@@ -794,7 +794,7 @@
             UploadBytes = Result.UploadBytes;
             DownloadRetransmits = Result.DownloadRetransmits;
             UploadRetransmits = Result.UploadRetransmits;
-            DeviceName = Result.DeviceName ?? "";
+            DeviceName = SpeedTestClientSource.DisplayName(Result, _tailnet) ?? "";
             DeviceHost = Result.DeviceHost;
             _isMultiServerWan = Result.Direction is SpeedTestDirection.UwnWan or SpeedTestDirection.UwnWanGateway;
             _isLanDevice = Result.IsLocalLanClient();
