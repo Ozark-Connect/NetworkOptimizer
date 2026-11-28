@@ -429,12 +429,23 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
     }
 
     /// <inheritdoc />
-    public async Task SetEnabledAsync(string deviceMac, bool enabled, CancellationToken ct = default)
+    public async Task SetEnabledAsync(string deviceMac, bool enabled, string? deviceName = null, CancellationToken ct = default)
     {
         var mac = NormalizeMac(deviceMac);
-        await UpdateRecordAsync(mac, r => r.Enabled = enabled, ct);
+        await UpdateRecordAsync(mac, r => ApplyEnabled(r, enabled, deviceName), ct);
         if (!enabled) _retry.Forget(mac);
         _directory.Invalidate(_siteSlug);
+    }
+
+    /// <summary>
+    /// Sets an access point's opt-in, and names a row that has no name yet: an opt-out written before any deploy is
+    /// otherwise a bare MAC in the table.
+    /// </summary>
+    internal static void ApplyEnabled(ApAgentDeployment record, bool enabled, string? deviceName)
+    {
+        record.Enabled = enabled;
+        if (string.IsNullOrWhiteSpace(record.DeviceName) && !string.IsNullOrWhiteSpace(deviceName))
+            record.DeviceName = deviceName;
     }
 
     /// <summary>

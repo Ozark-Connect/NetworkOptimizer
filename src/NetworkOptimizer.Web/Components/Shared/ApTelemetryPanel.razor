@@ -213,6 +213,10 @@
                                                             <button type="button" class="btn btn-secondary btn-sm" @onclick="() => RecheckOneAsync(entry)" @onclick:stopPropagation="true">Retry</button>
                                                         }
                                                     }
+                                                    else if (_siteEnabled && entry.State != ApAgentState.Unsupported)
+                                                    {
+                                                        <button type="button" class="btn btn-primary btn-sm" @onclick="() => IncludeAsync(entry)" @onclick:stopPropagation="true">Include</button>
+                                                    }
                                                     @if (entry.State != ApAgentState.Unsupported)
                                                     {
                                                         <button type="button" class="btn @RowActionButtonClass(mac) btn-sm" @onclick="() => ToggleDetailsAsync(entry)" @onclick:stopPropagation="true">
@@ -886,7 +890,7 @@
         var enabled = e.Value is true;
         try
         {
-            await ApAgents.SetEnabledAsync(entry.DeviceMac, enabled);
+            await ApAgents.SetEnabledAsync(entry.DeviceMac, enabled, entry.DeviceName);
             entry.Enabled = enabled;
         }
         catch (Exception ex)
@@ -894,6 +898,24 @@
             Logger.LogWarning(ex, "Could not change the AP Agent opt-out for {Mac}", entry.DeviceMac);
             ShowMessage("Could not save the setting.", "danger");
         }
+    }
+
+    /// <summary>The row's way back from an opt-out, so the checkbox under Details is not the only one.</summary>
+    private async Task IncludeAsync(ApAgentFleetEntry entry)
+    {
+        _message = null;
+        try
+        {
+            await ApAgents.SetEnabledAsync(entry.DeviceMac, true, entry.DeviceName);
+            entry.Enabled = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not include {Mac} in AP Agent deployment", entry.DeviceMac);
+            ShowMessage("Could not save the setting.", "danger");
+            return;
+        }
+        await RefreshFleetAsync();
     }
 
     private async Task DeployOneAsync(ApAgentFleetEntry entry)

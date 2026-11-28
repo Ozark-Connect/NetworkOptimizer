@@ -62,7 +62,11 @@ public interface IApAgentDeploymentService
     Task<ApAgentOperationResult> RemoveAsync(string deviceMac, CancellationToken ct = default);
 
     /// <summary>Opts one access point in or out of AP Agent deployment.</summary>
+    /// <param name="deviceMac">The access point's MAC.</param>
+    /// <param name="enabled">True to include it, false to exclude it.</param>
+    /// <param name="deviceName">Its name, stored when its row has none yet.</param>
+    /// <param name="ct">Cancellation.</param>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.ApAgentSettingsChanged, TargetType = "ap")]
-    Task SetEnabledAsync(string deviceMac, bool enabled, CancellationToken ct = default);
+    Task SetEnabledAsync(string deviceMac, bool enabled, string? deviceName = null, CancellationToken ct = default);
 }

@@ -25841,6 +25841,10 @@ a.firmware-rollout-version-badge:hover {
 .ap-agent-table th:nth-child(4) { width: 12%; }
 .ap-agent-table th:nth-child(5) { width: 26%; }
 
+/* An opted-out AP dims its details but not its actions: a dimmed Include reads as disabled. */
+.ap-agent-table > tbody > tr.row-disabled { opacity: 1; }
+.ap-agent-table > tbody > tr.row-disabled > td:not(:last-child) { opacity: 0.5; }
+
 /* Inset panel for the expanded capability report row; data-table cells have their own padding. */
 .ap-agent-cap-panel {
     background: var(--bg-inset);
