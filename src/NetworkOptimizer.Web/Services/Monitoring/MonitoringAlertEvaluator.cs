@@ -228,10 +228,21 @@ public class MonitoringAlertEvaluator
         }
     }
 
-    /// <summary>A fabric target whose device sits in a planned outage window (Device Restart marks it and everything below it).</summary>
-    private bool InPlannedWindow(MonitoringTarget target) =>
-        target.TargetType == MonitoringTargetType.Fabric
-        && _rolloutWindows?.IsInRolloutWindow(_siteSlug, target.DeviceMac, DateTime.UtcNow) == true;
+    /// <summary>
+    /// A target inside a planned outage: a fabric target whose device is in a window (Device Restart marks it and
+    /// everything below it), or a local Custom target while a Device Restart is under way on the site.
+    /// </summary>
+    private bool InPlannedWindow(MonitoringTarget target)
+    {
+        if (_rolloutWindows == null) return false;
+        var now = DateTime.UtcNow;
+        return target.TargetType switch
+        {
+            MonitoringTargetType.Fabric => _rolloutWindows.IsInRolloutWindow(_siteSlug, target.DeviceMac, now),
+            MonitoringTargetType.Custom => LocalTargetResolver.IsLocal(target) && _rolloutWindows.IsInRestartWindow(_siteSlug, now),
+            _ => false
+        };
+    }
 
     private AlertEvent BuildOfflineEvent(MonitoringTarget target) => new()
     {

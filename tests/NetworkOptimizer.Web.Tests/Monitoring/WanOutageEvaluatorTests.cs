@@ -359,6 +359,50 @@ public class WanOutageEvaluatorTests
     }
 
     /// <summary>
+    /// The firmware rollout clears its site's windows on every pass, rollout or not. A Device Restart's window is its own,
+    /// so the switch it restarted stays silent through that clear.
+    /// </summary>
+    [Fact]
+    public async Task FabricTargetInsideADeviceRestartWindow_StaysSilentThroughARolloutClear()
+    {
+        var windows = new RolloutSuppressionRegistry();
+        _evaluator = BuildEvaluator(BuildContext(), windows);
+        var target = Target("lan-switch", "Switch 1", "192.0.2.21", MonitoringTargetType.Fabric, deviceMac: "aa:bb:cc:dd:ee:02");
+        windows.RefreshRestart(null!, "aa:bb:cc:dd:ee:02", DateTime.UtcNow);
+        windows.ClearSite(null!);
+        windows.Clear(null!, "aa:bb:cc:dd:ee:02");
+
+        await RoundsAsync(3, failing: [target], passing: NoTargets);
+        _bus.Published.Should().BeEmpty();
+    }
+
+    /// <summary>A local Custom target names no device, so any Device Restart on the site covers it. A public one never.</summary>
+    [Fact]
+    public async Task LocalCustomTargetDuringADeviceRestart_IsNotDeclaredOffline_APublicOneIs()
+    {
+        var windows = new RolloutSuppressionRegistry();
+        _evaluator = BuildEvaluator(BuildContext(), windows);
+        var local = Target("custom-nas", "NAS", "10.0.0.50", MonitoringTargetType.Custom);
+        var remote = Target("custom-web", "Web", "203.0.113.90", MonitoringTargetType.Custom);
+        windows.RefreshRestart(null!, "aa:bb:cc:dd:ee:03", DateTime.UtcNow);
+
+        await RoundsAsync(3, failing: [local, remote], passing: NoTargets);
+        _bus.Published.Should().ContainSingle().Which.DeviceIp.Should().Be("203.0.113.90");
+    }
+
+    /// <summary>Without a restart under way a local Custom target alerts as before.</summary>
+    [Fact]
+    public async Task LocalCustomTargetWithNoRestart_IsDeclaredOffline()
+    {
+        var windows = new RolloutSuppressionRegistry();
+        _evaluator = BuildEvaluator(BuildContext(), windows);
+        var local = Target("custom-nas", "NAS", "10.0.0.50", MonitoringTargetType.Custom);
+
+        await RoundsAsync(3, failing: [local], passing: NoTargets);
+        _bus.Published.Should().ContainSingle().Which.EventType.Should().Be("monitoring.target_offline");
+    }
+
+    /// <summary>
     /// Under load balancing every WAN carries live sessions, so a backup going dark is a real
     /// service loss rather than lost redundancy - it grades the same as the primary would.
     /// </summary>

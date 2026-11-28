@@ -36,6 +36,32 @@ public class RolloutSuppressionRegistry
     private readonly ConcurrentDictionary<string, DateTime> _siteActiveAt = new();
     private readonly ConcurrentDictionary<string, DateTime> _devicesQuietAt = new();
     private readonly ConcurrentDictionary<string, DateTime> _restartActiveAt = new();
+    private readonly ConcurrentDictionary<(string Site, string Mac), DateTime> _restartWindowAt = new();
+    private readonly ConcurrentDictionary<string, DateTime> _restartSiteAt = new();
+
+    /// <summary>
+    /// Marks a device as inside a Device Restart's planned outage (the restarted device or one below it). Kept apart from
+    /// the rollout's own windows: the rollout orchestrator's <see cref="Clear"/> and <see cref="ClearSite"/> run on every
+    /// pass and would end a restart's window seconds after it opened. Only lapses, like <see cref="RefreshDark"/>.
+    /// </summary>
+    /// <param name="siteSlug">Site the device belongs to.</param>
+    /// <param name="deviceMac">Device MAC in any format.</param>
+    /// <param name="observedAt">When the window was last confirmed open.</param>
+    public void RefreshRestart(string siteSlug, string? deviceMac, DateTime observedAt)
+    {
+        var site = NormalizeSite(siteSlug);
+        var at = observedAt.ToUniversalTime();
+        _restartSiteAt[site] = at;
+        if (!string.IsNullOrWhiteSpace(deviceMac))
+            _restartWindowAt[(site, Normalize(deviceMac))] = at;
+    }
+
+    /// <summary>
+    /// Whether a Device Restart's planned outage is open anywhere on the site. For targets that name no device (a local
+    /// Custom target): which device they sit behind is unknown, so the whole site's restart window covers them.
+    /// </summary>
+    public bool IsInRestartWindow(string siteSlug, DateTime now) =>
+        _restartSiteAt.TryGetValue(NormalizeSite(siteSlug), out var at) && now.ToUniversalTime() - at <= WindowFreshness;
 
     /// <summary>
     /// Mutes every device's offline and reboot alerts on a site for <see cref="WindowFreshness"/> from now: a Change Control
@@ -208,7 +234,8 @@ public class RolloutSuppressionRegistry
 
         var key = (site, Normalize(deviceMac));
         return (_windowRefreshedAt.TryGetValue(key, out var at) && utcNow - at <= WindowFreshness)
-            || (_darkRefreshedAt.TryGetValue(key, out var darkAt) && utcNow - darkAt <= WindowFreshness);
+            || (_darkRefreshedAt.TryGetValue(key, out var darkAt) && utcNow - darkAt <= WindowFreshness)
+            || (_restartWindowAt.TryGetValue(key, out var restartAt) && utcNow - restartAt <= WindowFreshness);
     }
 
     /// <summary>Drops every window a site holds (rollout finished, aborted, or the site went away).</summary>
@@ -220,7 +247,7 @@ public class RolloutSuppressionRegistry
         // The console and OS cycle windows are deliberately NOT cleared: they lapse on their own.
         // A console restart takes devices dark for a minute or two AFTER the plan completes, and
         // clearing here let four devices alert 87 s past a rollout that had already finished.
-        // The dark-set and WAN-dark windows lapse for the same reason.
+        // The dark-set and WAN-dark windows lapse for the same reason. Device Restart windows are not the rollout's to end.
         foreach (var key in _windowRefreshedAt.Keys.Where(k => k.Site == site).ToList())
             _windowRefreshedAt.TryRemove(key, out _);
         foreach (var key in _agentHoldAt.Keys.Where(k => k.Site == site).ToList())

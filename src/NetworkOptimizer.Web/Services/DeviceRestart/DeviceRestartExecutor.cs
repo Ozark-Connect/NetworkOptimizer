@@ -492,10 +492,10 @@ public sealed class DeviceRestartExecutor : BackgroundService, ISiteScopedRegist
     private void RefreshWindows(string slug, DeviceRestartRequest request, RestartTopology? topology)
     {
         var now = DateTime.UtcNow;
-        _suppression.Refresh(slug, request.DeviceMac, now);
+        _suppression.RefreshRestart(slug, request.DeviceMac, now);
         if (topology != null)
             foreach (var below in topology.Subtree(request.DeviceMac))
-                _suppression.Refresh(slug, below.Mac, now);
+                _suppression.RefreshRestart(slug, below.Mac, now);
         if (request.DeviceType == DeviceType.Gateway)
         {
             _suppression.RefreshOsCycle(slug, now);

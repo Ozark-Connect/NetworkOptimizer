@@ -102,6 +102,33 @@ public class RolloutSuppressionRegistryTests
     }
 
     [Fact]
+    public void ADeviceRestartWindow_SurvivesTheRolloutsClears_AndLapses()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshRestart(Site, Mac, Now);
+        registry.Clear(Site, Mac);
+        registry.ClearSite(Site);
+
+        registry.IsInRolloutWindow(Site, Mac, Now).Should().BeTrue("the rollout's clears are not the restart's to end");
+        registry.IsInRestartWindow(Site, Now).Should().BeTrue();
+        registry.IsInRolloutWindow(Site, "aa:bb:cc:dd:ee:02", Now).Should().BeFalse("only the device the restart marked");
+        registry.IsInRestartWindow("other-site", Now).Should().BeFalse();
+
+        var lapsed = Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromSeconds(1);
+        registry.IsInRolloutWindow(Site, Mac, lapsed).Should().BeFalse();
+        registry.IsInRestartWindow(Site, lapsed).Should().BeFalse();
+    }
+
+    [Fact]
+    public void NoRestartWindowByDefault()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.Refresh(Site, Mac, Now);
+
+        registry.IsInRestartWindow(Site, Now).Should().BeFalse("a rollout window is not a Device Restart");
+    }
+
+    [Fact]
     public void ClearingASiteDropsEveryWindowItHeld()
     {
         var registry = new RolloutSuppressionRegistry();
