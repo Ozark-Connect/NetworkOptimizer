@@ -11,6 +11,7 @@ import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=9';
 import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard, ponPayloadMbps, fmtPonLoad, ponLaunchSeries, createPonLoadMap, renderPonExtras, initPonViewTabs } from './pon-section.js?v=24';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=3';
+import { createReveal } from './chart-reveal.js?v=1';
 
 // Storage scope for this tab's remembered time window.
 const WINDOW_TAB = 'sfp';
@@ -355,7 +356,17 @@ async function refreshPonSection() {
     } catch (e) { /* leave the previous render if a chart update fails */ }
 }
 
-async function loadAndUpdate() {
+// The loading overlay counts every load; the load itself is untouched (see chart-reveal.js).
+const reveal = createReveal();
+function loadAndUpdate() { return reveal.track(loadAndUpdateCore()); }
+
+/** The page's deep-link framing is done: the overlay drops once the newest load settles. */
+export function armReveal() { reveal.arm(); }
+
+/** Overlay back up for framing the page runs after the first reveal; armReveal() ends it. */
+export function holdReveal() { reveal.hold(); }
+
+async function loadAndUpdateCore() {
     const data = await fetchData();
     if (!data?.modules) return;
     moduleMeta = data.modules.map((m, i) => ({
@@ -645,6 +656,7 @@ export async function mount(elId) {
     if (!container) return;
     // A second mount while this one waited owns the tab now.
     if (containerId !== elId) return;
+    reveal.attach(container);
 
     if (restoredHours !== null) markActiveRange(container, restoredHours);
     initPonViewTabs(container.querySelector('.sfp-pon-section'));
@@ -789,6 +801,7 @@ export async function reload() {
 }
 
 export function unmount() {
+    reveal.detach();
     stopPoll();
     window.removeEventListener('resize', onMarkResize);
     clearTimeout(markResizeTimer);

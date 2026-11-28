@@ -10,6 +10,7 @@ import { syncIdentity } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=3';
 import { detailsTableHtml } from './detail-table.js?v=1';
+import { createReveal } from './chart-reveal.js?v=1';
 
 // Storage scope for this tab's remembered time window.
 const WINDOW_TAB = 'cellular';
@@ -166,7 +167,17 @@ function updateVisibility() {
     if (qualityChart) qualityChart.updateSeries(seriesOf(p => p.quality), false);
 }
 
-async function loadAndUpdate() {
+// The loading overlay counts every load; the load itself is untouched (see chart-reveal.js).
+const reveal = createReveal();
+function loadAndUpdate() { return reveal.track(loadAndUpdateCore()); }
+
+/** The page's deep-link framing is done: the overlay drops once the newest load settles. */
+export function armReveal() { reveal.arm(); }
+
+/** Overlay back up for framing the page runs after the first reveal; armReveal() ends it. */
+export function holdReveal() { reveal.hold(); }
+
+async function loadAndUpdateCore() {
     const data = await fetchData();
     if (!data?.modems) return;
     modemMeta = data.modems.map((m, i) => ({
@@ -443,6 +454,7 @@ export async function mount(elId) {
     if (!container) return;
     // A second mount while this one waited owns the tab now.
     if (containerId !== elId) return;
+    reveal.attach(container);
 
     if (restoredHours !== null) markActiveRange(container, restoredHours);
 
@@ -559,6 +571,7 @@ export function soloModem(modemId) {
 }
 
 export function unmount() {
+    reveal.detach();
     stopPoll();
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
     if (fetchController) { fetchController.abort(); fetchController = null; }

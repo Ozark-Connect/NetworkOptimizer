@@ -169,7 +169,11 @@
     </div>
 
     @* ──────────────── Tab: Live View ──────────────── *@
-    @if (_activeTab == "live" && _monitoringReady)
+    @if (!_tabResolved)
+{
+    <div class="loading-container" style="padding: 3rem;"><div class="spinner"></div></div>
+}
+@if (_activeTab == "live" && _monitoringReady)
     {
         @* Too-long community shows even when the gateway is still polling - gateways
            often tolerate a long Community String while the switches silently drop. *@
@@ -533,7 +537,8 @@
         </div>
 
         <!-- Latency time-series charts -->
-        <div class="card chart-card-sticky-header" id="latency-charts-container" style="margin-top: 1.5rem;">
+        <div class="card chart-card-sticky-header" id="latency-charts-container" data-charts-loading style="margin-top: 1.5rem;">
+            <div class="charts-loading-overlay" aria-hidden="true"><div class="spinner"></div></div>
             <div class="card-header monitoring-chart-header @(ScopeBarVisible ? "chart-header-stacked" : "")">
                 @if (LinkContextVisible)
                 {
@@ -756,7 +761,8 @@
     @* ──────────────── Tab: Device Stats ──────────────── *@
     @if (_activeTab == "devices" && _monitoringReady)
     {
-        <div class="card" id="device-health-charts-container">
+        <div class="card" id="device-health-charts-container" data-charts-loading>
+            <div class="charts-loading-overlay" aria-hidden="true"><div class="spinner"></div></div>
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Device Health</h2>
                 <div class="chart-header-controls">
@@ -900,7 +906,8 @@
         @if (_monitoredSfps.Count > 0)
         {
         <!-- SFP DDM time-series: RX/TX power + temperature -->
-        <div class="card" style="margin-top: 1.5rem;" id="sfp-charts-container">
+        <div class="card" style="margin-top: 1.5rem;" id="sfp-charts-container" data-charts-loading>
+            <div class="charts-loading-overlay" aria-hidden="true"><div class="spinner"></div></div>
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">SFP Diagnostics</h2>
                 <div class="chart-header-controls">
@@ -1204,7 +1211,8 @@
         {
             <div class="alert alert-warning" style="margin-bottom: 1rem;"><strong>@name:</strong> @issue</div>
         }
-        <div class="card" id="cm-charts-container">
+        <div class="card" id="cm-charts-container" data-charts-loading>
+            <div class="charts-loading-overlay" aria-hidden="true"><div class="spinner"></div></div>
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Cable Modem Signal History</h2>
                 <div class="chart-header-controls">
@@ -1340,7 +1348,8 @@
         }
         else
         {
-        <div class="card" id="ont-charts-container">
+        <div class="card" id="ont-charts-container" data-charts-loading>
+            <div class="charts-loading-overlay" aria-hidden="true"><div class="spinner"></div></div>
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">ONT Signal History</h2>
                 <div class="chart-header-controls">
@@ -1559,7 +1568,8 @@
         }
         else
         {
-        <div class="card" id="cellular-charts-container">
+        <div class="card" id="cellular-charts-container" data-charts-loading>
+            <div class="charts-loading-overlay" aria-hidden="true"><div class="spinner"></div></div>
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Cellular Signal History</h2>
                 <div class="chart-header-controls">
@@ -1667,7 +1677,8 @@
         }
         else
         {
-        <div class="card" id="starlink-charts-container">
+        <div class="card" id="starlink-charts-container" data-charts-loading>
+            <div class="charts-loading-overlay" aria-hidden="true"><div class="spinner"></div></div>
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Starlink Terminal History</h2>
                 <div class="chart-header-controls">
@@ -2408,8 +2419,21 @@
         // reverts to it, so a linkable investigation never counts as a user-set expand.
         _investigateCollapsed = false;
         _investigateDeepLinkOpened = true;
-        await EscapeLanScopeForInvestigationAsync();
-        await NavigateToLossEvent(null, null, loadedOnly: kind == "loaded-loss");
+        // View only: the overlay stays up through the link's redraw, so the charts don't shuffle into place.
+        await RevealLatencyChartsAsync(hold: true);
+        try
+        {
+            await EscapeLanScopeForInvestigationAsync();
+            await NavigateToLossEvent(null, null, loadedOnly: kind == "loaded-loss");
+        }
+        finally { await RevealLatencyChartsAsync(hold: false); }
+    }
+
+    /// <summary>Holds or arms the Network Performance loading overlay (latency-charts.js). Never touches a load.</summary>
+    private async Task RevealLatencyChartsAsync(bool hold)
+    {
+        try { await JS.InvokeVoidAsync("eval", hold ? "window.__latencyCharts?.holdReveal?.();" : "window.__latencyCharts?.armReveal?.();"); }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException) { Logger.LogDebug(ex, "Could not update the charts' loading overlay"); }
     }
 
     /// <summary>
@@ -2816,7 +2840,7 @@
                 CategoryParam, ChartScopeKind, HasTargetsInWanScope(MonitoringTargetType.Fabric));
             var enc = System.Text.Encodings.Web.JavaScriptEncoder.Default;
             var solo = string.IsNullOrEmpty(TargetParam) ? "" : $"window.__latencyCharts?.soloAfterLoad('{enc.Encode(TargetParam)}');";
-            try { await JS.InvokeVoidAsync("eval", $"window.__latencyCharts?.setCategory('{enc.Encode(category)}');{solo}"); }
+            try { await JS.InvokeVoidAsync("eval", $"window.__latencyCharts?.holdReveal?.(); window.__latencyCharts?.setCategory('{enc.Encode(category)}');{solo} window.__latencyCharts?.armReveal?.();"); }
             catch (Exception ex) when (ex is JSException or JSDisconnectedException) { Logger.LogDebug(ex, "Could not set the link's category"); }
         }
     }
@@ -6540,7 +6564,7 @@
                 await JS.InvokeVoidAsync("eval",
                     $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container', {WanScopeJson()}, '{DefaultChartCategory()}'); "
                     + "if (window.__netoptPendingWanScope !== undefined) { m.setWanScope(window.__netoptPendingWanScope); window.__netoptPendingWanScope = undefined; } "
-                    + $"{postMount} }})();");
+                    + $"{postMount}{(_pendingInvestigateParam == null ? " m.armReveal();" : "")} }})();");
                 _latencyChartsReady = true;
                 // The link's WAN is applied above, so a deep-linked investigation held back at the
                 // top of this method can run now. Done here rather than left to the next render:
@@ -6672,6 +6696,7 @@
                     _soloDeviceMac = null;
                     await m.InvokeVoidAsync("soloDevice", mac);
                 }
+                await m.InvokeVoidAsync("armReveal");
             }
             catch (Exception ex) { _healthChartsMounted = false; Logger.LogDebug(ex, "Device health charts mount failed; will retry on next render"); }
         }
@@ -6702,7 +6727,7 @@
                 }
                 catch { }
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ {await PonViewSeedJsAsync()} const m = await import('{sfpUrl}'); window.__sfpCharts = m; await m.mount('sfp-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
+                    $"(async () => {{ {await PonViewSeedJsAsync()} const m = await import('{sfpUrl}'); window.__sfpCharts = m; await m.mount('sfp-charts-container'); {HardwareFrameJs()}{soloJs} m.armReveal(); }})();");
             }
             catch (Exception ex) { _sfpChartsMounted = false; Logger.LogDebug(ex, "SFP charts mount failed; will retry on next render"); }
         }
@@ -6758,7 +6783,7 @@
                 }
                 catch { }
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{cellularUrl}'); window.__cellularCharts = m; await m.mount('cellular-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
+                    $"(async () => {{ const m = await import('{cellularUrl}'); window.__cellularCharts = m; await m.mount('cellular-charts-container'); {HardwareFrameJs()}{soloJs} m.armReveal(); }})();");
                 _soloCellularModemId = null;
             }
             catch (Exception ex) { _cellularChartsMounted = false; Logger.LogDebug(ex, "Cellular charts mount failed; will retry on next render"); }
@@ -6790,7 +6815,7 @@
                 }
                 catch { }
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{starlinkUrl}'); window.__starlinkCharts = m; await m.mount('starlink-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
+                    $"(async () => {{ const m = await import('{starlinkUrl}'); window.__starlinkCharts = m; await m.mount('starlink-charts-container'); {HardwareFrameJs()}{soloJs} m.armReveal(); }})();");
                 _soloStarlinkId = null;
             }
             catch (Exception ex) { _starlinkChartsMounted = false; Logger.LogDebug(ex, "Starlink charts mount failed; will retry on next render"); }
@@ -6822,7 +6847,7 @@
                 }
                 catch { }
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{cmUrl}'); window.__cmCharts = m; await m.mount('cm-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
+                    $"(async () => {{ const m = await import('{cmUrl}'); window.__cmCharts = m; await m.mount('cm-charts-container'); {HardwareFrameJs()}{soloJs} m.armReveal(); }})();");
                 _soloCmId = null;
             }
             catch (Exception ex) { _cmChartsMounted = false; Logger.LogDebug(ex, "CM charts mount failed; will retry on next render"); }
@@ -6854,7 +6879,7 @@
                 }
                 catch { }
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ {await PonViewSeedJsAsync()} const m = await import('{ontUrl}'); window.__ontCharts = m; await m.mount('ont-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
+                    $"(async () => {{ {await PonViewSeedJsAsync()} const m = await import('{ontUrl}'); window.__ontCharts = m; await m.mount('ont-charts-container'); {HardwareFrameJs()}{soloJs} m.armReveal(); }})();");
                 _soloOntId = null;
             }
             catch (Exception ex) { _ontChartsMounted = false; Logger.LogDebug(ex, "ONT charts mount failed; will retry on next render"); }

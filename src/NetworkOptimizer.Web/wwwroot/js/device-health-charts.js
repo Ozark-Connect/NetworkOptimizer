@@ -12,6 +12,7 @@ import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=3';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { formatBps, formatBpsAxis } from './chart-format.js?v=3';
+import { createReveal } from './chart-reveal.js?v=1';
 
 // Storage scope for this tab's remembered time window.
 const WINDOW_TAB = 'device-health';
@@ -352,7 +353,17 @@ function onMarkResize() {
 
 const fmtCustom = v => v != null ? (Number.isInteger(v) ? v.toLocaleString() : v.toFixed(2)) : '-';
 
-async function loadAndUpdate() {
+// The loading overlay counts every load; the load itself is untouched (see chart-reveal.js).
+const reveal = createReveal();
+function loadAndUpdate() { return reveal.track(loadAndUpdateCore()); }
+
+/** The page's deep-link framing is done: the overlay drops once the newest load settles. */
+export function armReveal() { reveal.arm(); }
+
+/** Overlay back up for framing the page runs after the first reveal; armReveal() ends it. */
+export function holdReveal() { reveal.hold(); }
+
+async function loadAndUpdateCore() {
     const data = await fetchData();
     if (!data?.devices) return;
     deviceMeta = data.devices.map(d => ({
@@ -708,6 +719,7 @@ export async function mount(elId, dotNetRef) {
     if (!container) return;
     // A second mount while this one waited owns the tab now.
     if (containerId !== elId) return;
+    reveal.attach(container);
 
     if (restoredHours !== null) markActiveRange(container, restoredHours);
 
@@ -877,6 +889,7 @@ export function soloDevice(mac) {
 }
 
 export function unmount() {
+    reveal.detach();
     pageRef = null;
     stopPoll();
     window.removeEventListener('resize', onMarkResize);

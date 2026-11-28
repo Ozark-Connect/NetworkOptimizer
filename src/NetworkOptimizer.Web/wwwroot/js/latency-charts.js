@@ -14,6 +14,7 @@ import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=3';
 import { formatBps, formatBpsAxis, formatMs } from './chart-format.js?v=3';
+import { createReveal } from './chart-reveal.js?v=1';
 
 // Storage scope for this tab's remembered time window.
 const WINDOW_TAB = 'latency';
@@ -634,7 +635,17 @@ function notifyLanFlakyHints(data) {
     } catch { }
 }
 
-async function loadAndUpdate() {
+// The loading overlay counts every load; the load itself is untouched (see chart-reveal.js).
+const reveal = createReveal();
+function loadAndUpdate() { return reveal.track(loadAndUpdateCore()); }
+
+/** The page's deep-link framing is done: the overlay drops once the newest load settles. */
+export function armReveal() { reveal.arm(); }
+
+/** Overlay back up for framing the page runs after the first reveal; armReveal() ends it. */
+export function holdReveal() { reveal.hold(); }
+
+async function loadAndUpdateCore() {
     // The category this load fetches: a load still in flight for the one before must not settle a pending solo.
     const loadCategory = currentCategory;
     const data = await fetchData();
@@ -962,6 +973,7 @@ export async function mount(elId, initialWanScope, initialCategory) {
     if (!container) return;
     // A second mount while this one waited owns the tab now.
     if (containerId !== elId) return;
+    reveal.attach(container);
 
     // The range buttons are page markup and outlive an unmount: a link's custom window left the custom
     // range button lit, with its clear, on the next mount. Both are set from this mount's state.
@@ -1305,6 +1317,7 @@ export function soloTarget(targetId) {
 }
 
 export function unmount() {
+    reveal.detach();
     stopPoll();
     if (outsideClickHandler) { document.removeEventListener('click', outsideClickHandler); outsideClickHandler = null; }
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }

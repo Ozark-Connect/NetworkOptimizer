@@ -793,6 +793,33 @@ h1:focus {
     }
 }
 
+/* A Monitoring chart card's loading overlay, up until its module marks it data-charts-ready (chart-reveal.js).
+   It covers the charts rather than hiding them: ApexCharts and the visibility observer need the layout. The
+   animation is a fail-safe that lets the charts through after 12 s whatever the module reports. */
+[data-charts-loading] {
+    position: relative;
+}
+
+.charts-loading-overlay {
+    display: none;
+}
+
+[data-charts-loading]:not([data-charts-ready]) > .charts-loading-overlay {
+    display: flex;
+    position: absolute;
+    inset: 0;
+    z-index: 1000;
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: 6rem;
+    background: var(--bg-card);
+    animation: charts-loading-failsafe 0s linear 12s forwards;
+}
+
+@keyframes charts-loading-failsafe {
+    to { visibility: hidden; }
+}
+
 .monitoring-chart-header .chart-header-controls {
     display: flex;
     align-items: center;
