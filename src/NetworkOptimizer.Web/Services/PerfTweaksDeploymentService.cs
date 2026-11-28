@@ -28,16 +28,17 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
     // Highest UniFi OS version the perf tweaks + SGMII+ module are verified against, one
     // ceiling per gateway line because the UXG and UCG lines receive UniFi OS 6 releases on
     // different schedules (6.0.5 shipped for the UXG-Fiber only; 6.0.7 for the UCG-Fiber).
-    // 6.0.19 verified on the UCG-Fiber (static + live): kernel rebuilt with no code change, all 362
-    // modules (qca-ssdk.ko included) and both device trees byte-identical to 6.0.17. Live on a
-    // production UCG-Fiber: PostgreSQL SSD offload/backup and fan tweaks in effect on PostgreSQL
-    // 14.25 and the rebuilt ustd (unifi-perf-tweaks docs/compat-6.0.19.md).
-    private static readonly Version MaxSupportedFirmware = new(6, 0, 19);
-    // 6.0.17 verified on the UXG-Fiber and UXG-Max images (static): the UXG-Fiber qca-ssdk.ko is
-    // byte-identical to the UCG-Fiber 6.0.17 image and its device tree to UXG-Fiber 6.0.5; on both
-    // models the journald and fan tweak dependencies match. Live on a production UXG-Fiber: SGMII+
-    // loaded at 2500Mb/s, journald and fan tweaks in effect (unifi-perf-tweaks docs/compat-6.0.17.md).
-    private static readonly Version MaxSupportedFirmwareUxg = new(6, 0, 17);
+    // 6.1.7 verified on the UCG-Fiber (static + live) and UCG-Max (static) images. The kernel grows
+    // task_struct past the stack canary; the SGMII+ module reads no shifted field, and qca-ssdk.ko
+    // code and both device trees are unchanged. Live on two production UCG-Fibers: PostgreSQL SSD
+    // offload/backup, journald and fan tweaks in effect; UCG-Max tweak dependencies are
+    // byte-identical to the UCG-Fiber's (unifi-perf-tweaks docs/compat-6.1.7.md).
+    private static readonly Version MaxSupportedFirmware = new(6, 1, 7);
+    // 6.0.19 verified on the UXG-Fiber (static + live) and UXG-Max (static) images: all UXG-Fiber
+    // modules and its device tree byte-identical to 6.0.17, UXG-Max journald and fan dependencies
+    // identical to the UXG-Fiber's. Live on a production UXG-Fiber: SGMII+ at 2500Mb/s, journald
+    // and fan tweaks in effect (unifi-perf-tweaks docs/compat-6.0.19.md).
+    private static readonly Version MaxSupportedFirmwareUxg = new(6, 0, 19);
 
     /// <summary>
     /// The verified firmware ceiling for a gateway, read off the same lowercased shortname the
