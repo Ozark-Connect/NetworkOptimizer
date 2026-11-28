@@ -787,7 +787,7 @@ Requires Gateway SSH.
   - Each hop shows its client's UniFi Network icon or its device's product image
 - Runs from the [On-Site Agent](#on-site-agent) at agent sites
 - History with search across any device in the path; firmware versions recorded
-  - Clients carry their UniFi Network icon, UniFi devices their product image, Tailscale devices the Tailscale icon; so does the Dashboard card
+  - Clients carry their UniFi Network icon, UniFi devices their product image, Tailscale devices the Tailscale icon, Teleport clients the Teleport icon; so does the Dashboard card
 - Parallel streams per device type; one test duration
 
 ## Client Speed Test
@@ -796,9 +796,10 @@ Requires Gateway SSH.
 - Browser speed test from any phone, tablet, or laptop, with no SSH
 - iperf3 to the server from the command line, from any device; each run is captured and stored
 - Results identified by device, with path trace, Wi-Fi channel and MLO links, and personal bests
-  - Each device carries its UniFi Network icon, a Tailscale device the Tailscale icon
+  - Each device carries its UniFi Network icon, a Tailscale device the Tailscale icon, a Teleport client the Teleport icon
   - A personal best follows the device across IP address changes
 - Tailscale results carry the device's tailnet name, and whether it connected directly or through a DERP relay, seen just after the test ([Tailscale](#settings))
+- Teleport results carry the name UniFi Network gives the client
 - **Speed / Coverage Map** - results with GPS location, colored by speed (HTTPS)
   - Place APs, filter by LAN or external, GPS accuracy filter, AP popups
 
