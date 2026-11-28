@@ -114,12 +114,35 @@ public interface IIperf3SpeedTestService
     Task<List<Iperf3Result>> GetRecentResultsAsync(int count = 50, int hours = 0);
 
     /// <summary>
+    /// One page of LAN speed test history, filtered and paged in the database, without the raw iperf3 JSON.
+    /// Retries path analysis for recent results first, as <see cref="GetRecentResultsAsync"/> does.
+    /// </summary>
+    /// <param name="filter">Search text and device host to narrow by.</param>
+    /// <param name="page">1-based page; clamped to the last page.</param>
+    /// <param name="pageSize">Results per page.</param>
+    [RequireRole(Roles.Viewer)]
+    Task<SpeedTestHistoryPage> GetHistoryPageAsync(SpeedTestHistoryFilter filter, int page, int pageSize);
+
+    /// <summary>
+    /// The 0-based position of a result in the filtered LAN history, or null when the filter excludes it.
+    /// </summary>
+    [RequireRole(Roles.Viewer)]
+    Task<int?> GetHistoryIndexAsync(SpeedTestHistoryFilter filter, int resultId);
+
+    /// <summary>
+    /// LAN results from the last <paramref name="hours"/> hours (0 = all time), newest first, without the
+    /// raw iperf3 JSON.
+    /// </summary>
+    /// <param name="hours">The window in hours; 0 for all time.</param>
+    /// <param name="direction">Only this direction; null for every LAN direction.</param>
+    [RequireRole(Roles.Viewer)]
+    Task<List<Iperf3Result>> GetLanResultsAsync(int hours, SpeedTestDirection? direction = null);
+
+    /// <summary>
     /// Searches speed test results by device name, host, MAC, or network path involvement.
     /// </summary>
     /// <remarks>
-    /// Currently unused - UI uses in-memory filtering via SpeedTestFilterHelper.MatchesFilter.
-    /// This API is ready for future use when migrating to server-side SQL/JSON filtering
-    /// for better performance with large datasets.
+    /// Currently unused: LAN Speed Test history searches through <see cref="GetHistoryPageAsync"/>.
     /// </remarks>
     /// <param name="filter">Search filter (matches device name, host, client MAC, or hop names/MACs in path)</param>
     /// <param name="count">The maximum number of results to return (0 = no limit, default 50).</param>

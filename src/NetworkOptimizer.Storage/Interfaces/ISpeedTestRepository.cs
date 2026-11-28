@@ -30,6 +30,31 @@ public interface ISpeedTestRepository
     /// <returns>Matching results ordered by time descending</returns>
     Task<List<Iperf3Result>> SearchIperf3ResultsAsync(string filter, int count = 50, int hours = 0, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// One page of LAN results (WAN tests excluded), newest first, filtered and counted in the database.
+    /// Items carry every column except the raw iperf3 JSON.
+    /// </summary>
+    /// <param name="filter">Search text and device host to narrow by</param>
+    /// <param name="page">1-based page; clamped to the last page</param>
+    /// <param name="pageSize">Results per page</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    Task<SpeedTestHistoryPage> GetLanHistoryPageAsync(SpeedTestHistoryFilter filter, int page, int pageSize, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The 0-based position of a result in the filtered LAN history's newest-first order, or null when the
+    /// filter excludes it or it does not exist.
+    /// </summary>
+    Task<int?> GetLanHistoryIndexAsync(SpeedTestHistoryFilter filter, int resultId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// LAN results (WAN tests excluded) at or after <paramref name="since"/>, newest first, without the raw
+    /// iperf3 JSON.
+    /// </summary>
+    /// <param name="since">Oldest test time to include; null for all time</param>
+    /// <param name="direction">Only this direction; null for every LAN direction</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    Task<List<Iperf3Result>> GetLanResultsAsync(DateTime? since, SpeedTestDirection? direction = null, CancellationToken cancellationToken = default);
+
     Task<bool> DeleteIperf3ResultAsync(int id, CancellationToken cancellationToken = default);
     Task ClearIperf3HistoryAsync(CancellationToken cancellationToken = default);
     Task ClearAllIperf3ResultsAsync(CancellationToken cancellationToken = default);

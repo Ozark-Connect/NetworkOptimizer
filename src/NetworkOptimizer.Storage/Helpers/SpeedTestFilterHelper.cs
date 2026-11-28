@@ -14,10 +14,8 @@ public static class SpeedTestFilterHelper
     /// Searches device host, name, client MAC, and hops in the network path.
     /// </summary>
     /// <remarks>
-    /// FUTURE: This logic can be expressed as SQL for server-side filtering:
-    /// - DeviceHost, DeviceName, ClientMac: Simple LIKE queries
-    /// - PathAnalysis hops: SQLite json_each() + json_extract()
-    /// Keep this method in sync with any future SQL implementation.
+    /// LAN Speed Test history runs the same match in SQL (<c>SpeedTestRepository.ApplyHistoryFilter</c>).
+    /// Keep the two in step.
     /// </remarks>
     /// <param name="result">The speed test result to check</param>
     /// <param name="normalizedFilter">The filter string, already lowercased and trimmed</param>

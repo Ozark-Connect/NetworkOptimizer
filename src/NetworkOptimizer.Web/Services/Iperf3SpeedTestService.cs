@@ -611,8 +611,48 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
                                   && r.Direction != SpeedTestDirection.UwnWanGateway
                                   && r.Direction != SpeedTestDirection.OpenSpeedTestWan).ToList();
 
-        // Retry path analysis for recent results (last 30 min) without a valid path
-        var retryWindow = DateTime.UtcNow.AddMinutes(-30);
+        await RetryRecentPathAnalysisAsync(results);
+        return results;
+    }
+
+    /// <summary>How far back a result missing a valid path gets its path analysis retried.</summary>
+    private static readonly TimeSpan PathRetryWindow = TimeSpan.FromMinutes(30);
+
+    /// <inheritdoc />
+    public async Task<SpeedTestHistoryPage> GetHistoryPageAsync(SpeedTestHistoryFilter filter, int page, int pageSize)
+    {
+        using var scope = CreateSiteScope();
+        var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
+
+        // Retry first, so the page reads the paths it writes.
+        await RetryRecentPathAnalysisAsync(
+            await repository.GetLanResultsAsync(DateTime.UtcNow - PathRetryWindow));
+        return await repository.GetLanHistoryPageAsync(filter, page, pageSize);
+    }
+
+    /// <inheritdoc />
+    public async Task<int?> GetHistoryIndexAsync(SpeedTestHistoryFilter filter, int resultId)
+    {
+        using var scope = CreateSiteScope();
+        var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
+        return await repository.GetLanHistoryIndexAsync(filter, resultId);
+    }
+
+    /// <inheritdoc />
+    public async Task<List<Iperf3Result>> GetLanResultsAsync(int hours, SpeedTestDirection? direction = null)
+    {
+        using var scope = CreateSiteScope();
+        var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
+        return await repository.GetLanResultsAsync(hours > 0 ? DateTime.UtcNow.AddHours(-hours) : null, direction);
+    }
+
+    /// <summary>
+    /// Retries path analysis for results inside <see cref="PathRetryWindow"/> without a valid path, and saves
+    /// the paths it finds. Each result is retried once (<see cref="PathAnalysisRetryGate"/>).
+    /// </summary>
+    private async Task RetryRecentPathAnalysisAsync(List<Iperf3Result> results)
+    {
+        var retryWindow = DateTime.UtcNow - PathRetryWindow;
         var needsRetry = results.Where(r =>
             r.TestTime > retryWindow &&
             (r.PathAnalysis == null ||
@@ -627,13 +667,13 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
             await using var db = await CreateSiteDbAsync();
             foreach (var result in needsRetry)
             {
+                // Attached unchanged, so the save writes only the columns the analysis sets: a result
+                // loaded without its raw iperf3 JSON keeps the JSON in the database.
                 db.Attach(result);
                 await AnalyzePathAsync(result, result.DeviceHost);
             }
             await db.SaveChangesAsync();
         }
-
-        return results;
     }
 
     /// <summary>
