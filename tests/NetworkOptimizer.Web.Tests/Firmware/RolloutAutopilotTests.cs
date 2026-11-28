@@ -357,6 +357,34 @@ public class RolloutAutopilotTests
         plan.PlanJson.Should().Contain("\"IncludesUniFiOsUpdate\":false");
     }
 
+    /// <summary>
+    /// #1441: every device build and the UniFi OS build too new. Nothing is left to run, so no plan is created or
+    /// announced, and the hold reason names both waits.
+    /// </summary>
+    [Fact]
+    public async Task RipenessGate_PlansNothingWhenTheDevicesAndTheUniFiOsBuildAreAllTooNew()
+    {
+        using var harness = new RolloutHarness();
+        harness.Planning.Devices.Add(CloudGateway());
+        await harness.WithSettingsAsync(s =>
+        {
+            s.Mode = FirmwareRolloutMode.Autopilot;
+            s.IncludeUniFiNetwork = false;
+            s.IncludeUniFiOs = true;
+            s.MinReleaseAgeDays = 7;
+        });
+        var now = harness.Time.GetUtcNow().UtcDateTime;
+        harness.Releases.Set("UCGMAX", "4.1.0", now.AddDays(-1));
+        harness.Commands.PendingUniFiOs = new UniFiConsoleFirmwareRelease { Version = "v5.1.28+abc", Created = now.AddDays(-1) };
+
+        (await harness.Autopilot.CreatePlanIfDueAsync()).Should().BeNull();
+
+        harness.Bus.Published.Should().BeEmpty("no Firmware Rollout Scheduled, then Cancelled, every hour");
+        (await harness.Repository.GetPlanHistoryAsync()).Should().BeEmpty();
+        harness.Autopilot.HoldReason.Should().Contain("UniFi OS v5.1.28+abc is waiting to age 7 days");
+        harness.Autopilot.HoldReason.Should().Contain("Autopilot checks again every hour");
+    }
+
     [Fact]
     public async Task RipenessGate_KeepsTheUniFiOsStepOnceTheConsoleBuildHasAged()
     {

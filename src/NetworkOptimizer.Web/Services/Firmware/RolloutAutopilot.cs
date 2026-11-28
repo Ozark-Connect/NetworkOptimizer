@@ -237,6 +237,10 @@ public class RolloutAutopilot : IRolloutAutopilot
         result.Document.TimeZoneId = inputs.Context.TimeZoneId;
         result.Document.Notes.AddRange(ripeness.Notes);
 
+        // Before the nothing-to-upgrade gate: an unripe UniFi OS build must not count as a console update, or the
+        // gate passes with no live step and an empty plan is announced, then aborted, every hour (#1441).
+        var osHoldNote = await ApplyUniFiOsRipenessAsync(result.Document, settings.MinReleaseAgeDays, cancellationToken);
+
         // A console update is reason enough to run. On a Cloud Gateway the console's own UniFi OS
         // build waits while every device reports nothing pending, so counting devices alone would
         // leave that site behind for good.
@@ -246,14 +250,14 @@ public class RolloutAutopilot : IRolloutAutopilot
         {
             _logger.LogDebug(
                 "Autopilot found nothing to upgrade on site {Site} right now", _siteSlug);
-            var holdNotes = ripeness.Notes.Concat(inputs.StagingNotes ?? []).ToList();
+            var holdNotes = ripeness.Notes
+                .Concat(osHoldNote != null ? [osHoldNote] : Array.Empty<string>())
+                .Concat(inputs.StagingNotes ?? []).ToList();
             HoldReason = holdNotes.Count > 0
                 ? string.Join(" ", holdNotes) + " Autopilot checks again every hour."
                 : "Everything is on the current firmware for its channel. Autopilot checks again every hour.";
             return null;
         }
-
-        await ApplyUniFiOsRipenessAsync(result.Document, settings.MinReleaseAgeDays, cancellationToken);
 
         if (await WasAlreadyRefusedAsync(result, cancellationToken))
         {
@@ -410,11 +414,12 @@ public class RolloutAutopilot : IRolloutAutopilot
     /// per console model. The date the plan captured wins: a target adopted from another site is
     /// not the build the console itself is offering.
     /// </summary>
-    private async Task ApplyUniFiOsRipenessAsync(
+    /// <returns>The hold note it added to the plan's notes, or null when the build is ripe or none is pending.</returns>
+    private async Task<string?> ApplyUniFiOsRipenessAsync(
         RolloutPlanDocument document, int minAgeDays, CancellationToken cancellationToken)
     {
         if (minAgeDays <= 0 || !document.IncludesUniFiOsUpdate)
-            return;
+            return null;
 
         DateTime? created = document.UniFiOsUpdate.PublishedAt;
         string? version = created != null ? document.UniFiOsUpdate.TargetVersion : null;
@@ -440,12 +445,13 @@ public class RolloutAutopilot : IRolloutAutopilot
         }
 
         if (ReleaseRipeness.IsRipe(created, Now, minAgeDays))
-            return;
+            return null;
 
         var age = ReleaseRipeness.AgeDays(created, Now) ?? 0;
         document.IncludesUniFiOsUpdate = false;
-        document.Notes.Add(
-            $"UniFi OS {version ?? "the pending build"} is waiting to age {minAgeDays} days; it was published {age} day{(age == 1 ? "" : "s")} ago, so the Console keeps its current build.");
+        var note = $"UniFi OS {version ?? "the pending build"} is waiting to age {minAgeDays} days; it was published {age} day{(age == 1 ? "" : "s")} ago, so the Console keeps its current build.";
+        document.Notes.Add(note);
+        return note;
     }
 
     /// <summary>
