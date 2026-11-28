@@ -305,7 +305,7 @@
                                     <tr id="result-@result.Id"
                                         class="history-row-clickable @(isExpanded ? "history-row-expanded" : "")"
                                         @onclick="@(() => ToggleExpand(result.Id))">
-                                        <td>@result.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</td>
+                                        <td class="col-time">@result.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</td>
                                         <td>
                                             @{
                                                 var isDeviceFiltered = string.Equals(_deviceFilter, result.DeviceHost, StringComparison.OrdinalIgnoreCase);

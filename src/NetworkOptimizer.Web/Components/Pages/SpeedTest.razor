@@ -987,7 +987,7 @@
                             <tr id="result-@result.Id"
                                 class="@(result.Success ? "" : "error-row") @(result.Success ? "history-row-clickable" : "") @(isExpanded ? "history-row-expanded" : "")"
                                 @onclick="@(async () => { if (result.Success) await ToggleHistoryExpand(result.Id); })">
-                                <td>@result.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</td>
+                                <td class="col-time">@result.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</td>
                                 <td>
                                     @{
                                         var showDashLink = result.IsLocalLanClient();
