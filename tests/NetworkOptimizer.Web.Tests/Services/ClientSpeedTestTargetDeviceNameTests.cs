@@ -46,4 +46,16 @@ public class ClientSpeedTestTargetDeviceNameTests
     {
         ClientSpeedTestService.TargetDeviceName(new NetworkPath()).Should().BeNull();
     }
+
+    [Fact]
+    public void ExternalPath_GatewayIsPlaceholderForRemoteClient_ReturnsNull()
+    {
+        // Tailscale/Teleport paths prepend the VPN hop at order -1; order 0 is the gateway
+        // the analyzer used as the target, not a device that ran the test.
+        var path = PathStartingAt(HopType.Gateway, "Gateway");
+        path.IsExternalPath = true;
+        path.Hops.Add(new NetworkHop { Order = -1, Type = HopType.Tailscale, DeviceName = "Tailscale", DeviceIp = "100.64.0.10" });
+
+        ClientSpeedTestService.TargetDeviceName(path).Should().BeNull();
+    }
 }

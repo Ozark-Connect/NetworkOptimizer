@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Sockets;
 using NetworkOptimizer.Core.Helpers;
+using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
+using NetworkOptimizer.Web.Services.Tailscale;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -75,6 +77,39 @@ public static class SpeedTestClientSource
     /// <param name="tailnetPeer">Whether the site's tailnet device list holds an address, for a custom IP pool.</param>
     public static bool IsTailscale(string? clientIp, Func<string, bool>? tailnetPeer = null) =>
         Detect(clientIp, networks: null, tailnetPeer: tailnetPeer) == "Tailscale";
+
+    /// <summary>
+    /// The name to show for a speed test result in its tables and cards. Null when there is no name:
+    /// the caller shows the IP. A client test from a remote client (Tailscale, Teleport, VPN, WAN) never
+    /// shows its stored name: an older build stored the gateway name there. Anything else shows its stored
+    /// name, and a Tailscale or Teleport address with no stored name shows its tailnet name or "Teleport Client".
+    /// </summary>
+    /// <param name="result">The result to name.</param>
+    /// <param name="tailnet">The site's tailnet, which names Tailscale devices.</param>
+    /// <param name="networks">The site's networks for the Teleport address guess; null skips that guess.</param>
+    public static string? DisplayName(Iperf3Result result, TailnetSnapshot tailnet, IReadOnlyCollection<NetworkInfo>? networks = null)
+    {
+        var hops = result.PathAnalysis?.Path?.Hops;
+
+        // Only the stored trace proves a client is remote: its hop is prepended at order -1. A LAN test that
+        // transits a tunnel carries that hop at a later order, and a Client WAN Test puts its WAN hop at 0.
+        // Server-initiated tests keep the name the user gave the device, whatever its path.
+        var remoteHop = result.Direction is SpeedTestDirection.ClientToServer or SpeedTestDirection.BrowserToServer
+            ? hops?.FirstOrDefault(h => h.Order == -1)
+            : null;
+        if (remoteHop != null)
+            return remoteHop.Type == NetworkOptimizer.UniFi.Models.HopType.Teleport
+                ? "Teleport Client"
+                : tailnet.NameFor(result.DeviceHost);
+
+        if (!string.IsNullOrEmpty(result.DeviceName))
+            return result.DeviceName;
+
+        // The address alone is a guess (a LAN can use 100.64.0.0/10), so it only fills in a missing name
+        return Detect(result.DeviceHost, networks, result.ClientMac, tailnet.IsPeer, hops?.Select(h => h.Type).ToList()) == "Teleport"
+            ? "Teleport Client"
+            : tailnet.NameFor(result.DeviceHost);
+    }
 
     /// <summary>
     /// RFC 1918 or CGNAT for IPv4; unique-local, link-local, or loopback for IPv6.

@@ -492,6 +492,9 @@
             _ = LoadLanLinksAsync();
             try { _tailnet = await Tailscale.GetPeersAsync(); }
             catch (Exception) { /* Refused (no session, as on a public result page): the hop keeps its generic label. */ }
+            // OnParametersSet named the device before the tailnet loaded
+            if (Result != null)
+                DeviceName = SpeedTestClientSource.DisplayName(Result, _tailnet) ?? "";
         }
 
         if (AuthState is null)
@@ -794,7 +797,7 @@
             UploadBytes = Result.UploadBytes;
             DownloadRetransmits = Result.DownloadRetransmits;
             UploadRetransmits = Result.UploadRetransmits;
-            DeviceName = Result.DeviceName ?? "";
+            DeviceName = SpeedTestClientSource.DisplayName(Result, _tailnet) ?? "";
             DeviceHost = Result.DeviceHost;
             _isMultiServerWan = Result.Direction is SpeedTestDirection.UwnWan or SpeedTestDirection.UwnWanGateway;
             _isLanDevice = Result.IsLocalLanClient();

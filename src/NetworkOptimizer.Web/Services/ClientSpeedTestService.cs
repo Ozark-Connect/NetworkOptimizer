@@ -1125,10 +1125,14 @@ public class ClientSpeedTestService : IClientSpeedTestService
 
     /// <summary>
     /// The name of the UniFi device at the start of the path (an AP, switch, or gateway that ran the
-    /// test itself), or null when the path starts at a client or names nothing.
+    /// test itself), or null when the path starts at a client or names nothing. Null for external
+    /// paths: their order-0 hop is the gateway standing in for a remote client, not the test device.
     /// </summary>
     internal static string? TargetDeviceName(NetworkPath path)
     {
+        if (path.IsExternalPath)
+            return null;
+
         var first = path.Hops?.FirstOrDefault(h => h.Order == 0);
         return first is { Type: HopType.AccessPoint or HopType.Switch or HopType.Gateway }
             && !string.IsNullOrEmpty(first.DeviceName)

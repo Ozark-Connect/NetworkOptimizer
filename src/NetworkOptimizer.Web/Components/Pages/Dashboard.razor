@@ -763,7 +763,7 @@
                             @foreach (var test in _recentSpeedTests)
                             {
                                 <a class="speed-test-row speed-test-row-link" href="@SpeedTestLinks.LanResult(test.Id)" @onclick:stopPropagation>
-                                    @if ((!string.IsNullOrEmpty(test.DeviceName) ? test.DeviceName : _tailnet.NameFor(test.DeviceHost)) is { } deviceName)
+                                    @if (SpeedTestClientSource.DisplayName(test, _tailnet) is { } deviceName)
                                     {
                                         <span class="speed-test-device"><ResultClientIcon Host="@test.DeviceHost" Mac="@test.ClientMac" Tailnet="_tailnet" Icons="_clientIcons" />@deviceName</span>
                                     }

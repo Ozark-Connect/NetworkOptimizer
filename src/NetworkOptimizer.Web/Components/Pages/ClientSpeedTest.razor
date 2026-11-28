@@ -1060,9 +1060,9 @@
 
     [CascadingParameter] private Task<Microsoft.AspNetCore.Components.Authorization.AuthenticationState>? AuthState { get; set; }
 
-    /// <summary>The result's device name, else its tailnet name; null when it has neither.</summary>
+    /// <summary>The row's name, from the shared result naming; null falls back to the IP.</summary>
     private string? DeviceNameOf(Iperf3Result result) =>
-        !string.IsNullOrEmpty(result.DeviceName) ? result.DeviceName : _tailnet.NameFor(result.DeviceHost);
+        SpeedTestClientSource.DisplayName(result, _tailnet, _networks);
 
     private async Task ChangePage(int delta)
     {
