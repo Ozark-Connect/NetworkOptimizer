@@ -1117,6 +1117,43 @@ public class LanHealthTests
     }
 
     [Fact]
+    public void ExclusionChoices_NameEachUniFiEnd_AndCallAMeshBackhaulThisLink()
+    {
+        var mesh = MeshLink(1, 1, DeviceType.DeviceBridge);
+        LanHealthReportBuilder.ExclusionChoices(mesh).Should().Equal(("port", "This link"), ("device-up", "AP 1"), ("device-down", "Bridge 1"));
+        LanHealthReportBuilder.ExclusionChoices(ApLink()).Should().Equal(("port", "This port"), ("device-up", "Gateway A"), ("device-down", "AP 1"));
+        LanHealthReportBuilder.ExclusionChoices(DeskPort()).Should().Equal(("port", "This port"), ("device-up", "Switch A"), ("access-all", "All access ports"));
+    }
+
+    [Fact]
+    public void ExclusionTarget_EachEndMutesOnlyThatDevice_ThisLinkOnlyTheLink()
+    {
+        var bridge = MeshLink(1, 1, DeviceType.DeviceBridge);
+        var sibling = new LinkRecord
+        {
+            Id = "ap1-mesh-2", Kind = LinkKind.FabricMesh, DevicesBehind = 1,
+            Upstream = bridge.Upstream, Downstream = new LinkEnd { DeviceMac = "aa:bb:cc:00:00:0a", DeviceName = "AP 3", DeviceType = DeviceType.AccessPoint },
+        };
+        var uplink = ApLink(); // the parent AP's own wired uplink
+        NetworkOptimizer.Storage.Models.LanHealthExclusion Excl(LinkRecord from, string choice)
+        {
+            var (scope, key) = LanHealthReportBuilder.ExclusionTarget(from, choice);
+            return new() { Scope = scope, Key = key };
+        }
+        bool[] Covers(NetworkOptimizer.Storage.Models.LanHealthExclusion x) =>
+            [LanHealthReportBuilder.Applies(bridge, x), LanHealthReportBuilder.Applies(sibling, x), LanHealthReportBuilder.Applies(uplink, x)];
+
+        Covers(Excl(bridge, "port")).Should().Equal(true, false, false);
+        Covers(Excl(bridge, "device-down")).Should().Equal(true, false, false);
+        Covers(Excl(bridge, "device-up")).Should().Equal(true, true, true);
+
+        // On an access port the only UniFi end is the switch, and the option says so by name.
+        var desk = DeskPort();
+        Excl(desk, "device-up").Key.Should().Be(SwitchMac);
+        Excl(desk, "port").Key.Should().Be(desk.Id);
+    }
+
+    [Fact]
     public void LiveHours_IncludeTheLastClosedHourUntilItIsStored()
     {
         var now = new DateTime(2026, 11, 23, 19, 9, 0, DateTimeKind.Utc);

@@ -1031,10 +1031,10 @@ else
                     <div class="form-group">
                         <label class="form-label">Applies to</label>
                         <select class="form-control" @bind="_exclusionScope">
-                            <option value="port">This port</option>
-                            @if (!string.IsNullOrEmpty(link.UpstreamPort.PortProfileId)) { <option value="profile">Its port profile</option> }
-                            <option value="device">The device</option>
-                            @if (!link.IsFabric) { <option value="access-all">All access ports</option> }
+                            @foreach (var (value, label) in LanHealthReportBuilder.ExclusionChoices(link))
+                            {
+                                <option value="@value">@label</option>
+                            }
                         </select>
                     </div>
                     <div class="action-buttons form-footer">
@@ -1166,19 +1166,17 @@ else
 
     private static double ChangeControlMedian(List<double> v) => NetworkOptimizer.Web.Services.ChangeControl.SiteHealth.SiteHealthJob.Median(v);
 
-    private string ExclusionKey(LinkRecord link) => _exclusionScope switch
-    {
-        "profile" => link.UpstreamPort.PortProfileId ?? "",
-        "device" => link.Upstream.DeviceMac,
-        _ => link.Id,
-    };
-
     private async Task SaveExclusionAsync(LinkRecord link, ExclusionLevel level)
     {
         _exclusionError = null;
         try
         {
-            await LanHealth.SaveExclusionAsync(_exclusionScope, ExclusionKey(link), level, link.Name);
+            // A choice left over from another link's card falls back to this link.
+            var choice = LanHealthReportBuilder.ExclusionChoices(link).Any(c => c.Value == _exclusionScope) ? _exclusionScope : "port";
+            var (scope, key) = LanHealthReportBuilder.ExclusionTarget(link, choice);
+            // A device exclusion is labeled with the device it names, not the link it was set from.
+            var label = choice switch { "device-up" => link.Upstream.DeviceName, "device-down" => link.Downstream.DeviceName, _ => link.Name };
+            await LanHealth.SaveExclusionAsync(scope, key, level, label);
             await LoadAsync();
         }
         catch (Exception ex) { _exclusionError = ex.Message; }

@@ -94,6 +94,30 @@ public static class LanHealthReportBuilder
         return result;
     }
 
+    /// <summary>
+    /// The Exclusion card's choices for a link, value then label: the link itself ("This link" on a mesh backhaul,
+    /// which has no port), its port profile, each UniFi end by its name, and every access port.
+    /// </summary>
+    public static List<(string Value, string Label)> ExclusionChoices(LinkRecord link)
+    {
+        var choices = new List<(string, string)> { ("port", link.IsMesh ? "This link" : "This port") };
+        if (!string.IsNullOrEmpty(link.UpstreamPort.PortProfileId)) choices.Add(("profile", "Its port profile"));
+        if (link.Upstream.IsUniFi && link.Upstream.DeviceMac.Length > 0) choices.Add(("device-up", link.Upstream.DeviceName));
+        if (link.Downstream.IsUniFi && link.Downstream.DeviceMac.Length > 0) choices.Add(("device-down", link.Downstream.DeviceName));
+        if (!link.IsFabric) choices.Add(("access-all", "All access ports"));
+        return choices;
+    }
+
+    /// <summary>The exclusion an <see cref="ExclusionChoices"/> value saves: its scope and key.</summary>
+    public static (string Scope, string Key) ExclusionTarget(LinkRecord link, string choice) => choice switch
+    {
+        "profile" => ("profile", link.UpstreamPort.PortProfileId ?? ""),
+        "device-up" => ("device", link.Upstream.DeviceMac),
+        "device-down" => ("device", link.Downstream.DeviceMac),
+        "access-all" => ("access-all", ""),
+        _ => ("port", link.Id),
+    };
+
     /// <summary>Whether an exclusion covers the link: its port, its port profile, either device, or every access port.</summary>
     public static bool Applies(LinkRecord link, LanHealthExclusion x) => x.Scope switch
     {
