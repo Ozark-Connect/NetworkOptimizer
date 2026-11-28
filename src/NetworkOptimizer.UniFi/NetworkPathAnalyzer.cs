@@ -1117,6 +1117,12 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         string? resolvedWanGroup = null,
         CancellationToken cancellationToken = default)
     {
+        // A remote client on a gateway-terminated VPN is in no client list: its test runs in over the WAN, through
+        // the gateway, and back out. Tailscale is left alone: whether its test crossed this site is not recorded.
+        var remote = await TryCalculateRemoteWanClientPathAsync(clientIp, resolvedWanGroup, cancellationToken);
+        if (remote != null)
+            return remote;
+
         // Get the LAN path (client → gateway) and apply snapshot for stable WiFi rates
         var path = await CalculatePathToGatewayAsync(clientIp, cancellationToken);
 
@@ -1251,6 +1257,90 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         }
 
         return path;
+    }
+
+    private async Task<NetworkPath?> TryCalculateRemoteWanClientPathAsync(
+        string clientIp, string? resolvedWanGroup, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var topology = await GetTopologyAsync(cancellationToken);
+            if (topology == null || FindClient(topology, clientIp) != null || FindDevice(topology, clientIp) != null)
+                return null;
+            var rawDevices = await GetRawDevicesAsync(cancellationToken);
+            var path = BuildRemoteWanClientPath(clientIp, topology, rawDevices, resolvedWanGroup);
+            if (path == null)
+                return null;
+
+            await EnrichDeviceSettingsAsync(path.Hops, rawDevices, cancellationToken);
+            AnnotateLagMembership(path.Hops, rawDevices);
+            CalculateBottleneck(path);
+            _logger.LogInformation("WAN client path calculated for remote {Type} client {Client}: WAN -> gateway -> VPN",
+                path.Hops[^1].Type, clientIp);
+            return path;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Remote WAN client path failed for {Client}; falling back to the LAN path", clientIp);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The path of a Client WAN Test from a Teleport or remote-user VPN client: WAN, then the gateway that terminates
+    /// the tunnel, then the VPN hop for the client. Null for any other client, Tailscale included.
+    /// </summary>
+    internal NetworkPath? BuildRemoteWanClientPath(
+        string clientIp, NetworkTopology topology, Dictionary<string, UniFiDeviceResponse> rawDevices, string? resolvedWanGroup)
+    {
+        if (ClassifyVpnClient(clientIp, topology, _tailnetPeer) is not (HopType.Teleport or HopType.Vpn))
+            return null;
+        var gateway = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
+        var vpnHop = DetectAndCreateVpnHop(clientIp, topology, rawDevices, resolvedWanGroup: resolvedWanGroup);
+        if (gateway == null || vpnHop == null)
+            return null;
+
+        var (wanDownloadMbps, wanUploadMbps) = GetWanSpeed(topology, rawDevices, resolvedWanGroup: resolvedWanGroup);
+        var wanNetwork = topology.Networks.FirstOrDefault(n =>
+                n.IsWan && n.WanNetworkgroup != null &&
+                n.WanNetworkgroup.Equals(resolvedWanGroup ?? "WAN", StringComparison.OrdinalIgnoreCase))
+            ?? topology.Networks.FirstOrDefault(n => n.IsPrimaryWan);
+
+        var wanHop = new NetworkHop
+        {
+            Order = 0,
+            Type = HopType.Wan,
+            DeviceName = !string.IsNullOrEmpty(wanNetwork?.Name) ? wanNetwork.Name : "WAN",
+            IngressSpeedMbps = wanDownloadMbps > 0 ? wanDownloadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
+            EgressSpeedMbps = wanUploadMbps > 0 ? wanUploadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
+            IngressPortName = "WAN",
+            EgressPortName = "WAN",
+            SmartQueueEnabled = wanNetwork?.WanSmartqEnabled,
+            Notes = wanUploadMbps > 0
+                ? $"External speed test (WAN: {wanDownloadMbps}/{wanUploadMbps} Mbps)"
+                : "External speed test server"
+        };
+        var gatewayHop = new NetworkHop
+        {
+            Order = 1,
+            Type = HopType.Gateway,
+            DeviceMac = gateway.Mac,
+            DeviceName = gateway.Name,
+            DeviceModel = UniFiProductDatabase.GetBestProductName(gateway.Model, gateway.Shortname),
+            DeviceFirmware = gateway.Firmware,
+            DeviceIp = gateway.IpAddress,
+            Notes = "Terminates the VPN tunnel"
+        };
+        vpnHop.Order = 2;
+
+        return new NetworkPath
+        {
+            DestinationHost = clientIp,
+            SourceHost = gateway.IpAddress,
+            SourceMac = gateway.Mac,
+            IsExternalPath = true,
+            Hops = [wanHop, gatewayHop, vpnHop]
+        };
     }
 
     /// <summary>
