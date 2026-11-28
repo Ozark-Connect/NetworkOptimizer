@@ -27,6 +27,27 @@ public class SiteHealthTests
     }
 
     [Fact]
+    public void LanFactor_OneSmallErrorBurst_LeavesTheHourNearFull()
+    {
+        // A fabric link's single 26-error burst under the error floor: LAN Health's hour impairment, not a flat condition.
+        var sw = new NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkRecord
+        {
+            Id = "gw|5-sw|1", Kind = NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkKind.FabricWired, ClientsBehind = 30, DevicesBehind = 3,
+            Upstream = new() { DeviceMac = "gw", DeviceType = DeviceType.Gateway, PortIdx = 5 },
+            Downstream = new() { DeviceMac = "sw", DeviceType = DeviceType.Switch, PortIdx = 1 },
+        };
+        var open = new List<NetworkOptimizer.Web.Services.Monitoring.LanHealth.LinkFinding>
+        {
+            new() { Detector = NetworkOptimizer.Web.Services.Monitoring.LanHealth.Detectors.StableLinkErrors, LinkId = sw.Id,
+                Severity = NetworkOptimizer.Web.Services.Monitoring.LanHealth.FindingSeverity.Warning, Points = 3.8 },
+        };
+        var (lan, _) = NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanHealthReportBuilder.HourImpairment(
+            [new LanHealthLinkHour { LinkId = sw.Id, UpRxPackets = 9_400_000, DownRxPackets = 9_500_000 }], [sw], [], false, open, T);
+        var h = Score(new HealthHourInputs { Hour = T, LossPct = 0, IdleRttMs = 2, LanHealthImpairment = lan });
+        h.Health.Should().BeGreaterThanOrEqualTo(99.9);
+    }
+
+    [Fact]
     public void NoData_IsUnknown_NotHundred()
     {
         Score(new HealthHourInputs { Hour = T }).Health.Should().BeNull();

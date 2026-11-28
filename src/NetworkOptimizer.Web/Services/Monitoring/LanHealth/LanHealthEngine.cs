@@ -635,7 +635,7 @@ public sealed class LanHealthEngine
         var window = await LoadRowsAsync(db, hour.AddHours(-47), hour.AddHours(1), ct);
         var report = LanHealthReportBuilder.Build(topology.Links, window, new Dictionary<string, List<LanHealthLinkHour>>(),
             topology.Exclusions, topology.ScoreFabricOnly, null, FindingText.Utc, hour.AddHours(-47), hour.AddHours(1));
-        var (impairment, worst) = LanHealthReportBuilder.HourImpairment(rows, topology.Links, topology.Exclusions, topology.ScoreFabricOnly, report.Findings);
+        var (impairment, worst) = LanHealthReportBuilder.HourImpairment(rows, topology.Links, topology.Exclusions, topology.ScoreFabricOnly, report.Findings, hour.AddHours(1));
         var site = await db.LanHealthSiteHours.FirstOrDefaultAsync(h => h.HourStart == hour, ct);
         if (site == null) { site = new LanHealthSiteHour { HourStart = hour }; db.LanHealthSiteHours.Add(site); }
         site.Score = report.Score;
@@ -946,7 +946,7 @@ public sealed class LanHealthEngine
                 foreach (var h in live)
                 {
                     var (impairment, worst) = LanHealthReportBuilder.HourImpairment(rows.Where(r => r.HourStart == h).ToList(), topology.Links,
-                        topology.Exclusions, topology.ScoreFabricOnly, report.Findings);
+                        topology.Exclusions, topology.ScoreFabricOnly, report.Findings, h.AddHours(1));
                     result[h] = (Math.Round(impairment, 4), worst, worst == null ? null : topology.Links.FirstOrDefault(l => l.Name == worst)?.Id);
                 }
             }

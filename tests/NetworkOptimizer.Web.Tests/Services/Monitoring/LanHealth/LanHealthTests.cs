@@ -675,10 +675,86 @@ public class LanHealthTests
     public void HourImpairment_AnOpenFlappingFindingCostsEveryHour()
     {
         var link = ApLink();
-        var open = new List<LinkFinding> { new() { Detector = Detectors.LinkDrops, LinkId = link.Id, Severity = FindingSeverity.Warning } };
+        var open = new List<LinkFinding> { new() { Detector = Detectors.LinkDrops, LinkId = link.Id, Severity = FindingSeverity.Warning, Points = 20 } };
         var (impairment, worst) = LanHealthReportBuilder.HourImpairment([], QuarterSite(), [], false, open);
         impairment.Should().BeApproximately(0.25 * 0.15, 1e-9, "the link is unstable between drops too");
         worst.Should().Be(link.Name);
+    }
+
+    [Theory]
+    [InlineData(Detectors.StableLinkErrors)]
+    [InlineData(Detectors.ErrorAsymmetry)]
+    public void HourImpairment_LinkErrorFindingsCarryNoCondition(int detector)
+    {
+        // Errors already cost per hour through the error rate; a condition on top would count them twice.
+        var link = ApLink();
+        var open = new List<LinkFinding> { new() { Detector = detector, LinkId = link.Id, Severity = FindingSeverity.Warning, Points = 40 } };
+        LanHealthReportBuilder.HourImpairment([], QuarterSite(), [], false, open).Impairment.Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(20, 0.15)]
+    [InlineData(10, 0.075)]
+    [InlineData(2, 0.015)]
+    [InlineData(60, 0.15)]
+    public void HourImpairment_FlappingConditionScalesByPoints(double points, double condition)
+    {
+        var link = ApLink();
+        var open = new List<LinkFinding> { new() { Detector = Detectors.LinkDrops, LinkId = link.Id, Severity = FindingSeverity.Warning, Points = points } };
+        LanHealthReportBuilder.HourImpairment([], QuarterSite(), [], false, open).Impairment.Should().BeApproximately(0.25 * condition, 1e-9);
+    }
+
+    [Theory]
+    [InlineData(1, 1.0)]
+    [InlineData(6, 1.0)]
+    [InlineData(27, 0.625)]
+    [InlineData(48, 0.25)]
+    public void HourImpairment_FlappingConditionDecaysSinceTheLastDrop(double hoursSince, double factor)
+    {
+        var link = ApLink();
+        var at = new DateTime(2026, 1, 10, 12, 0, 0, DateTimeKind.Utc);
+        var open = new List<LinkFinding>
+        {
+            new() { Detector = Detectors.LinkDrops, LinkId = link.Id, Severity = FindingSeverity.Warning, Points = 20, LastIncidentAt = at.AddHours(-hoursSince) },
+        };
+        LanHealthReportBuilder.HourImpairment([], QuarterSite(), [], false, open, at).Impairment.Should().BeApproximately(0.25 * 0.15 * factor, 1e-9);
+    }
+
+    [Fact]
+    public void HourImpairment_OneSmallErrorBurstOnAFabricLink_CostsAlmostNothing()
+    {
+        // A gateway-to-switch link carrying most of the site: 26 receive errors in 18.9M packets, under the
+        // error rate floor, with its Link Errors finding open. It used to cost a flat 0.15 x share for 48 h.
+        var sw = new LinkRecord
+        {
+            Id = $"{GatewayMac}|5-{SwitchMac}|1", Kind = LinkKind.FabricWired, ClientsBehind = 30, DevicesBehind = 3,
+            Upstream = new LinkEnd { DeviceMac = GatewayMac, DeviceName = "Gateway A", DeviceType = DeviceType.Gateway, PortIdx = 5 },
+            Downstream = new LinkEnd { DeviceMac = SwitchMac, DeviceName = "Switch A", DeviceType = DeviceType.Switch, PortIdx = 1 },
+        };
+        var links = new List<LinkRecord> { sw, new() { Id = "access-1", Kind = LinkKind.Access, ClientsBehind = 10, Upstream = new LinkEnd { DeviceType = DeviceType.Switch } } };
+        var rows = new List<NetworkOptimizer.Storage.Models.LanHealthLinkHour>
+        {
+            new() { LinkId = sw.Id, ErrorBursts = 26, UpRxPackets = 9_400_000, DownRxPackets = 9_500_000 },
+        };
+        var open = new List<LinkFinding> { new() { Detector = Detectors.StableLinkErrors, LinkId = sw.Id, Severity = FindingSeverity.Warning, Points = 3.8 } };
+        var (impairment, _) = LanHealthReportBuilder.HourImpairment(rows, links, [], false, open);
+        impairment.Should().BeLessThan(0.001);
+        // A steady error rate still costs: 1 in 1,000 errors on the same link.
+        rows[0].ErrorBursts = 18_900;
+        LanHealthReportBuilder.HourImpairment(rows, links, [], false, open).Impairment.Should().BeGreaterThan(0.05);
+    }
+
+    [Fact]
+    public void HourImpairment_AChronicApFlap_KeepsItsCost()
+    {
+        // A wired AP flapping for days, its finding at about 20 points, drops in the last few hours.
+        var link = ApLink();
+        var at = new DateTime(2026, 1, 10, 12, 0, 0, DateTimeKind.Utc);
+        var open = new List<LinkFinding>
+        {
+            new() { Detector = Detectors.LinkDrops, LinkId = link.Id, Severity = FindingSeverity.Warning, Points = 21, LastIncidentAt = at.AddHours(-2) },
+        };
+        LanHealthReportBuilder.HourImpairment([], QuarterSite(), [], false, open, at).Impairment.Should().BeApproximately(0.0375, 1e-9);
     }
 
     [Fact]

@@ -397,7 +397,7 @@ public static class LanHealthReportBuilder
     internal const double ApDropDisruptionSeconds = 60, WiredDropDisruptionSeconds = 10;
 
     /// <summary>
-    /// The hourly cost of an unstable link while its Link Flapping or link error finding is open, by severity, before
+    /// The hourly cost of an unstable link while its Link Flapping finding is open, by severity, before
     /// the client share. It is a condition, like Wi-Fi satisfaction: the link is unreliable between drops too.
     /// </summary>
     internal static double ConditionCost(FindingSeverity severity) => severity switch
@@ -407,22 +407,40 @@ public static class LanHealthReportBuilder
         _ => 0.05,
     };
 
-    /// <summary>Findings that make a link unstable for every hour they are open.</summary>
-    internal static bool IsUnstable(LinkFinding f) => f.Detector is Detectors.LinkDrops or Detectors.StableLinkErrors or Detectors.ErrorAsymmetry;
+    /// <summary>
+    /// Findings that make a link unstable for every hour they are open: Link Flapping only. Link errors already
+    /// cost every hour through the error rate, so a condition on them would count them twice.
+    /// </summary>
+    internal static bool IsUnstable(LinkFinding f) => f.Detector is Detectors.LinkDrops;
+
+    /// <summary>Points at which a Link Flapping finding carries its full condition cost.</summary>
+    internal const double ConditionFullPoints = 20;
+
+    /// <summary>
+    /// An open finding's hourly condition: <see cref="ConditionCost"/> scaled by its points, and decayed by the
+    /// time since its latest drop (full for 6 hours, a quarter at 48).
+    /// </summary>
+    internal static double Condition(LinkFinding f, DateTime? at)
+    {
+        var cost = ConditionCost(f.Severity) * Math.Min(1, Math.Max(0, f.Points) / ConditionFullPoints);
+        if (at is DateTime now && f.LastIncidentAt is DateTime last)
+            cost *= IspHealth.ScoreCurve.Interpolate((now - last).TotalHours, (6, 1.0), (48, 0.25));
+        return cost;
+    }
 
     /// <summary>
     /// The hour's own LAN impairment for Site Health: the share of user-time the LAN cost. Each link
     /// weighs by its clients' share of the site. A drop costs its seconds down or its clients' reconnect
     /// time, whichever is longer; a probe loss burst five seconds; a steady error rate ramps as Site
     /// Health's port error factor did. A link with an open unstable finding (<paramref name="open"/>,
-    /// the trailing window's at this hour) also costs its <see cref="ConditionCost"/>.
+    /// the trailing window's at this hour) also costs its <see cref="Condition"/> as of <paramref name="at"/>, the hour's end.
     /// </summary>
     public static (double Impairment, string? Worst) HourImpairment(IReadOnlyList<LanHealthLinkHour> hour, IReadOnlyList<LinkRecord> links,
-        IReadOnlyList<LanHealthExclusion> exclusions, bool scoreFabricOnly, IReadOnlyList<LinkFinding>? open = null)
+        IReadOnlyList<LanHealthExclusion> exclusions, bool scoreFabricOnly, IReadOnlyList<LinkFinding>? open = null, DateTime? at = null)
     {
         var rowsById = hour.GroupBy(r => r.LinkId).ToDictionary(g => g.Key, g => g.First());
         var condition = (open ?? []).Where(IsUnstable).GroupBy(f => f.LinkId)
-            .ToDictionary(g => g.Key, g => g.Max(f => ConditionCost(f.Severity)));
+            .ToDictionary(g => g.Key, g => g.Max(f => Condition(f, at)));
         var byId = links.ToDictionary(l => l.Id);
         var total = Math.Max(1, links.Where(l => !l.IsFabric).Sum(l => l.ClientsBehind) + links.Where(l => l.IsFabric && l.Upstream.IsGateway).Sum(l => l.ClientsBehind));
         double sum = 0;

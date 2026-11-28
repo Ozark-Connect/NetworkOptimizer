@@ -371,6 +371,8 @@ public sealed class LinkFinding
     /// <summary>What this finding takes off the LAN Health Score: the score's rise if it were gone.</summary>
     public double ScoreImpact { get; set; }
     public DateTime? Onset { get; init; }
+    /// <summary>The end of the latest unexplained incident behind the finding: Site Health's condition cost decays from it.</summary>
+    public DateTime? LastIncidentAt { get; init; }
     /// <summary>The status pill this finding sets on the link (lanh-21), when it sets one.</summary>
     public LinkStatus? Status { get; init; }
     /// <summary>Next steps to show on the link page.</summary>

@@ -164,6 +164,7 @@ public static class LanHealthDetectors
             Chips = chips,
             Points = Math.Min(90, pts),
             Onset = onset,
+            LastIncidentAt = drops.Max(i => i.End),
             Status = LinkStatus.Flapping,
             NextSteps = steps,
             EeeTest = ev.Link.UpstreamPort.Eee == true || ev.Link.DownstreamPort?.Eee == true,
