@@ -228,8 +228,10 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - Backhaul channel changes (DFS or auto channel) explain the drops they cause, and repeated ones are reported
 - Configuration checks: STP root, versions, Edge ports, BPDU guard, blocked ports; native VLAN, trunk VLAN, Jumbo Frames, Flow Control; LACP; multicast
 - Reboots, device upgrades and provisioning, Firmware Rollout waves, Change Control changes, and sleeping clients explain a relink instead of scoring it
+- An end client that keeps restarting (same speed back, no errors) reads as restarts at a small cost and opens no alert; a mesh backhaul to a lone device or Device Bridge flaps as Info
 - Link page: **Both Ends**, **Timeline**, and **Next Steps** for every link (a port swap test, an EEE test when Energy Efficient Ethernet is on, and the last port change); a drop UniFi Network's own count missed names Link Debounce when it is on
-- Exclusions (Site Admin): **Mute alerts** or **Exclude from score** for a port, its port profile, or a device
+  - A link no speed test crossed links the test that would: [LAN Speed Test](#lan-speed-test) to the device behind it, preselected, or a [Client Speed Test](#client-speed-test) from the right side
+- Exclusions (Site Admin): **Mute alerts** or **Exclude from score** for a port (a mesh link), its port profile, or either device at its ends
 - Alerts: **Link Flapping**, **Link Speed Degraded**, **Link Errors**, **Broadcast Storm**, **Unusual Link Utilization**; **Link Problems After Upgrade** when a clean link starts dropping or erroring after Firmware Rollout upgrades a device on it
 - Feeds Site Health's LAN factor and the Firmware Rollout health gate
 - **LAN Health** tile on Live View
