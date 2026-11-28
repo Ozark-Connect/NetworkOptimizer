@@ -539,9 +539,10 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
             await AnalyzePathAsync(result, host);
 
             // Copy MAC from path analysis if available (needed for hostname-based tests)
-            if (string.IsNullOrEmpty(result.ClientMac) && !string.IsNullOrEmpty(result.PathAnalysis?.Path?.DestinationMac))
+            if (string.IsNullOrEmpty(result.ClientMac)
+                && ClientSpeedTestService.BackfillableClientMac(result.PathAnalysis?.Path) is { } destinationMac)
             {
-                result.ClientMac = result.PathAnalysis.Path.DestinationMac;
+                result.ClientMac = destinationMac;
             }
 
             // Enrich with client info (MAC, name, Wi-Fi signal) if target is a UniFi client

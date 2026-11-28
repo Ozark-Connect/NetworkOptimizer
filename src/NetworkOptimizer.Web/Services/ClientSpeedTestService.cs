@@ -317,9 +317,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
         var id = result.Id;
 
         await using var db = await CreateSiteDbAsync();
-        var rows = await db.Iperf3Results.AsNoTracking()
-            .Where(r => r.Success && r.Direction == direction && r.Id != id
-                && (r.DeviceHost == ip || (lowerMac != null && r.ClientMac != null && r.ClientMac.ToLower() == lowerMac)))
+        var rows = await HighScoreHistory(db.Iperf3Results.AsNoTracking(), direction, id, ip, lowerMac)
             .Select(r => new { r.DeviceHost, r.ClientMac, r.DownloadBitsPerSecond, r.UploadBitsPerSecond })
             .ToListAsync();
 
@@ -329,6 +327,21 @@ public class ClientSpeedTestService : IClientSpeedTestService
         var current = SpeedTestHighScore.ClientDownloadBps(direction, result.DownloadBitsPerSecond, result.UploadBitsPerSecond);
         return SpeedTestHighScore.IsNewHighScore(current, ip, clientMac, history);
     }
+
+    /// <summary>
+    /// A client's earlier successful results in one direction: by address, or by MAC. A MAC-only match never takes a
+    /// remote client's row, whose stored path ends at a VPN hop: older ones carry the gateway's MAC
+    /// (<see cref="BackfillableClientMac"/>).
+    /// </summary>
+    internal static IQueryable<Iperf3Result> HighScoreHistory(
+        IQueryable<Iperf3Result> results, SpeedTestDirection direction, int excludeId, string ip, string? lowerMac) =>
+        results.Where(r => r.Success && r.Direction == direction && r.Id != excludeId
+            && (r.DeviceHost == ip
+                || (lowerMac != null && r.ClientMac != null && r.ClientMac.ToLower() == lowerMac
+                    && (r.PathAnalysisJson == null
+                        || (!r.PathAnalysisJson.Contains("\"Type\":\"Tailscale\"")
+                            && !r.PathAnalysisJson.Contains("\"Type\":\"Teleport\"")
+                            && !r.PathAnalysisJson.Contains("\"Type\":\"Vpn\""))))));
 
     /// <summary>
     /// The MAC holding <paramref name="clientIp"/> right now: the console's client list for IPv4, the
@@ -1145,8 +1158,8 @@ public class ClientSpeedTestService : IClientSpeedTestService
             return;
 
         // Backfill ClientMac from path destination
-        if (string.IsNullOrEmpty(result.ClientMac) && !string.IsNullOrEmpty(path.DestinationMac))
-            result.ClientMac = path.DestinationMac;
+        if (string.IsNullOrEmpty(result.ClientMac) && BackfillableClientMac(path) is { } destinationMac)
+            result.ClientMac = destinationMac;
 
         // A UniFi device running the test is never in the client list, so its name comes from the path
         if (string.IsNullOrEmpty(result.DeviceName) && TargetDeviceName(path) is { } targetDeviceName)
@@ -1189,6 +1202,21 @@ public class ClientSpeedTestService : IClientSpeedTestService
     /// test itself), or null when the path starts at a client or names nothing. Null for external
     /// paths: their order-0 hop is the gateway standing in for a remote client, not the test device.
     /// </summary>
+    /// <summary>
+    /// The path's destination MAC when it is the client's own. A remote client (Tailscale, Teleport, a remote-user VPN,
+    /// or any address outside the site) is traced to the gateway, whose MAC stands in as the destination: stored as the
+    /// client's, it merged every remote client's history with the gateway's.
+    /// </summary>
+    internal static string? BackfillableClientMac(NetworkPath? path) =>
+        path == null || string.IsNullOrEmpty(path.DestinationMac) || IsRemoteClientPath(path) ? null : path.DestinationMac;
+
+    /// <summary>Whether the path's destination is a remote client the gateway stands in for.</summary>
+    internal static bool IsRemoteClientPath(NetworkPath path) =>
+        path.Hops?.Any(h => h.Type is HopType.Tailscale or HopType.Teleport or HopType.Vpn) == true
+        || (path.IsExternalPath && !string.IsNullOrEmpty(path.DestinationMac)
+            && path.Hops?.Any(h => h.Type == HopType.Gateway
+                && string.Equals(h.DeviceMac, path.DestinationMac, StringComparison.OrdinalIgnoreCase)) == true);
+
     internal static string? TargetDeviceName(NetworkPath path)
     {
         if (path.IsExternalPath)
