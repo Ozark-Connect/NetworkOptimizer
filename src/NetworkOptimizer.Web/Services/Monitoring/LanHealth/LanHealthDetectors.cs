@@ -20,6 +20,8 @@ public static class LanHealthDetectors
 {
     /// <summary>Unexplained drops in the window that make a fabric link flapping (the reference case: 30 in 9 days).</summary>
     public const int FlappingDropsFabric = 3;
+    /// <summary>A mesh backhaul re-associates more often than a cable relinks, with no fault behind it.</summary>
+    public const int FlappingDropsMesh = 6;
     /// <summary>Access ports churn more by nature; sleep cycles are already explained before this counts.</summary>
     public const int FlappingDropsAccess = 6;
     /// <summary>Errors on a stable link per day above which it is impaired ("more than a handful per day").</summary>
@@ -106,8 +108,9 @@ public static class LanHealthDetectors
     {
         var drops = incidents.Where(i => !i.IsExplained && i.Kind is IncidentKind.Drop or IncidentKind.Relink).ToList();
         var count = (int)drops.Sum(i => i.Count);
-        var threshold = ev.Link.IsFabric ? FlappingDropsFabric : FlappingDropsAccess;
+        var threshold = ev.Link.IsMesh ? FlappingDropsMesh : ev.Link.IsFabric ? FlappingDropsFabric : FlappingDropsAccess;
         if (count < threshold) return null;
+        var leafMesh = IsLeafMesh(ev.Link);
 
         var durations = drops.Select(i => i.DownSeconds).OfType<double>().ToList();
         double? seconds = durations.Count > 0 ? Math.Max(1, Math.Round(Median(durations)!.Value)) : null;
@@ -162,7 +165,7 @@ public static class LanHealthDetectors
         {
             Detector = Detectors.LinkDrops,
             LinkId = ev.Link.Id,
-            Severity = ev.Link.IsFabric ? (perDay >= 10 ? FindingSeverity.Critical : FindingSeverity.Warning) : FindingSeverity.Info,
+            Severity = ev.Link.IsFabric && !leafMesh ? (perDay >= 10 ? FindingSeverity.Critical : FindingSeverity.Warning) : FindingSeverity.Info,
             Class = "Link Flapping",
             Title = Title("Link Flapping", ev.Link),
             Body = string.Join(" ", parts),
@@ -174,9 +177,16 @@ public static class LanHealthDetectors
             NextSteps = steps,
             EeeTest = ev.Link.UpstreamPort.Eee == true || ev.Link.DownstreamPort?.Eee == true,
             IdleDrops = MostlyIdle(ev, drops),
-            Quiet = restartSpeed != null,
+            Quiet = restartSpeed != null || leafMesh,
         };
     }
+
+    /// <summary>
+    /// A mesh backhaul to a leaf: one device with at most one client behind it, or a Device Bridge with nothing
+    /// meshed below it. Its flapping costs the few users behind it only, so it reads as Info and opens no alert.
+    /// </summary>
+    internal static bool IsLeafMesh(LinkRecord link) =>
+        link.IsMesh && link.DevicesBehind <= 1 && (link.ClientsBehind <= 1 || link.Downstream.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.DeviceBridge);
 
     /// <summary>Link Flapping's points on an end client that restarts (<see cref="ClientRestartSpeed"/>).</summary>
     public const double RestartPointsCap = 10;

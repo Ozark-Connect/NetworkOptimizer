@@ -121,6 +121,28 @@ public class LanHealthAlertTests
     }
 
     [Fact]
+    public async Task ALeafMeshLinkFlapping_OpensNoAlert_OneFeedingDevicesStillDoesAtWarning()
+    {
+        var now = T0;
+        LinkHealth Mesh(LinkRecord link)
+        {
+            var ev = new LinkEvidence { Link = link, From = now.AddHours(-48), To = now };
+            var l = new LinkHealth { Link = link, Score = 80 };
+            l.Findings.Add(LanHealthDetectors.LinkDrops(ev, LanHealthTests.MeshRelinks(7, now), FindingText.Utc)!);
+            return l;
+        }
+        var leaf = Mesh(LanHealthTests.MeshLink(1, 1, DeviceType.DeviceBridge));
+        var trunk = Mesh(LanHealthTests.MeshLink(3, 12));
+        var bus = new CapturingBus();
+        var e = Evaluator(bus);
+        await e.EvaluateAsync(Report(leaf, trunk), None, T0);
+        await e.EvaluateAsync(Report(leaf, trunk), None, T0.AddMinutes(6));
+        var a = bus.Published.Should().ContainSingle().Which;
+        a.Context["link_id"].Should().Be(trunk.Link.Id);
+        a.Severity.Should().Be(AlertSeverity.Warning);
+    }
+
+    [Fact]
     public async Task SpeedDegraded_AlertsOnAFabricSpeedOrDuplexFault_NotAnAccessClientsSlowerLink()
     {
         LinkHealth WithDetector(string id, bool fabric, int detector)

@@ -902,6 +902,61 @@ public class LanHealthTests
         f.Points.Should().BeGreaterThan(LanHealthDetectors.RestartPointsCap);
     }
 
+    internal static LinkRecord MeshLink(int devicesBehind, int clientsBehind, DeviceType downstream = DeviceType.AccessPoint) => new()
+    {
+        Id = $"{ApMac}-mesh-{downstream}-{devicesBehind}-{clientsBehind}", Kind = LinkKind.FabricMesh,
+        DevicesBehind = devicesBehind, ClientsBehind = clientsBehind,
+        Upstream = new LinkEnd { DeviceMac = ApMac, DeviceName = "AP 1", DeviceType = DeviceType.AccessPoint },
+        Downstream = new LinkEnd { DeviceMac = "aa:bb:cc:00:00:09", DeviceName = "Bridge 1", DeviceType = downstream },
+    };
+
+    /// <summary>Association-only relinks spread over the window, each its own poll window.</summary>
+    internal static List<LinkIncident> MeshRelinks(int n, DateTime now) => Enumerable.Range(0, n).Select(i =>
+    {
+        var t = now.AddHours(-44 + i * 7).AddMinutes(33);
+        var inc = new LinkIncident { Start = t, End = t.AddSeconds(125), Kind = IncidentKind.Relink };
+        inc.SeenBy.Add(LinkSource.MeshAssociation);
+        return inc;
+    }).ToList();
+
+    [Theory]
+    [InlineData(5, false)]
+    [InlineData(6, true)]
+    public void LinkDrops_AMeshLinkFlapsAtSixRelinks(int relinks, bool flags)
+    {
+        var now = new DateTime(2026, 1, 22, 0, 0, 0, DateTimeKind.Utc);
+        var ev = new LinkEvidence { Link = MeshLink(3, 12), From = now.AddHours(-48), To = now };
+        (LanHealthDetectors.LinkDrops(ev, MeshRelinks(relinks, now), FindingText.Utc) != null).Should().Be(flags);
+    }
+
+    [Fact]
+    public void LinkDrops_AWiredFabricLinkStillFlapsAtThree()
+    {
+        var now = new DateTime(2026, 1, 22, 0, 0, 0, DateTimeKind.Utc);
+        var drops = Enumerable.Range(0, 3).Select(i => new LinkIncident { Start = now.AddHours(-30 + i), End = now.AddHours(-30 + i).AddSeconds(3), Kind = IncidentKind.Drop }).ToList();
+        var f = LanHealthDetectors.LinkDrops(new LinkEvidence { Link = ApLink(), From = now.AddHours(-48), To = now }, drops, FindingText.Utc)!;
+        f.Severity.Should().Be(FindingSeverity.Warning);
+        f.Quiet.Should().BeFalse();
+        LanHealthDetectors.LinkDrops(new LinkEvidence { Link = ApLink(), From = now.AddHours(-48), To = now }, drops.Take(2).ToList(), FindingText.Utc).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(1, 1, DeviceType.DeviceBridge, true)]
+    [InlineData(1, 3, DeviceType.DeviceBridge, true)]
+    [InlineData(1, 0, DeviceType.AccessPoint, true)]
+    [InlineData(1, 1, DeviceType.AccessPoint, true)]
+    [InlineData(1, 6, DeviceType.AccessPoint, false)]
+    [InlineData(2, 1, DeviceType.AccessPoint, false)]
+    [InlineData(3, 12, DeviceType.AccessPoint, false)]
+    public void LinkDrops_ALeafMeshLinkIsInfoAndQuiet_OneFeedingOthersStaysAWarning(int devices, int clients, DeviceType downstream, bool leaf)
+    {
+        var now = new DateTime(2026, 1, 22, 0, 0, 0, DateTimeKind.Utc);
+        var ev = new LinkEvidence { Link = MeshLink(devices, clients, downstream), From = now.AddHours(-48), To = now };
+        var f = LanHealthDetectors.LinkDrops(ev, MeshRelinks(7, now), FindingText.Utc)!;
+        f.Severity.Should().Be(leaf ? FindingSeverity.Info : FindingSeverity.Warning);
+        f.Quiet.Should().Be(leaf);
+    }
+
     [Fact]
     public void LiveHours_IncludeTheLastClosedHourUntilItIsStored()
     {
