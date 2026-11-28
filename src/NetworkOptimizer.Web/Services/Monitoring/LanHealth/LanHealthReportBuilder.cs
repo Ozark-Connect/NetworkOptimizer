@@ -222,16 +222,16 @@ public static class LanHealthReportBuilder
         (r.UpTxPackets ?? 0) + (r.DownTxPackets ?? 0));
 
     /// <summary>
-    /// Clean days of history before the first unexplained drop or loss burst in the window: how far
+    /// Clean days of history before the current run of trouble began (<see cref="TroubleSince"/>): how far
     /// back the stored hours go with none, so a finding can say "with none in the N days before".
     /// </summary>
     public static int? CleanDaysBefore(IReadOnlyList<LanHealthLinkHour> rows, IReadOnlyList<LanHealthLinkHour> baseline)
     {
         if (TroubleSince(rows, baseline) is not DateTime since || baseline.Count == 0) return null;
         var first = new DateTime(since.Year, since.Month, since.Day, since.Hour, 0, 0, DateTimeKind.Utc);
-        var before = baseline.Where(r => r.HourStart < first).OrderByDescending(r => r.HourStart).ToList();
+        var before = rows.Concat(baseline).Where(r => r.HourStart < first).OrderByDescending(r => r.HourStart).ToList();
         if (before.Count == 0) return null;
-        var dirty = before.FirstOrDefault(r => r.Drops + r.Relinks + r.LossBursts > 0);
+        var dirty = before.FirstOrDefault(InRun);
         var cleanFrom = dirty?.HourStart ?? before[^1].HourStart;
         var days = (int)Math.Floor((first - cleanFrom).TotalDays);
         return days >= 1 ? days : null;
@@ -256,16 +256,39 @@ public static class LanHealthReportBuilder
         }
     }
 
-    /// <summary>A gap this long without a drop or loss burst ends a run of trouble.</summary>
+    /// <summary>A gap this long without a drop or loss burst ends a chronic fault, for Link Flapping's duration weight.</summary>
     internal static readonly TimeSpan RunGap = TimeSpan.FromDays(3);
+
+    /// <summary>Quiet hours that end the current run of trouble: the next incident starts a new one.</summary>
+    internal static readonly TimeSpan QuietReset = TimeSpan.FromHours(24);
 
     private static bool Trouble(LanHealthLinkHour r) => r.Drops + r.Relinks + r.LossBursts > 0;
 
+    private static bool InRun(LanHealthLinkHour r) => r.Drops + r.Relinks + r.LossBursts + r.ErrorBursts > 0;
+
     /// <summary>
-    /// When the link's current run of trouble began: from the first unexplained drop or loss burst in
-    /// the window, back through the stored history (14 days) until a gap of RunGap with none.
+    /// When the link's current run of trouble began: back from its latest unexplained drop, relink, loss or error
+    /// burst in the window, through the stored history, until <see cref="QuietReset"/> of quiet hours.
     /// </summary>
     public static DateTime? TroubleSince(IReadOnlyList<LanHealthLinkHour> rows, IReadOnlyList<LanHealthLinkHour> baseline)
+    {
+        var start = rows.Where(InRun).OrderByDescending(r => r.HourStart).FirstOrDefault();
+        if (start == null) return null;
+        foreach (var r in rows.Concat(baseline).Where(r => InRun(r) && r.HourStart < start.HourStart).OrderByDescending(r => r.HourStart))
+        {
+            if (start.HourStart - r.HourStart - TimeSpan.FromHours(1) >= QuietReset) break;
+            start = r;
+        }
+        return LanHealthIncidentJson.Deserialize(start.IncidentsJson)
+            .Where(i => !i.IsExplained && i.Kind is IncidentKind.Drop or IncidentKind.Relink or IncidentKind.LossBurst or IncidentKind.ErrorBurst)
+            .Select(i => (DateTime?)i.Start).Min() ?? start.HourStart;
+    }
+
+    /// <summary>
+    /// When the link's chronic fault began: from the first unexplained drop or loss burst in the window, back
+    /// through the stored history (14 days) until a gap of <see cref="RunGap"/> with none.
+    /// </summary>
+    public static DateTime? ChronicSince(IReadOnlyList<LanHealthLinkHour> rows, IReadOnlyList<LanHealthLinkHour> baseline)
     {
         var start = rows.Where(Trouble).OrderBy(r => r.HourStart).FirstOrDefault();
         if (start == null) return null;
@@ -305,6 +328,7 @@ public static class LanHealthReportBuilder
                 parent == null ? null : rows.GetValueOrDefault(parent.Id) ?? [], parent == null ? null : baseline.GetValueOrDefault(parent.Id) ?? [],
                 sfp?.GetValueOrDefault(link.Id), speedHistory?.GetValueOrDefault(link.Id));
             ev.TroubleSince = TroubleSince(linkRows, linkBase);
+            ev.ChronicSince = ChronicSince(linkRows, linkBase);
             // A test that ran during an incident on the link is kept on the link but out of the norm comparison.
             if (speedTests != null && speedTests.TryGetValue(link.Id, out var tests))
                 ev.SpeedTests.AddRange(tests.Select(t => t with

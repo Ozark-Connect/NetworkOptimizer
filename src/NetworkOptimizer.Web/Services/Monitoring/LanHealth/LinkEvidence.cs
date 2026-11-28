@@ -103,8 +103,13 @@ public sealed class LinkEvidence
     public double? SfpRxPowerBestDbm { get; init; }
     public double? SfpTemperatureC { get; init; }
     public List<LinkSpeedTest> SpeedTests { get; init; } = [];
-    /// <summary>Clean days of history before the first unexplained drop, when known.</summary>
+    /// <summary>Clean days of history before the current run of trouble began, when known.</summary>
     public int? HistoryDays { get; init; }
-    /// <summary>When the link's current run of drops or loss bursts began, reaching back through stored history.</summary>
+    /// <summary>
+    /// When the link's current run of drops, relinks, loss or error bursts began: back from the latest until 24 quiet
+    /// hours. Every incident detector's onset.
+    /// </summary>
     public DateTime? TroubleSince { get; set; }
+    /// <summary>When the link's chronic fault began (a 3-day quiet gap ends it), for Link Flapping's duration weight only.</summary>
+    public DateTime? ChronicSince { get; set; }
 }

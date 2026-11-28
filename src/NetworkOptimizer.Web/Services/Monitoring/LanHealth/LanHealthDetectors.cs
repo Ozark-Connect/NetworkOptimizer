@@ -113,7 +113,7 @@ public static class LanHealthDetectors
         double? seconds = durations.Count > 0 ? Math.Max(1, Math.Round(Median(durations)!.Value)) : null;
         var speeds = drops.Select(i => i.SpeedAfterMbps).OfType<int>().Distinct().ToList();
         var sameSpeed = speeds.Count == 1 && (ev.UsualSpeedMbps == null || speeds[0] >= ev.UsualSpeedMbps);
-        var onset = ev.TroubleSince is DateTime ts && ts < drops.Min(i => i.Start) ? ts : drops.Min(i => i.Start);
+        var onset = RunOnset(ev, drops);
 
         // lanh-08, rendered from the parts the evidence supports.
         var parts = new List<string>();
@@ -123,7 +123,7 @@ public static class LanHealthDetectors
         if (sameSpeed) first += $"; the link comes back at {DisplayFormatters.FormatLinkSpeed(speeds[0])} every time";
         parts.Add(first + ".");
         if (ev.HistoryDays is int days && days > 0)
-            parts.Add($"Started {text.Time(onset)}, with none in the {days} days before.");
+            parts.Add($"Started {text.Time(onset)}, with none in the {(days == 1 ? "day" : $"{days} days")} before.");
         if (ErrorAsymmetry(ev) is { } asym)
             parts.Add($"Errors only on the {asym.End} side.");
         // A change made to fix it that the drops outlived.
@@ -151,8 +151,8 @@ public static class LanHealthDetectors
                   * ScoreCurve.Interpolate(seconds ?? 5, (1, 70), (5, 100), (60, 130)) / 100;
         // A fault that has run for days weighs more than a burst: up to 1.5x at two weeks, then capped,
         // so an old fault never pins the score to the floor.
-        if (ev.TroubleSince is DateTime since)
-            pts *= ScoreCurve.Interpolate((ev.To - since).TotalDays, (2, 1.0), (7, 1.25), (14, 1.5));
+        if (ev.ChronicSince is DateTime since)
+            pts *=ScoreCurve.Interpolate((ev.To - since).TotalDays, (2, 1.0), (7, 1.25), (14, 1.5));
         return new LinkFinding
         {
             Detector = Detectors.LinkDrops,
@@ -171,6 +171,17 @@ public static class LanHealthDetectors
             IdleDrops = MostlyIdle(ev, drops),
         };
     }
+
+    /// <summary>
+    /// A finding's onset: the start of the link's current run (<see cref="LinkEvidence.TroubleSince"/>) when any of its
+    /// incidents fall in that run, else its own first incident.
+    /// </summary>
+    internal static DateTime RunOnset(LinkEvidence ev, IReadOnlyList<LinkIncident> items) =>
+        ev.TroubleSince is DateTime since && items.Any(i => i.End >= since) ? since : items.Min(i => i.Start);
+
+    /// <summary>The incidents in the link's current run, or all of them when none falls in it.</summary>
+    internal static List<LinkIncident> InCurrentRun(LinkEvidence ev, List<LinkIncident> items) =>
+        ev.TroubleSince is DateTime since && items.Where(i => i.End >= since).ToList() is { Count: > 0 } run ? run : items;
 
     /// <summary>Whether most drops came in hours the link was idle (under 1 Mbps both ways): EEE's wake from low power.</summary>
     internal static bool MostlyIdle(LinkEvidence ev, IReadOnlyList<LinkIncident> drops)
@@ -251,9 +262,11 @@ public static class LanHealthDetectors
         if (perDay <= ErrorsPerDayFloor) return null;
         var asym = ErrorAsymmetry(ev);
         var packets = (ev.Upstream.RxPackets ?? 0) + (ev.Downstream.RxPackets ?? 0);
-        double? perMillion = packets > 0 ? errors / packets * 1e6 : null;
+        // The body counts the current run only: a burst before a quiet day is a different event.
+        var runErrors = InCurrentRun(ev, bursts).Sum(i => i.Count);
+        double? perMillion = packets > 0 ? runErrors / packets * 1e6 : null;
         // lanh-31 carries the asymmetry sentence.
-        var body = $"{errors:0} receive errors in {text.Range}"
+        var body = $"{runErrors:0} receive errors in {text.Range}"
             + (perMillion is double pm ? $" ({pm:0.###} per million packets)" : "")
             + (asym is { } a ? $", all at {a.End}" : "")
             + ". Check the cable, terminations, and keystones.";
@@ -267,7 +280,7 @@ public static class LanHealthDetectors
             Body = body,
             Chips = ["CRC errors", ImpactChip(ev.Link)],
             Points = ScoreCurve.Interpolate(perDay, (ErrorsPerDayFloor, 0), (50, 20), (500, 45), (5000, 70)),
-            Onset = bursts.Count > 0 ? bursts.Min(i => i.Start) : null,
+            Onset = bursts.Count > 0 ? RunOnset(ev, bursts) : null,
             Status = LinkStatus.Errors,
         };
     }
@@ -291,7 +304,7 @@ public static class LanHealthDetectors
             Body = $"{bursts.Count} bursts of total probe loss in {text.Range}, with no drop or error recorded. A drop of a few seconds can fall between polls.",
             Chips = ["Loss bursts", ImpactChip(ev.Link)],
             Points = ScoreCurve.Interpolate(bursts.Count, (3, 5), (10, 15), (30, 30)),
-            Onset = bursts.Min(i => i.Start),
+            Onset = RunOnset(ev, bursts),
         };
     }
 

@@ -525,7 +525,7 @@ public class LanHealthTests
             "Swap the cables in Port 3 and Port 2 on Gateway A (AP 2 moves to Port 3). If the drops stay on Port 3, it's the gateway port. If they follow AP 1, it's the AP or its cable.");
     }
     [Fact]
-    public void TroubleSince_ReachesBackUntilAThreeDayGap()
+    public void ChronicSince_ReachesBackUntilAThreeDayGap()
     {
         NetworkOptimizer.Storage.Models.LanHealthLinkHour Hour(DateTime h, int drops) => new() { LinkId = "l", HourStart = h, Drops = drops };
         var now = new DateTime(2026, 1, 20, 0, 0, 0, DateTimeKind.Utc);
@@ -538,8 +538,70 @@ public class LanHealthTests
             Hour(now.AddDays(-3), 0),
             Hour(now.AddDays(-2), 1),
         };
-        LanHealthReportBuilder.TroubleSince(window, baseline).Should().Be(now.AddDays(-7));
-        LanHealthReportBuilder.CleanDaysBefore(window, baseline).Should().Be(5);
+        LanHealthReportBuilder.ChronicSince(window, baseline).Should().Be(now.AddDays(-7));
+        // The current run is the last drop alone: 38 quiet hours separate it from the one before.
+        LanHealthReportBuilder.TroubleSince(window, baseline).Should().Be(now.AddHours(-10));
+        LanHealthReportBuilder.CleanDaysBefore(window, baseline).Should().Be(1);
+    }
+
+    private static NetworkOptimizer.Storage.Models.LanHealthLinkHour RunHour(DateTime h, int drops = 0, double errors = 0) =>
+        new() { LinkId = "l", HourStart = h, Drops = drops, ErrorBursts = errors };
+
+    [Fact]
+    public void TroubleSince_ResetsAfterADayOfQuiet()
+    {
+        var now = new DateTime(2026, 1, 20, 0, 0, 0, DateTimeKind.Utc);
+        LanHealthReportBuilder.TroubleSince([RunHour(now.AddHours(-40), drops: 1), RunHour(now.AddHours(-10), drops: 2)], [])
+            .Should().Be(now.AddHours(-10));
+        // 23 quiet hours between them: still one run.
+        LanHealthReportBuilder.TroubleSince([RunHour(now.AddHours(-34), drops: 1), RunHour(now.AddHours(-10), drops: 2)], [])
+            .Should().Be(now.AddHours(-34));
+    }
+
+    [Fact]
+    public void TroubleSince_ElevenHourGaps_StayOneRun()
+    {
+        // A chronic AP flap: a drop about every 11 hours for three days, across the window and its baseline.
+        var now = new DateTime(2026, 1, 20, 0, 0, 0, DateTimeKind.Utc);
+        var hours = Enumerable.Range(0, 7).Select(i => RunHour(now.AddHours(-2 - 11 * i), drops: 1)).ToList();
+        var window = hours.Where(h => h.HourStart >= now.AddHours(-48)).ToList();
+        var baseline = hours.Except(window).ToList();
+        LanHealthReportBuilder.TroubleSince(window, baseline).Should().Be(now.AddHours(-68));
+    }
+
+    [Fact]
+    public void TroubleSince_AnErrorBurstStartsARun_AndLinkErrorsCountsTheRunOnly()
+    {
+        // One error 44 hours ago, then a 26-error burst: two unrelated events, the second the current one.
+        var now = new DateTime(2026, 1, 20, 0, 0, 0, DateTimeKind.Utc);
+        var rows = new[] { RunHour(now.AddHours(-44), errors: 1), RunHour(now.AddHours(-3), errors: 26) };
+        var since = LanHealthReportBuilder.TroubleSince(rows, []);
+        since.Should().Be(now.AddHours(-3));
+
+        LinkIncident Burst(DateTime t, double n) => new() { Start = t, End = t.AddMinutes(5), Kind = IncidentKind.ErrorBurst, Count = n };
+        var ev = new LinkEvidence
+        {
+            Link = ApLink(), From = now.AddHours(-48), To = now, TroubleSince = since,
+            Upstream = new EndCounters { RxErrors = 27, RxPackets = 9_000_000 }, Downstream = new EndCounters { RxErrors = 0, RxPackets = 9_000_000 },
+        };
+        var f = LanHealthDetectors.StableLinkErrors(ev, [Burst(now.AddHours(-44), 1), Burst(now.AddHours(-3), 26)], FindingText.Utc)!;
+        f.Body.Should().StartWith("26 receive errors in 48h");
+        f.Onset.Should().Be(now.AddHours(-3));
+    }
+
+    [Fact]
+    public void LinkDrops_OnsetIsTheCurrentRun_DurationWeightKeepsTheChronicStart()
+    {
+        var link = ApLink();
+        var now = new DateTime(2026, 1, 22, 0, 0, 0, DateTimeKind.Utc);
+        var drops = Enumerable.Range(0, 4).Select(i => new LinkIncident { Start = now.AddHours(-4 + i), End = now.AddHours(-4 + i).AddSeconds(3), Kind = IncidentKind.Drop })
+            .Append(new LinkIncident { Start = now.AddHours(-45), End = now.AddHours(-45).AddSeconds(3), Kind = IncidentKind.Drop }).ToList();
+        LinkEvidence Ev(DateTime? chronic) => new() { Link = link, From = now.AddHours(-48), To = now, TroubleSince = now.AddHours(-4), ChronicSince = chronic };
+        var recent = LanHealthDetectors.LinkDrops(Ev(now.AddHours(-45)), drops, FindingText.Utc)!;
+        recent.Onset.Should().Be(now.AddHours(-4));
+        var chronic = LanHealthDetectors.LinkDrops(Ev(now.AddDays(-14)), drops, FindingText.Utc)!;
+        chronic.Onset.Should().Be(now.AddHours(-4));
+        chronic.Points.Should().BeGreaterThan(recent.Points);
     }
     [Fact]
     public void Detectors_SkipWiredChecksOnMeshLinks()
@@ -604,7 +666,7 @@ public class LanHealthTests
             var t = now.AddHours(-40 + i * 4);
             return new LinkIncident { Start = t, End = t.AddSeconds(3), Kind = IncidentKind.Drop, SpeedAfterMbps = 2500 };
         }).ToList();
-        LinkEvidence Ev(DateTime? since) => new() { Link = link, From = now.AddHours(-48), To = now, TroubleSince = since };
+        LinkEvidence Ev(DateTime? since) => new() { Link = link, From = now.AddHours(-48), To = now, ChronicSince = since };
 
         var burst = LanHealthDetectors.LinkDrops(Ev(now.AddHours(-40)), Drops(), FindingText.Utc)!;
         var chronic = LanHealthDetectors.LinkDrops(Ev(now.AddDays(-14)), Drops(), FindingText.Utc)!;
