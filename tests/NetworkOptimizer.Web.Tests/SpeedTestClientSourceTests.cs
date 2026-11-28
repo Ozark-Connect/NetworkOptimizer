@@ -115,8 +115,12 @@ public class SpeedTestClientSourceTests
         new([new TailnetPeer { Name = name, Addresses = [ip] }], null, []);
 
     private static Iperf3Result Result(string host, string? deviceName = null,
+        params (int Order, HopType Type)[] hops) => Result(SpeedTestDirection.ClientToServer, host, deviceName, hops);
+
+    private static Iperf3Result Result(SpeedTestDirection direction, string host, string? deviceName,
         params (int Order, HopType Type)[] hops) => new()
     {
+        Direction = direction,
         DeviceHost = host,
         DeviceName = deviceName,
         PathAnalysis = hops.Length == 0
@@ -133,18 +137,36 @@ public class SpeedTestClientSourceTests
     }
 
     [Fact]
-    public void TailscaleWithoutTrace_ShowsTailnetName()
+    public void TailscaleTrace_WithNoTailnetConfigured_ShowsNoName()
     {
-        var result = Result("100.64.0.10", deviceName: "Gateway");
-        SpeedTestClientSource.DisplayName(result, TailnetWithPeer("t-iphone", "100.64.0.10")).Should().Be("t-iphone");
+        // No Tailscale integration: the caller shows the IP, never the stored gateway name
+        var result = Result("100.64.0.10", deviceName: "Gateway",
+            (-1, HopType.Tailscale), (0, HopType.Gateway));
+        SpeedTestClientSource.DisplayName(result, TailnetSnapshot.Empty).Should().BeNull();
     }
 
     [Fact]
-    public void TailscaleNotInTailnet_ShowsNoName()
+    public void TailscaleWithoutTrace_ShowsTailnetName()
     {
-        // Range says Tailscale, but no tailnet holds the address: the caller shows the IP
-        SpeedTestClientSource.DisplayName(Result("100.64.0.10", deviceName: "Gateway"), TailnetSnapshot.Empty)
-            .Should().BeNull();
+        SpeedTestClientSource.DisplayName(Result("100.64.0.10"), TailnetWithPeer("t-iphone", "100.64.0.10"))
+            .Should().Be("t-iphone");
+    }
+
+    [Fact]
+    public void TailscaleWithoutTrace_NotInTailnet_ShowsNoName()
+    {
+        SpeedTestClientSource.DisplayName(Result("100.64.0.10"), TailnetSnapshot.Empty).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void CgnatLanClient_KeepsItsStoredName(bool tailnetConfigured)
+    {
+        // A LAN on 100.64.0.0/10 reads as Tailscale by address alone; only a trace proves a client is remote
+        var result = Result("100.64.0.10", deviceName: "Laptop", (0, HopType.WirelessClient), (1, HopType.AccessPoint));
+        var tailnet = tailnetConfigured ? TailnetWithPeer("other-device", "100.64.0.99") : TailnetSnapshot.Empty;
+        SpeedTestClientSource.DisplayName(result, tailnet, Networks).Should().Be("Laptop");
     }
 
     [Fact]
@@ -161,8 +183,42 @@ public class SpeedTestClientSourceTests
     {
         // The address guess needs the 192.168 prefix the app classifies on; 192.168.77.0/24 is
         // outside this file's Networks fixture, matching StoredTrace_DecidesTeleport
-        var result = Result("192.168.77.10", deviceName: "Gateway");
-        SpeedTestClientSource.DisplayName(result, TailnetSnapshot.Empty, Networks).Should().Be("Teleport Client");
+        SpeedTestClientSource.DisplayName(Result("192.168.77.10"), TailnetSnapshot.Empty, Networks).Should().Be("Teleport Client");
+    }
+
+    [Fact]
+    public void TeleportAddressGuess_DoesNotHideAStoredName()
+    {
+        // No trace, on a 192.168 LAN the site has since renumbered: the stored name is the real client
+        SpeedTestClientSource.DisplayName(Result("192.168.77.10", deviceName: "Laptop"), TailnetSnapshot.Empty, Networks)
+            .Should().Be("Laptop");
+    }
+
+    [Theory]
+    [InlineData(HopType.Vpn)]
+    [InlineData(HopType.Wan)]
+    public void OtherRemoteTrace_HidesTheStoredGatewayName(HopType remoteType)
+    {
+        var result = Result("10.0.9.4", deviceName: "Gateway", (-1, remoteType), (0, HopType.Gateway));
+        SpeedTestClientSource.DisplayName(result, TailnetSnapshot.Empty, Networks).Should().BeNull();
+    }
+
+    [Fact]
+    public void ClientWanTest_KeepsItsStoredName()
+    {
+        // A Client WAN Test runs on a LAN client; its WAN hop sits at order 0
+        var result = Result(SpeedTestDirection.OpenSpeedTestWan, "10.0.1.20", "Laptop",
+            (0, HopType.Wan), (1, HopType.Gateway), (2, HopType.WirelessClient));
+        SpeedTestClientSource.DisplayName(result, TailnetSnapshot.Empty).Should().Be("Laptop");
+    }
+
+    [Fact]
+    public void ServerToDevice_OverATailnet_KeepsTheConfiguredName()
+    {
+        // A device the user configured by its Tailscale IP keeps the name they gave it
+        var result = Result(SpeedTestDirection.ServerToDevice, "100.64.0.10", "Office NAS",
+            (-1, HopType.Tailscale), (0, HopType.Gateway));
+        SpeedTestClientSource.DisplayName(result, TailnetWithPeer("nas-tailnet", "100.64.0.10")).Should().Be("Office NAS");
     }
 
     [Fact]

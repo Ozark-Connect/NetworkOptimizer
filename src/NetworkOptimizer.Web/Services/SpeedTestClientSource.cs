@@ -79,10 +79,10 @@ public static class SpeedTestClientSource
         Detect(clientIp, networks: null, tailnetPeer: tailnetPeer) == "Tailscale";
 
     /// <summary>
-    /// The name to show for a client speed test result in its tables and cards.
-    /// A Tailscale test shows its tailnet name, a Teleport test shows "Teleport Client",
-    /// and anything else shows the stored device name. Null when there is no name: the caller shows the IP.
-    /// Stored names are skipped for remote results - an older build stored the gateway name there.
+    /// The name to show for a speed test result in its tables and cards. Null when there is no name:
+    /// the caller shows the IP. A client test from a remote client (Tailscale, Teleport, VPN, WAN) never
+    /// shows its stored name: an older build stored the gateway name there. Anything else shows its stored
+    /// name, and a Tailscale or Teleport address with no stored name shows its tailnet name or "Teleport Client".
     /// </summary>
     /// <param name="result">The result to name.</param>
     /// <param name="tailnet">The site's tailnet, which names Tailscale devices.</param>
@@ -91,24 +91,24 @@ public static class SpeedTestClientSource
     {
         var hops = result.PathAnalysis?.Path?.Hops;
 
-        // The remote client's hop is the one prepended at order -1. A LAN test that merely transits
-        // a tailnet or Teleport tunnel carries those hops at later orders, not -1.
-        if (hops is { Count: > 0 })
-        {
-            if (hops.Any(h => h.Order == -1 && h.Type == NetworkOptimizer.UniFi.Models.HopType.Tailscale))
-                return tailnet.NameFor(result.DeviceHost);
-            if (hops.Any(h => h.Order == -1 && h.Type == NetworkOptimizer.UniFi.Models.HopType.Teleport))
-                return "Teleport Client";
-        }
+        // Only the stored trace proves a client is remote: its hop is prepended at order -1. A LAN test that
+        // transits a tunnel carries that hop at a later order, and a Client WAN Test puts its WAN hop at 0.
+        // Server-initiated tests keep the name the user gave the device, whatever its path.
+        var remoteHop = result.Direction is SpeedTestDirection.ClientToServer or SpeedTestDirection.BrowserToServer
+            ? hops?.FirstOrDefault(h => h.Order == -1)
+            : null;
+        if (remoteHop != null)
+            return remoteHop.Type == NetworkOptimizer.UniFi.Models.HopType.Teleport
+                ? "Teleport Client"
+                : tailnet.NameFor(result.DeviceHost);
 
-        var label = Detect(result.DeviceHost, networks, result.ClientMac, tailnet.IsPeer,
-            hops?.Select(h => h.Type).ToList());
-        return label switch
-        {
-            "Tailscale" => tailnet.NameFor(result.DeviceHost),
-            "Teleport" => "Teleport Client",
-            _ => string.IsNullOrEmpty(result.DeviceName) ? tailnet.NameFor(result.DeviceHost) : result.DeviceName
-        };
+        if (!string.IsNullOrEmpty(result.DeviceName))
+            return result.DeviceName;
+
+        // The address alone is a guess (a LAN can use 100.64.0.0/10), so it only fills in a missing name
+        return Detect(result.DeviceHost, networks, result.ClientMac, tailnet.IsPeer, hops?.Select(h => h.Type).ToList()) == "Teleport"
+            ? "Teleport Client"
+            : tailnet.NameFor(result.DeviceHost);
     }
 
     /// <summary>

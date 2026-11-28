@@ -551,6 +551,10 @@ else
         // Load networks for VPN detection
         _networks = await ConnectionService.GetNetworksAsync();
         _tailnet = await Tailscale.GetPeersAsync();
+
+        // The map can draw before these loads finish; redraw so popups and badges use them
+        if (mapInitialized)
+            await UpdateMarkers(fitBounds: false);
     }
 
     /// <summary>The site's tailnet, which names a Tailscale result that has no device name of its own.</summary>

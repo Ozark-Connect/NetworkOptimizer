@@ -492,6 +492,9 @@
             _ = LoadLanLinksAsync();
             try { _tailnet = await Tailscale.GetPeersAsync(); }
             catch (Exception) { /* Refused (no session, as on a public result page): the hop keeps its generic label. */ }
+            // OnParametersSet named the device before the tailnet loaded
+            if (Result != null)
+                DeviceName = SpeedTestClientSource.DisplayName(Result, _tailnet) ?? "";
         }
 
         if (AuthState is null)
