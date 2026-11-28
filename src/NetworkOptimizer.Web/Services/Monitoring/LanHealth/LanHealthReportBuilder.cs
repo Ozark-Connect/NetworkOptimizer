@@ -185,12 +185,21 @@ public static class LanHealthReportBuilder
 
     /// <summary>
     /// The fastest speed the link reached over its hours: its usual speed. A wired fabric link's id names both devices,
-    /// so a new device is a new link; an access port keeps its id, so only the hours with today's client count
-    /// (the link's name names the client), and a new client starts fresh.
+    /// so a new device is a new link. An access port keeps its id, so only the current occupant's hours count: back
+    /// from the latest until the client changes (by MAC, or by name on rows stored before the MAC was), less the
+    /// first of them, the swap hour, whose speed is partly the previous client's.
     /// </summary>
-    internal static int UsualSpeed(LinkRecord link, IEnumerable<LanHealthLinkHour> hours) =>
-        hours.Where(r => link.Kind != LinkKind.Access || r.Name == null || r.Name == link.Name)
-            .Select(r => r.SpeedMaxMbps).OfType<int>().DefaultIfEmpty().Max();
+    internal static int UsualSpeed(LinkRecord link, IEnumerable<LanHealthLinkHour> hours)
+    {
+        if (link.Kind != LinkKind.Access) return hours.Select(r => r.SpeedMaxMbps).OfType<int>().DefaultIfEmpty().Max();
+        bool Same(LanHealthLinkHour r) => r.ClientMac != null && link.ClientMac != null
+            ? string.Equals(r.ClientMac, link.ClientMac, StringComparison.OrdinalIgnoreCase)
+            : r.Name == null || r.Name == link.Name;
+        var ordered = hours.OrderByDescending(r => r.HourStart).ToList();
+        var occupant = ordered.TakeWhile(Same).ToList();
+        if (occupant.Count < ordered.Count && occupant.Count > 0) occupant.RemoveAt(occupant.Count - 1);
+        return occupant.Select(r => r.SpeedMaxMbps).OfType<int>().DefaultIfEmpty().Max();
+    }
 
     /// <summary>Transmit attempts below which a retry rate is noise.</summary>
     internal const double MeshRetryMinAttempts = 100_000;

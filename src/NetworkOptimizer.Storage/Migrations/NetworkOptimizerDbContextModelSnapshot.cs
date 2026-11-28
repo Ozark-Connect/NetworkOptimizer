@@ -3007,6 +3007,10 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<double?>("BroadcastPps")
                         .HasColumnType("REAL");
 
+                    b.Property<string>("ClientMac")
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("ClientsBehind")
                         .HasColumnType("INTEGER");
 

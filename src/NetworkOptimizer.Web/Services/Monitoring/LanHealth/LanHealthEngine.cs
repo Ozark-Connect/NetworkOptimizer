@@ -627,6 +627,7 @@ public sealed class LanHealthEngine
     {
         await using var db = await _db(ct);
         var old = await db.LanHealthLinkHours.Where(r => r.HourStart == hour).ToListAsync(ct);
+        KeepStoredIdentity(rows, old);
         db.LanHealthLinkHours.RemoveRange(old);
         db.LanHealthLinkHours.AddRange(rows);
         await db.SaveChangesAsync(ct);
@@ -648,6 +649,21 @@ public sealed class LanHealthEngine
         site.Version = Version;
         site.ComputedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// A recomputed access port hour keeps the name and client MAC its row was stored with: the topology now names
+    /// today's occupant, and restamping old hours with it would hand the previous client's speeds to the new one.
+    /// </summary>
+    internal static void KeepStoredIdentity(IEnumerable<LanHealthLinkHour> rows, IEnumerable<LanHealthLinkHour> stored)
+    {
+        var byLink = stored.GroupBy(r => r.LinkId).ToDictionary(g => g.Key, g => g.First());
+        foreach (var r in rows.Where(r => r.Kind == (int)LinkKind.Access))
+            if (byLink.TryGetValue(r.LinkId, out var s))
+            {
+                r.Name = s.Name;
+                r.ClientMac = s.ClientMac;
+            }
     }
 
     private async Task PruneAsync(CancellationToken ct)

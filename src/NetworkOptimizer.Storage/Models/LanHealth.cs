@@ -27,6 +27,10 @@ public class LanHealthLinkHour
 
     public int ClientsBehind { get; set; }
 
+    /// <summary>The access port's client as of the roll-up, so a new occupant starts a fresh speed baseline; null for fabric links.</summary>
+    [MaxLength(20)]
+    public string? ClientMac { get; set; }
+
     // Incidents in the hour.
     public double Drops { get; set; }
     public double DropsExplained { get; set; }

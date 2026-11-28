@@ -656,6 +656,74 @@ public class LanHealthTests
         };
         LanHealthDetectors.AccessDegraded(degraded).Should().NotBeNull();
     }
+    private const string OldClient = "00:11:22:33:44:01", NewClient = "00:11:22:33:44:02";
+
+    private static LinkRecord SwappedPort(string name = "Console", string? mac = NewClient) => new()
+    {
+        Id = $"{SwitchMac}|5-access", Kind = LinkKind.Access, SpeedMbps = 1000, ClientMac = mac,
+        Upstream = new LinkEnd { DeviceMac = SwitchMac, DeviceName = "Switch A", DeviceType = DeviceType.Switch, PortIdx = 5 },
+        Downstream = new LinkEnd { DeviceName = name, IsUniFi = false },
+    };
+
+    /// <summary>A 2.5G desktop for ten hours, swapped for a 1G console: the swap hour still peaked at 2.5G.</summary>
+    private static List<NetworkOptimizer.Storage.Models.LanHealthLinkHour> SwapHours(string? oldMac = OldClient, string oldName = "Switch A Port 5 to Desktop")
+    {
+        var t0 = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var link = SwappedPort();
+        NetworkOptimizer.Storage.Models.LanHealthLinkHour Row(int h, string name, string? mac, int min, int max) => new()
+        {
+            LinkId = link.Id, HourStart = t0.AddHours(h), Kind = (int)LinkKind.Access, Name = name, ClientMac = mac,
+            SpeedMinMbps = min, SpeedMaxMbps = max, MeanInBps = 5e6, MeanOutBps = 5e6,
+        };
+        return Enumerable.Range(0, 10).Select(h => Row(h, oldName, oldMac, 2500, 2500))
+            .Append(Row(10, link.Name, NewClient, 1000, 2500))
+            .Concat(Enumerable.Range(11, 4).Select(h => Row(h, link.Name, NewClient, 1000, 1000))).ToList();
+    }
+
+    [Fact]
+    public void UsualSpeed_ANewOccupantStartsFresh_WithoutTheSwapHour()
+    {
+        LanHealthReportBuilder.UsualSpeed(SwappedPort(), SwapHours()).Should().Be(1000);
+        // Rows stored before the MAC was: the name tells the occupants apart.
+        LanHealthReportBuilder.UsualSpeed(SwappedPort(), SwapHours(oldMac: null)).Should().Be(1000);
+    }
+
+    [Fact]
+    public void UsualSpeed_ARenamedClientWithTheSameMac_KeepsItsHistory()
+    {
+        var hours = SwapHours(oldMac: NewClient);
+        LanHealthReportBuilder.UsualSpeed(SwappedPort(), hours).Should().Be(2500);
+    }
+
+    [Fact]
+    public void AccessDegraded_AfterAnOccupantChange_DoesNotFlagTheNewClientsOwnSpeed()
+    {
+        var link = SwappedPort();
+        var hours = SwapHours();
+        var ev = LanHealthReportBuilder.EvidenceFromRows(link, hours.Skip(8).ToList(), hours.Take(8).ToList(), hours[8].HourStart, hours[^1].HourStart.AddHours(1), null);
+        ev.UsualSpeedMbps.Should().Be(1000);
+        LanHealthDetectors.AccessDegraded(ev).Should().BeNull();
+        // The same client dropping to 1G after a run at 2.5G still flags.
+        var same = SwapHours(oldMac: NewClient, oldName: link.Name);
+        var degraded = LanHealthReportBuilder.EvidenceFromRows(link, same.Skip(8).ToList(), same.Take(8).ToList(), same[8].HourStart, same[^1].HourStart.AddHours(1), null);
+        LanHealthDetectors.AccessDegraded(degraded).Should().NotBeNull();
+    }
+
+    [Fact]
+    public void KeepStoredIdentity_ARecomputedAccessHourKeepsItsStoredClient()
+    {
+        var stored = new NetworkOptimizer.Storage.Models.LanHealthLinkHour { LinkId = "a", Kind = (int)LinkKind.Access, Name = "Old client", ClientMac = OldClient };
+        var storedFabric = new NetworkOptimizer.Storage.Models.LanHealthLinkHour { LinkId = "f", Kind = (int)LinkKind.FabricWired, Name = "Old name" };
+        var fresh = new NetworkOptimizer.Storage.Models.LanHealthLinkHour { LinkId = "a", Kind = (int)LinkKind.Access, Name = "New client", ClientMac = NewClient };
+        var freshFabric = new NetworkOptimizer.Storage.Models.LanHealthLinkHour { LinkId = "f", Kind = (int)LinkKind.FabricWired, Name = "New name" };
+        var firstStore = new NetworkOptimizer.Storage.Models.LanHealthLinkHour { LinkId = "b", Kind = (int)LinkKind.Access, Name = "Client B", ClientMac = NewClient };
+        LanHealthEngine.KeepStoredIdentity([fresh, freshFabric, firstStore], [stored, storedFabric]);
+        fresh.Name.Should().Be("Old client");
+        fresh.ClientMac.Should().Be(OldClient);
+        freshFabric.Name.Should().Be("New name");
+        firstStore.ClientMac.Should().Be(NewClient);
+    }
+
     [Fact]
     public void LinkDrops_WeighsALongRunMore_AndSaysWhenDropsOutliveAChange()
     {

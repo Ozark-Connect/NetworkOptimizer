@@ -154,9 +154,11 @@ public class LanLinkBuilderTests
     public void UsualSpeed_OnAnAccessPort_StartsOverForANewClient()
     {
         var port = Build().First(l => l.Id == LanLinkBuilder.AccessId(Gw, 3));
-        var old = new NetworkOptimizer.Storage.Models.LanHealthLinkHour { Name = "Gateway A Port 3 to Old PC", SpeedMaxMbps = 2500 };
-        var now = new NetworkOptimizer.Storage.Models.LanHealthLinkHour { Name = port.Name, SpeedMaxMbps = 1000 };
-        LanHealthReportBuilder.UsualSpeed(port, [old, now]).Should().Be(1000, "the 2.5G belonged to the previous client");
+        var t0 = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var old = new NetworkOptimizer.Storage.Models.LanHealthLinkHour { HourStart = t0, Name = "Gateway A Port 3 to Old PC", SpeedMaxMbps = 2500 };
+        var swap = new NetworkOptimizer.Storage.Models.LanHealthLinkHour { HourStart = t0.AddHours(1), Name = port.Name, SpeedMaxMbps = 2500 };
+        var now = new NetworkOptimizer.Storage.Models.LanHealthLinkHour { HourStart = t0.AddHours(2), Name = port.Name, SpeedMaxMbps = 1000 };
+        LanHealthReportBuilder.UsualSpeed(port, [old, swap, now]).Should().Be(1000, "the 2.5G belonged to the previous client, the swap hour included");
         var fabric = Build().First(l => l.Kind == LinkKind.FabricWired);
         LanHealthReportBuilder.UsualSpeed(fabric, [old, now]).Should().Be(2500, "a fabric link's id already changes with its device");
     }
