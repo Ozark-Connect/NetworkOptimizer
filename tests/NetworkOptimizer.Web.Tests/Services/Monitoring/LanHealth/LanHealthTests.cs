@@ -827,6 +827,81 @@ public class LanHealthTests
         LanHealthReportBuilder.HourImpairment([], QuarterSite(), [], false, open).Impairment.Should().Be(0);
     }
 
+    private static readonly DateTime RestartNow = new(2026, 1, 22, 12, 0, 0, DateTimeKind.Utc);
+
+    private static LinkRecord DeskPort(bool server = false, bool alwaysOn = false) => new()
+    {
+        Id = $"{SwitchMac}|4-access", Kind = LinkKind.Access, SpeedMbps = 10000, ServerOnPort = server, AlwaysOnClient = alwaysOn, ClientsBehind = 1,
+        Upstream = new LinkEnd { DeviceMac = SwitchMac, DeviceName = "Switch A", DeviceType = DeviceType.Switch, PortIdx = 4 },
+        Downstream = new LinkEnd { DeviceName = "Desktop", IsUniFi = false },
+    };
+
+    /// <summary>A crash-and-power-cycle loop: 4 counter-only relinks in one hour and 12 in the next, back at 10 GbE each time.</summary>
+    private static (LinkEvidence Ev, List<LinkIncident> Incidents) RestartLoop(LinkRecord link, double errors = 0, int? lowSpeed = null,
+        LinkSource seenBy = LinkSource.SwitchLinkDownCount, double? downSeconds = null)
+    {
+        var h1 = RestartNow.AddHours(-10);
+        var h2 = h1.AddHours(1);
+        LinkIncident Relink(DateTime h, int n)
+        {
+            var i = new LinkIncident { Start = h, End = h.AddHours(1), Kind = IncidentKind.Relink, Count = n };
+            i.SeenBy.Add(seenBy);
+            if (downSeconds is double d)
+            {
+                i.Events.Add(new LinkEvent(h.AddMinutes(10), h.AddMinutes(10), LinkEventType.LinkDown, seenBy, LinkSide.Upstream));
+                i.Events.Add(new LinkEvent(h.AddMinutes(10).AddSeconds(d), h.AddMinutes(10).AddSeconds(d), LinkEventType.LinkUp, seenBy, LinkSide.Upstream));
+            }
+            return i;
+        }
+        SpeedReading At(DateTime t, int mbps) => new(t, mbps, true, LinkSource.PortTableState);
+        var ev = new LinkEvidence
+        {
+            Link = link, From = RestartNow.AddHours(-48), To = RestartNow, UsualSpeedMbps = 10000, TroubleSince = h1,
+            Upstream = new EndCounters { RxErrors = errors, TxErrors = 0 },
+            Speeds = [At(h1, 10000), At(h1.AddMinutes(59), 10000), At(h2, lowSpeed ?? 10000), At(h2.AddMinutes(59), 10000)],
+        };
+        return (ev, [Relink(h1, 4), Relink(h2, 12)]);
+    }
+
+    [Fact]
+    public void LinkDrops_AnEndClientRestarting_IsCappedQuietAndSaysRestarted()
+    {
+        var (ev, incidents) = RestartLoop(DeskPort());
+        var f = LanHealthDetectors.LinkDrops(ev, incidents, FindingText.Utc)!;
+        f.Points.Should().BeLessThanOrEqualTo(LanHealthDetectors.RestartPointsCap);
+        f.Quiet.Should().BeTrue();
+        f.Body.Should().StartWith("Desktop restarted 16 times in 48h, back at 10 Gbps with no errors each time.");
+        f.Class.Should().Be("Link Flapping");
+    }
+
+    [Fact]
+    public void LinkDrops_RestartsWithAKnownLongDownTime_StillReadAsRestarts()
+    {
+        var (ev, incidents) = RestartLoop(DeskPort(), seenBy: LinkSource.GatewaySwitchChip, downSeconds: 45);
+        LanHealthDetectors.LinkDrops(ev, incidents, FindingText.Utc)!.Quiet.Should().BeTrue();
+    }
+
+    public static TheoryData<string> RestartBreakers() => ["errors", "speed", "short", "probe", "server", "always-on"];
+
+    [Theory]
+    [MemberData(nameof(RestartBreakers))]
+    public void LinkDrops_AnyDropOffTheRestartSignature_KeepsTodaysFinding(string breaker)
+    {
+        var link = breaker switch { "server" => DeskPort(server: true), "always-on" => DeskPort(alwaysOn: true), _ => DeskPort() };
+        var (ev, incidents) = breaker switch
+        {
+            "errors" => RestartLoop(link, errors: 40),
+            "speed" => RestartLoop(link, lowSpeed: 1000),
+            "short" => RestartLoop(link, seenBy: LinkSource.GatewaySwitchChip, downSeconds: 3),
+            "probe" => RestartLoop(link, seenBy: LinkSource.FabricProbe),
+            _ => RestartLoop(link),
+        };
+        var f = LanHealthDetectors.LinkDrops(ev, incidents, FindingText.Utc)!;
+        f.Quiet.Should().BeFalse();
+        f.Body.Should().StartWith("16 drops in 48h");
+        f.Points.Should().BeGreaterThan(LanHealthDetectors.RestartPointsCap);
+    }
+
     [Fact]
     public void LiveHours_IncludeTheLastClosedHourUntilItIsStored()
     {

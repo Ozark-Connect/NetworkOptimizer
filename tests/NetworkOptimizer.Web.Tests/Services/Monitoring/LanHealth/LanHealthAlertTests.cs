@@ -101,6 +101,26 @@ public class LanHealthAlertTests
     }
 
     [Fact]
+    public async Task AQuietFlappingFinding_OpensNoAlert_AnOrdinaryOneStillDoes()
+    {
+        LinkHealth Flapping(string id, bool quiet)
+        {
+            var l = Link(id, fabric: false);
+            l.Findings.Add(new LinkFinding { LinkId = id, Class = "Link Flapping", Title = "Link Flapping: x", Body = "b", Detector = Detectors.LinkDrops, Quiet = quiet });
+            return l;
+        }
+        var bus = new CapturingBus();
+        var e = Evaluator(bus);
+        var report = Report(Flapping("restarts", quiet: true), Flapping("flaps", quiet: false));
+        await e.EvaluateAsync(report, None, T0);
+        await e.EvaluateAsync(report, None, T0.AddMinutes(6));
+        var a = bus.Published.Should().ContainSingle().Which;
+        a.Context["link_id"].Should().Be("flaps");
+        a.EventType.Should().Be(LanHealthAlertEvaluator.Flapping);
+        a.Severity.Should().Be(AlertSeverity.Info);
+    }
+
+    [Fact]
     public async Task SpeedDegraded_AlertsOnAFabricSpeedOrDuplexFault_NotAnAccessClientsSlowerLink()
     {
         LinkHealth WithDetector(string id, bool fabric, int detector)

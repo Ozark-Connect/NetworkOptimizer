@@ -114,13 +114,16 @@ public static class LanHealthDetectors
         var speeds = drops.Select(i => i.SpeedAfterMbps).OfType<int>().Distinct().ToList();
         var sameSpeed = speeds.Count == 1 && (ev.UsualSpeedMbps == null || speeds[0] >= ev.UsualSpeedMbps);
         var onset = RunOnset(ev, drops);
+        var restartSpeed = ClientRestartSpeed(ev, incidents, drops);
 
         // lanh-08, rendered from the parts the evidence supports.
         var parts = new List<string>();
-        var first = seconds is double s
+        var first = restartSpeed is int rs
+            ? $"{ev.Link.Downstream.DeviceName} restarted {count} times in {text.Range}, back at {DisplayFormatters.FormatLinkSpeed(rs)} with no errors each time"
+            : seconds is double s
             ? $"{count} drops in {text.Range}, about {s:0} seconds each"
             : $"{count} drops in {text.Range}";
-        if (sameSpeed) first += $"; the link comes back at {DisplayFormatters.FormatLinkSpeed(speeds[0])} every time";
+        if (sameSpeed && restartSpeed == null) first += $"; the link comes back at {DisplayFormatters.FormatLinkSpeed(speeds[0])} every time";
         parts.Add(first + ".");
         if (ev.HistoryDays is int days && days > 0)
             parts.Add($"Started {text.Time(onset)}, with none in the {(days == 1 ? "day" : $"{days} days")} before.");
@@ -152,7 +155,9 @@ public static class LanHealthDetectors
         // A fault that has run for days weighs more than a burst: up to 1.5x at two weeks, then capped,
         // so an old fault never pins the score to the floor.
         if (ev.ChronicSince is DateTime since)
-            pts *=ScoreCurve.Interpolate((ev.To - since).TotalDays, (2, 1.0), (7, 1.25), (14, 1.5));
+            pts *= ScoreCurve.Interpolate((ev.To - since).TotalDays, (2, 1.0), (7, 1.25), (14, 1.5));
+        // An end client restarting is the client's trouble, not the link's: a small cost and no alert.
+        if (restartSpeed != null) pts = Math.Min(RestartPointsCap, pts);
         return new LinkFinding
         {
             Detector = Detectors.LinkDrops,
@@ -169,7 +174,39 @@ public static class LanHealthDetectors
             NextSteps = steps,
             EeeTest = ev.Link.UpstreamPort.Eee == true || ev.Link.DownstreamPort?.Eee == true,
             IdleDrops = MostlyIdle(ev, drops),
+            Quiet = restartSpeed != null,
         };
+    }
+
+    /// <summary>Link Flapping's points on an end client that restarts (<see cref="ClientRestartSpeed"/>).</summary>
+    public const double RestartPointsCap = 10;
+    /// <summary>A drop with a known down time shorter than this is a flap, not a restart.</summary>
+    public const double RestartMinDownSeconds = 20;
+
+    /// <summary>
+    /// The speed an end client's access link came back at, when every drop in the current run reads as the client
+    /// restarting: the same speed back each time, no errors at either end, no probe or loss evidence, and at least
+    /// <see cref="RestartMinDownSeconds"/> down where the time is known. Null otherwise; servers and always-on
+    /// clients never qualify.
+    /// </summary>
+    internal static int? ClientRestartSpeed(LinkEvidence ev, IReadOnlyList<LinkIncident> incidents, List<LinkIncident> drops)
+    {
+        var link = ev.Link;
+        if (link.Kind != LinkKind.Access || link.ServerOnPort || link.AlwaysOnClient || drops.Count == 0) return null;
+        if ((ev.Upstream.RxErrors ?? 0) + (ev.Downstream.RxErrors ?? 0) + (ev.Upstream.TxErrors ?? 0) + (ev.Downstream.TxErrors ?? 0) > 0) return null;
+        var run = InCurrentRun(ev, drops);
+        var since = run.Min(i => i.Start);
+        if (incidents.Any(i => i.End >= since && (i.Kind == IncidentKind.SpeedChange
+                || !i.IsExplained && i.Kind is IncidentKind.ErrorBurst or IncidentKind.LossBurst)))
+            return null;
+        if (run.Any(d => d.AttachedErrors > 0 || d.SeenBy.Contains(LinkSource.FabricProbe) || d.DownSeconds is < RestartMinDownSeconds))
+            return null;
+        // The speed in each hour a drop fell in, and what each drop came back at, must be one speed, at the usual one.
+        static DateTime Hour(DateTime t) => new(t.Year, t.Month, t.Day, t.Hour, 0, 0, t.Kind);
+        var hours = run.Select(d => Hour(d.Start)).ToHashSet();
+        var speeds = run.Select(d => d.SpeedAfterMbps).OfType<int>()
+            .Concat(ev.Speeds.Where(s => hours.Contains(Hour(s.At))).Select(s => s.SpeedMbps)).Distinct().ToList();
+        return speeds.Count == 1 && (ev.UsualSpeedMbps is not int usual || speeds[0] >= usual) ? speeds[0] : null;
     }
 
     /// <summary>

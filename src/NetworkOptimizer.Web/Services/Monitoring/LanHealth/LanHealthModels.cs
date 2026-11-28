@@ -380,6 +380,8 @@ public sealed class LinkFinding
     /// <summary>Link drops with EEE on at either end: test with it off. <see cref="IdleDrops"/>: most drops came while the link was idle.</summary>
     public bool EeeTest { get; init; }
     public bool IdleDrops { get; init; }
+    /// <summary>Shows on the page and counts in the score, but opens no alert.</summary>
+    public bool Quiet { get; init; }
 }
 
 /// <summary>The Links table's status pill (lanh-21).</summary>
