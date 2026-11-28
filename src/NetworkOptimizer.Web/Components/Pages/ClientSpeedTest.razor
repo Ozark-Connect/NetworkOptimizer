@@ -219,13 +219,14 @@
                     </button>
                 </div>
             </div>
-            @if (testHistory.Count > 0)
+            @if (_history.TotalUnfiltered > 0)
             {
                 <div class="history-search-row">
                     <SpeedTestSearchFilter @bind-SearchFilter="historySearchFilter"
                                            OnSearch="OnFilterChanged"
                                            ShowStatus="true"
-                                           ResultCount="filteredHistory.Count" />
+                                           IsSearching="_historySearching"
+                                           ResultCount="_history.Total" />
                     @if (!string.IsNullOrEmpty(deviceFilter))
                     {
                         <div class="device-filter-pill">
@@ -238,7 +239,7 @@
             }
         </div>
         <div class="card-body">
-            @if (testHistory.Count > 0)
+            @if (_history.TotalUnfiltered > 0)
             {
                 <div class="table-responsive" id="history-table">
                     <table class="data-table">
@@ -389,7 +390,7 @@
                 {
                     <div class="pagination" id="history-pagination">
                         <button class="btn btn-sm btn-secondary" disabled="@(historyPage <= 1)" @onclick="() => ChangePage(-1)"><AppIcon Name="chevron-left" /> Prev</button>
-                        <span class="pagination-info">Page @historyPage of @historyTotalPages (@filteredHistory.Count@(string.IsNullOrEmpty(historySearchFilter) && string.IsNullOrEmpty(deviceFilter) ? " total" : $" of {testHistory.Count}"))</span>
+                        <span class="pagination-info">Page @historyPage of @historyTotalPages (@_history.Total@(string.IsNullOrEmpty(historySearchFilter) && string.IsNullOrEmpty(deviceFilter) ? " total" : $" of {_history.TotalUnfiltered}"))</span>
                         <button class="btn btn-sm btn-secondary" disabled="@(historyPage >= historyTotalPages)" @onclick="() => ChangePage(1)">Next <AppIcon Name="chevron-right" /></button>
                     </div>
                 }
@@ -406,11 +407,13 @@
 
     <!-- Test Locations Map -->
     <div id="coverage-map">
-        <SpeedTestMap Results="testHistory"
+        <SpeedTestMap Results="mapResults"
                       OnRefresh="() => LoadHistory()"
                       OnResultClick="ScrollToResult"
                       ApMarkers="apMapMarkers"
                       OnApLocationChanged="HandleApLocationChanged"
+                      OnTimeRangeChanged="HandleMapTimeRangeChanged"
+                      HasLocatedHistory="_hasLocatedHistory"
                       ShowDashboardLinks="true" />
     </div>
 
@@ -785,7 +788,14 @@
 </style>
 
 @code {
-    private List<Iperf3Result> testHistory = new();
+    // The Test History page on screen; filtering and paging run in the database.
+    private SpeedTestHistoryPage _history = SpeedTestHistoryPage.Empty;
+    private int _historyLoadSeq; // a slower, older load never replaces a newer one
+    private bool _historySearching;
+    private List<Iperf3Result> mapResults = new();
+    private int _mapHours = 720; // 30 days default, matches SpeedTestMap slider
+    private bool _hasLocatedHistory; // a located result exists outside the map's window too
+    private SpeedTestResultsStamp? _lastStamp; // what the last full load saw, for the poll
     private bool loading = false;
     private System.Threading.Timer? _pollTimer;
     private List<NetworkInfo>? _networks;
@@ -812,32 +822,21 @@
     private static bool _lastHealthResult = false;
     private static readonly TimeSpan HealthCheckCacheDuration = TimeSpan.FromSeconds(30);
 
-    // Search filter (uses shared SpeedTestFilterHelper for consistency with repository)
+    // Search filter (matched in the database; see SpeedTestHistoryFilter)
     private string historySearchFilter = "";
 
     // Device filter (set by clicking filter icon on a row)
     private string deviceFilter = "";
     private string deviceFilterName = "";
 
-    // Filtered results based on search filter and device filter
-    private List<Iperf3Result> filteredHistory
-    {
-        get
-        {
-            IEnumerable<Iperf3Result> results = testHistory;
-            if (!string.IsNullOrEmpty(deviceFilter))
-                results = results.Where(r => string.Equals(r.DeviceHost, deviceFilter, StringComparison.OrdinalIgnoreCase));
-            if (!string.IsNullOrEmpty(historySearchFilter))
-                results = results.Where(r => SpeedTestFilterHelper.MatchesFilter(r, historySearchFilter.ToLowerInvariant()));
-            return results.ToList();
-        }
-    }
+    private SpeedTestHistoryFilter HistoryFilter =>
+        new(historySearchFilter, string.IsNullOrEmpty(deviceFilter) ? null : deviceFilter);
 
     // Pagination
     private int historyPage = 1;
     private int historyPageSize = 15;
-    private int historyTotalPages => (int)Math.Ceiling(filteredHistory.Count / (double)historyPageSize);
-    private IEnumerable<Iperf3Result> pagedHistory => filteredHistory.Skip((historyPage - 1) * historyPageSize).Take(historyPageSize);
+    private int historyTotalPages => (int)Math.Ceiling(_history.Total / (double)historyPageSize);
+    private IEnumerable<Iperf3Result> pagedHistory => _history.Items;
 
     // Expandable rows
     private int? expandedHistoryId = null;
@@ -927,13 +926,39 @@
         // Start polling for new results every 5 seconds
         _pollTimer = new System.Threading.Timer(async _ =>
         {
-            await InvokeAsync(async () =>
+            try
             {
-                await LoadHistory(resetPage: false);
-                StateHasChanged();
-            });
+                await InvokeAsync(async () =>
+                {
+                    if (await HasNewResultsAsync())
+                        await LoadHistory(resetPage: false);
+                    else
+                        StateHasChanged();
+                });
+            }
+            catch { /* prevent timer death */ }
         }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
     }
+
+    /// <summary>
+    /// Whether the poll should reload: a result was added or deleted, or the newest one is young enough
+    /// that its path analysis or Wi-Fi rates may still be filling in.
+    /// </summary>
+    private async Task<bool> HasNewResultsAsync()
+    {
+        try
+        {
+            var stamp = await ClientSpeedTestService.GetResultsStampAsync();
+            return stamp != _lastStamp || stamp.NewestTestTime > DateTime.UtcNow - ResultSettleWindow;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>How long after a test its row can still change (the service's path-analysis retry window).</summary>
+    private static readonly TimeSpan ResultSettleWindow = TimeSpan.FromMinutes(30);
 
     /// <summary>Id of a result an alert link wants opened.</summary>
     [SupplyParameterFromQuery(Name = "result")]
@@ -951,17 +976,87 @@
     /// through JS. The row still carries the id in its markup, for the scroll.
     /// </para>
     /// </summary>
-    private void OpenLinkedResult()
+    private async Task OpenLinkedResult()
     {
         if (_linkedResultOpened || ResultParam is not { } id) return;
 
-        var index = filteredHistory.FindIndex(r => r.Id == id);
-        if (index < 0) return;
+        var index = await ClientSpeedTestService.GetHistoryIndexAsync(HistoryFilter, id);
+        if (index is not { } i) return;
 
         _linkedResultOpened = true;
-        historyPage = (index / historyPageSize) + 1;
+        var targetPage = (i / historyPageSize) + 1;
+        if (targetPage != historyPage)
+        {
+            historyPage = targetPage;
+            await LoadHistoryPage();
+        }
         expandedHistoryId = id;
         _scrollToLinkedResultId = id;
+    }
+
+    /// <summary>
+    /// Loads Test History page <see cref="historyPage"/> under the current filter. A load that a newer one
+    /// overtook is dropped. On failure the table keeps the page it had and this returns false.
+    /// </summary>
+    private async Task<bool> LoadHistoryPage()
+    {
+        var seq = ++_historyLoadSeq;
+        try
+        {
+            var page = await ClientSpeedTestService.GetHistoryPageAsync(HistoryFilter, historyPage, historyPageSize);
+            if (seq != _historyLoadSeq) return true;
+            _history = page;
+            historyPage = page.Page;
+            return true;
+        }
+        catch (Exception)
+        {
+            // History load errors are not critical; the table keeps the page it had.
+            return false;
+        }
+    }
+
+    /// <summary>The map's results: every client result in its time window (0 = all time).</summary>
+    private async Task LoadMapResults() =>
+        mapResults = await ClientSpeedTestService.GetMapResultsAsync(_mapHours);
+
+    private async Task HandleMapTimeRangeChanged(int hours)
+    {
+        _mapHours = hours;
+        try
+        {
+            await LoadMapResults();
+        }
+        catch (Exception)
+        {
+            // The map keeps its previous window.
+        }
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Turns the table to the page holding a result under the current filter, clearing the filter when it
+    /// hides the result. False when the result is not in the history at all.
+    /// </summary>
+    private async Task<bool> TurnToResult(int resultId)
+    {
+        var index = await ClientSpeedTestService.GetHistoryIndexAsync(HistoryFilter, resultId);
+        if (index == null && !HistoryFilter.IsEmpty)
+        {
+            deviceFilter = "";
+            deviceFilterName = "";
+            historySearchFilter = "";
+            index = await ClientSpeedTestService.GetHistoryIndexAsync(HistoryFilter, resultId);
+        }
+        if (index is not { } i) return false;
+
+        var targetPage = (i / historyPageSize) + 1;
+        if (targetPage != historyPage || _history.Items.All(r => r.Id != resultId))
+        {
+            historyPage = targetPage;
+            await LoadHistoryPage();
+        }
+        return true;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -981,13 +1076,17 @@
 
         try
         {
-            // Load all results (map handles its own time filtering)
-            testHistory = await ClientSpeedTestService.GetResultsAsync(count: 0);
+            // The stamp first: a result landing mid-load makes the next poll reload again.
+            var stamp = await ClientSpeedTestService.GetResultsStampAsync();
             if (resetPage)
             {
                 historyPage = 1;
             }
-            OpenLinkedResult();
+            var loaded = await LoadHistoryPage();
+            await LoadMapResults();
+            _hasLocatedHistory = await ClientSpeedTestService.HasLocatedResultsAsync();
+            if (loaded) _lastStamp = stamp;
+            await OpenLinkedResult();
         }
         catch (Exception)
         {
@@ -1070,6 +1169,7 @@
         expandedHistoryId = null;
         _collapsingHistoryId = null;
         historyPage += delta;
+        await LoadHistoryPage();
 
         StateHasChanged();
         if (hadExpanded)
@@ -1079,14 +1179,25 @@
         }
     }
 
-    private void OnFilterChanged(string filter)
+    /// <summary>Called when the search filter changes. Resets pagination and runs the search in the database.</summary>
+    private async Task OnFilterChanged(string filter)
     {
         historyPage = 1;
         expandedHistoryId = null;
+        _historySearching = true;
+        StateHasChanged();
+        try
+        {
+            await LoadHistoryPage();
+        }
+        finally
+        {
+            _historySearching = false;
+        }
         StateHasChanged();
     }
 
-    private void ToggleDeviceFilter(string host, string displayName)
+    private async Task ToggleDeviceFilter(string host, string displayName)
     {
         if (string.Equals(deviceFilter, host, StringComparison.OrdinalIgnoreCase))
         {
@@ -1100,15 +1211,17 @@
         }
         historyPage = 1;
         expandedHistoryId = null;
+        await LoadHistoryPage();
         StateHasChanged();
     }
 
-    private void ClearDeviceFilter()
+    private async Task ClearDeviceFilter()
     {
         deviceFilter = "";
         deviceFilterName = "";
         historyPage = 1;
         expandedHistoryId = null;
+        await LoadHistoryPage();
         StateHasChanged();
     }
 
@@ -1156,10 +1269,9 @@
         var deleted = await ClientSpeedTestService.DeleteResultAsync(resultId);
         if (deleted)
         {
-            // Remove from local list and collapse the row
-            testHistory.RemoveAll(r => r.Id == resultId);
+            // Collapse the row and reload the page and map without it
             expandedHistoryId = null;
-            StateHasChanged();
+            await LoadHistory(resetPage: false);
         }
     }
 
@@ -1170,15 +1282,14 @@
 
     private async Task ScrollToResult(int resultId)
     {
-        // Find which page the result is on
-        var index = testHistory.FindIndex(r => r.Id == resultId);
-        if (index >= 0)
+        // Turn to the page the result is on
+        try
         {
-            var targetPage = (index / historyPageSize) + 1;
-            if (historyPage != targetPage)
-            {
-                historyPage = targetPage;
-            }
+            await TurnToResult(resultId);
+        }
+        catch (Exception)
+        {
+            // The row stays where it is; the expand below still applies if it is on this page.
         }
 
         // Expand the result

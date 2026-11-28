@@ -1,4 +1,3 @@
-using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Storage.Helpers;
@@ -249,94 +248,15 @@ public class SpeedTestRepository : ISpeedTestRepository
         }
     }
 
-    /// <summary>
-    /// The LAN directions: everything but the WAN tests, which have their own page.
-    /// </summary>
-    private static readonly Expression<Func<Iperf3Result, bool>> IsLan = r =>
-        r.Direction != SpeedTestDirection.CloudflareWan
-        && r.Direction != SpeedTestDirection.CloudflareWanGateway
-        && r.Direction != SpeedTestDirection.UwnWan
-        && r.Direction != SpeedTestDirection.UwnWanGateway
-        && r.Direction != SpeedTestDirection.OpenSpeedTestWan;
-
-    private static Expression<Func<Iperf3Result, Iperf3Result>>? _withoutRawJson;
-
-    /// <summary>
-    /// Projects every mapped column except the raw iperf3 JSON, which no page reads back and which is most
-    /// of a row's size. Built from the EF model, so a new column is carried without editing this.
-    /// </summary>
-    private Expression<Func<Iperf3Result, Iperf3Result>> WithoutRawJson =>
-        _withoutRawJson ??= BuildWithoutRawJson(_context.Model);
-
-    private static Expression<Func<Iperf3Result, Iperf3Result>> BuildWithoutRawJson(Microsoft.EntityFrameworkCore.Metadata.IModel model)
-    {
-        var r = Expression.Parameter(typeof(Iperf3Result), "r");
-        var bindings = model.FindEntityType(typeof(Iperf3Result))!.GetProperties()
-            .Where(p => p.PropertyInfo is { CanWrite: true }
-                        && p.Name is not (nameof(Iperf3Result.RawDownloadJson) or nameof(Iperf3Result.RawUploadJson)))
-            .Select(p => (MemberBinding)Expression.Bind(p.PropertyInfo!, Expression.Property(r, p.PropertyInfo!)));
-        return Expression.Lambda<Func<Iperf3Result, Iperf3Result>>(
-            Expression.MemberInit(Expression.New(typeof(Iperf3Result)), bindings), r);
-    }
-
-    /// <summary>
-    /// Applies a history filter in SQL. Matches the same fields as <see cref="SpeedTestFilterHelper.MatchesFilter"/>;
-    /// keep the two in step.
-    /// </summary>
-    private IQueryable<Iperf3Result> ApplyHistoryFilter(IQueryable<Iperf3Result> query, SpeedTestHistoryFilter filter)
-    {
-        if (!string.IsNullOrEmpty(filter.DeviceHost))
-        {
-            var host = filter.DeviceHost.ToLower();
-            query = query.Where(r => r.DeviceHost.ToLower() == host);
-        }
-
-        if (filter.NormalizedSearch is { } f)
-        {
-            // Hops live in PathAnalysisJson; json_valid skips a row the model would fail to deserialize.
-            var hopMatchIds = _context.Database.SqlQuery<int>($"""
-                SELECT r.Id AS Value FROM Iperf3Results r
-                WHERE r.PathAnalysisJson IS NOT NULL AND json_valid(r.PathAnalysisJson)
-                  AND EXISTS (
-                    SELECT 1 FROM json_each(r.PathAnalysisJson, '$.Path.Hops') h
-                    WHERE instr(lower(coalesce(json_extract(h.value, '$.DeviceName'), '')), {f}) > 0
-                       OR instr(lower(coalesce(json_extract(h.value, '$.DeviceMac'), '')), {f}) > 0
-                       OR instr(lower(coalesce(json_extract(h.value, '$.DeviceIp'), '')), {f}) > 0)
-                """);
-            query = query.Where(r =>
-                r.DeviceHost.ToLower().Contains(f)
-                || (r.DeviceName != null && r.DeviceName.ToLower().Contains(f))
-                || (r.ClientMac != null && r.ClientMac.ToLower().Contains(f))
-                || hopMatchIds.Contains(r.Id));
-        }
-
-        return query;
-    }
+    private IQueryable<Iperf3Result> Lan =>
+        _context.Iperf3Results.Where(r => Iperf3ResultQueries.LanDirections.Contains(r.Direction));
 
     /// <inheritdoc />
     public async Task<SpeedTestHistoryPage> GetLanHistoryPageAsync(SpeedTestHistoryFilter filter, int page, int pageSize, CancellationToken cancellationToken = default)
     {
         try
         {
-            var lan = _context.Iperf3Results.AsNoTracking().Where(IsLan);
-            var totalUnfiltered = await lan.CountAsync(cancellationToken);
-            var filtered = filter.IsEmpty ? lan : ApplyHistoryFilter(lan, filter);
-            var total = filter.IsEmpty ? totalUnfiltered : await filtered.CountAsync(cancellationToken);
-
-            pageSize = Math.Max(1, pageSize);
-            var lastPage = Math.Max(1, (int)Math.Ceiling(total / (double)pageSize));
-            page = Math.Clamp(page, 1, lastPage);
-
-            var items = total == 0
-                ? []
-                : await filtered
-                    .OrderByDescending(r => r.TestTime).ThenByDescending(r => r.Id)
-                    .Skip((page - 1) * pageSize)
-                    .Take(pageSize)
-                    .Select(WithoutRawJson)
-                    .ToListAsync(cancellationToken);
-
-            return new SpeedTestHistoryPage(items, page, total, totalUnfiltered);
+            return await Lan.PageAsync(_context, filter, page, pageSize, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -350,16 +270,7 @@ public class SpeedTestRepository : ISpeedTestRepository
     {
         try
         {
-            var filtered = ApplyHistoryFilter(_context.Iperf3Results.AsNoTracking().Where(IsLan), filter);
-            var target = await filtered
-                .Where(r => r.Id == resultId)
-                .Select(r => new { r.TestTime })
-                .FirstOrDefaultAsync(cancellationToken);
-            if (target == null) return null;
-
-            // Rows ahead of it in the TestTime desc, Id desc order the pages use.
-            return await filtered.CountAsync(r =>
-                r.TestTime > target.TestTime || (r.TestTime == target.TestTime && r.Id > resultId), cancellationToken);
+            return await Lan.IndexOfAsync(_context, filter, resultId, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -373,16 +284,13 @@ public class SpeedTestRepository : ISpeedTestRepository
     {
         try
         {
-            var query = _context.Iperf3Results.AsNoTracking().Where(IsLan);
+            var query = Lan.AsNoTracking();
             if (since is { } cutoff)
                 query = query.Where(r => r.TestTime >= cutoff);
             if (direction is { } d)
                 query = query.Where(r => r.Direction == d);
 
-            return await query
-                .OrderByDescending(r => r.TestTime).ThenByDescending(r => r.Id)
-                .Select(WithoutRawJson)
-                .ToListAsync(cancellationToken);
+            return await query.NewestFirst().WithoutRawJson(_context).ToListAsync(cancellationToken);
         }
         catch (Exception ex)
         {

@@ -323,7 +323,7 @@
             </div>
         </div>
         <div class="card-body">
-            @if (_testHistory.Count > 0)
+            @if (_testHistory.Count > 0 || _wanSources.Count > 0)
             {
                 @* Speed Chart *@
                 @if (_activeHistoryTab == "speed")
@@ -556,7 +556,7 @@
                                 var emptyColSpan = _wanSeries.Count > 1 ? 9 : 8;
                                 <tr>
                                     <td colspan="@emptyColSpan" style="text-align: center; padding: 2rem; color: var(--text-muted);">
-                                        @if (_testHistory.Count == 0)
+                                        @if (_testHistory.Count == 0 && _wanSources.Count == 0)
                                         {
                                             <span>No WAN speed test results yet. Run a test above to get started.</span>
                                         }
@@ -816,9 +816,15 @@
     private int _interpFrom;
     private int _interpTo;
 
-    // History state
+    // History state: the time slider's window only, loaded without the raw iperf3 JSON
     private List<Iperf3Result> _testHistory = new();
     private bool _loadingHistory;
+
+    // Every WAN and outcome in the stored history, all time. Names the series and WAN badges, which the
+    // window alone cannot, and tells an empty window from an empty history.
+    private List<WanResultSource> _wanSources = new();
+
+    private int WindowHours => TimeBreakpoints[Math.Clamp(_sliderValue, 0, TimeBreakpoints.Length - 1)].hours;
 
     // Filtered history - governed by time slider + WAN badges
     private List<Iperf3Result> _filteredHistory = new();
@@ -999,9 +1005,14 @@
 
         BuildWanSelectorOptions();
 
-        if (_testHistory.Count > 0)
+        try
         {
-            _latestResult = _testHistory.FirstOrDefault(r => r.Success);
+            if (await LoadLatestSuccessAsync() is { } latest)
+                _latestResult = latest;
+        }
+        catch (Exception)
+        {
+            // No latest result card; the history still loaded.
         }
 
         // If a test is already running (user navigated away and back), start polling
@@ -1584,9 +1595,9 @@
     private void TransformChartData()
     {
         // Discover distinct WANs from ALL history (not just time-filtered)
-        var allWanKeys = _testHistory
-            .Where(r => r.Success)
-            .Select(r => GetWanKey(r))
+        var allWanKeys = _wanSources
+            .Where(s => s.Success)
+            .Select(s => GetWanKey(new Iperf3Result { WanNetworkGroup = s.WanNetworkGroup, WanName = s.WanName }))
             .Distinct()
             .OrderBy(k => k)
             .ToList();
@@ -1605,7 +1616,7 @@
         }).ToList();
 
         // Ensure at least one WAN series exists for single-WAN users
-        if (_wanSeries.Count == 0 && _testHistory.Any(r => r.Success))
+        if (_wanSeries.Count == 0 && _wanSources.Any(s => s.Success))
         {
             _wanSeries.Add(new WanSeriesInfo
             {
@@ -1963,9 +1974,53 @@
         await LockCardHeight();
         _historyPage = 1;
         _expandedHistoryId = null;
+        try
+        {
+            await LoadWindowAsync();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to load history: {ex.Message}";
+        }
         ApplyFilters();
         await RenderChartAsync();
         await ReleaseCardHeight();
+    }
+
+    /// <summary>
+    /// Loads the results inside the time slider's window from both WAN test services, newest first. A load
+    /// that a newer one overtook is dropped.
+    /// </summary>
+    private async Task LoadWindowAsync()
+    {
+        var seq = ++_windowLoadSeq;
+        var hours = WindowHours;
+        var serverResults = await WanSpeedTestService.GetHistoryResultsAsync(hours);
+        var gatewayResults = await GatewayWanTestService.GetHistoryResultsAsync(hours);
+        if (seq != _windowLoadSeq) return;
+        _testHistory = serverResults.Concat(gatewayResults)
+            .OrderByDescending(r => r.TestTime)
+            .ToList();
+    }
+
+    private int _windowLoadSeq;
+
+    /// <summary>Loads every WAN and outcome in the stored history, from both WAN test services.</summary>
+    private async Task LoadWanSourcesAsync()
+    {
+        var server = await WanSpeedTestService.GetWanResultSourcesAsync();
+        var gateway = await GatewayWanTestService.GetWanResultSourcesAsync();
+        _wanSources = server.Concat(gateway).Distinct().ToList();
+    }
+
+    /// <summary>The newest successful result from either WAN test service, all time.</summary>
+    private async Task<Iperf3Result?> LoadLatestSuccessAsync()
+    {
+        var server = await WanSpeedTestService.GetLatestSuccessfulResultAsync();
+        var gateway = await GatewayWanTestService.GetLatestSuccessfulResultAsync();
+        return server == null ? gateway
+            : gateway == null ? server
+            : gateway.TestTime > server.TestTime ? gateway : server;
     }
 
     /// <summary>
@@ -1990,10 +2045,16 @@
         if (index <= 0) return null;
 
         var group = NetworkOptimizer.UniFi.GatewayWanHelper.WanNetworkGroup(index);
+        // The window is newest first, so it names the WAN's current series; older history covers a WAN
+        // with no test in the window.
         return _testHistory
             .Where(r => r.Success && string.Equals(r.WanNetworkGroup, group, StringComparison.OrdinalIgnoreCase))
             .Select(GetWanKey)
-            .FirstOrDefault();
+            .FirstOrDefault()
+            ?? _wanSources
+                .Where(s => s.Success && string.Equals(s.WanNetworkGroup, group, StringComparison.OrdinalIgnoreCase))
+                .Select(s => GetWanKey(new Iperf3Result { WanNetworkGroup = s.WanNetworkGroup, WanName = s.WanName }))
+                .FirstOrDefault();
     }
 
     /// <summary>
@@ -2498,11 +2559,8 @@
         try
         {
             // Load results from both server and gateway WAN tests
-            var serverResults = await WanSpeedTestService.GetResultsAsync(count: 0);
-            var gatewayResults = await GatewayWanTestService.GetResultsAsync(count: 0);
-            _testHistory = serverResults.Concat(gatewayResults)
-                .OrderByDescending(r => r.TestTime)
-                .ToList();
+            await LoadWindowAsync();
+            await LoadWanSourcesAsync();
             TransformChartData();
             ApplyFilters();
             await RenderChartAsync();
@@ -2556,12 +2614,19 @@
         if (deleted)
         {
             _testHistory.RemoveAll(r => r.Id == resultId);
+            try
+            {
+                // The deleted result may have been its WAN's last one, or the latest.
+                await LoadWanSourcesAsync();
+                if (_latestResult?.Id == resultId)
+                    _latestResult = await LoadLatestSuccessAsync();
+            }
+            catch (Exception)
+            {
+                // The result is gone; a failed refresh leaves the series and latest result as they were.
+            }
             TransformChartData();
             ApplyFilters();
-            if (_latestResult?.Id == resultId)
-            {
-                _latestResult = _testHistory.FirstOrDefault(r => r.Success);
-            }
             if (_expandedHistoryId == resultId)
                 _expandedHistoryId = null;
             _historyPathAnalysis.Remove(resultId);
@@ -2600,6 +2665,14 @@
         _historyPathAnalysis.Remove(args.Id);
 
         // Refresh chart data (result may have moved to a different WAN series)
+        try
+        {
+            await LoadWanSourcesAsync();
+        }
+        catch (Exception)
+        {
+            // The series keep their previous WAN list until the next load.
+        }
         TransformChartData();
         ApplyFilters();
         await RenderChartAsync();

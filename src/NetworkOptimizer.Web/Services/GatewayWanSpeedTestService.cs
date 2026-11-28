@@ -682,13 +682,42 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
     /// <summary>
     /// Get recent gateway WAN speed test results.
     /// </summary>
-    public async Task<List<Iperf3Result>> GetResultsAsync(int count = 50, int hours = 0)
+    public Task<List<Iperf3Result>> GetResultsAsync(int count = 50, int hours = 0) =>
+        LoadResultsAsync(count, hours, withoutRawJson: false);
+
+    /// <inheritdoc />
+    public Task<List<Iperf3Result>> GetHistoryResultsAsync(int hours) =>
+        LoadResultsAsync(count: 0, hours, withoutRawJson: true);
+
+    // Include historical Cloudflare gateway results alongside new UWN results
+    private static IQueryable<Iperf3Result> GatewayScope(NetworkOptimizerDbContext db) =>
+        db.Iperf3Results.Where(r => r.Direction == SpeedTestDirection.UwnWanGateway
+                                 || r.Direction == SpeedTestDirection.CloudflareWanGateway);
+
+    /// <inheritdoc />
+    public async Task<List<WanResultSource>> GetWanResultSourcesAsync()
     {
         await using var db = CreateSiteDb();
-        // Include historical Cloudflare gateway results alongside new UWN results
-        var query = db.Iperf3Results
-            .Where(r => r.Direction == SpeedTestDirection.UwnWanGateway
-                      || r.Direction == SpeedTestDirection.CloudflareWanGateway);
+        return await GatewayScope(db).AsNoTracking()
+            .Select(r => new WanResultSource(r.WanNetworkGroup, r.WanName, r.Success))
+            .Distinct()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<Iperf3Result?> GetLatestSuccessfulResultAsync()
+    {
+        await using var db = CreateSiteDb();
+        return await NetworkOptimizer.Storage.Helpers.Iperf3ResultQueries.WithoutRawJson(
+                NetworkOptimizer.Storage.Helpers.Iperf3ResultQueries.NewestFirst(
+                    GatewayScope(db).AsNoTracking().Where(r => r.Success)), db)
+            .FirstOrDefaultAsync();
+    }
+
+    private async Task<List<Iperf3Result>> LoadResultsAsync(int count, int hours, bool withoutRawJson)
+    {
+        await using var db = CreateSiteDb();
+        var query = GatewayScope(db);
 
         if (hours > 0)
         {
@@ -700,6 +729,9 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
 
         if (count > 0)
             query = query.Take(count);
+
+        if (withoutRawJson)
+            query = NetworkOptimizer.Storage.Helpers.Iperf3ResultQueries.WithoutRawJson(query, db);
 
         return await query.ToListAsync();
     }

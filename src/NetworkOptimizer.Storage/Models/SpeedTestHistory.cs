@@ -16,7 +16,25 @@ public sealed record SpeedTestHistoryFilter(string? Search = null, string? Devic
 }
 
 /// <summary>
-/// One page of LAN speed test history, newest first.
+/// The WAN a stored WAN speed test result is assigned to, as WAN Speed Test groups its series, and whether
+/// that result succeeded. Distinct on all three, so the set stays a handful of rows.
+/// </summary>
+public sealed record WanResultSource(string? WanNetworkGroup, string? WanName, bool Success);
+
+/// <summary>
+/// A cheap fingerprint of a set of speed test results. Equal stamps mean nothing was added or deleted.
+/// </summary>
+/// <param name="Count">Rows in the set.</param>
+/// <param name="MaxId">The highest Id, 0 when empty.</param>
+/// <param name="NewestTestTime">The newest test time, <see cref="DateTime.MinValue"/> when empty.</param>
+public sealed record SpeedTestResultsStamp(int Count, int MaxId, DateTime NewestTestTime)
+{
+    /// <summary>The stamp of an empty set.</summary>
+    public static SpeedTestResultsStamp None { get; } = new(0, 0, DateTime.MinValue);
+}
+
+/// <summary>
+/// One page of speed test history, newest first.
 /// </summary>
 /// <param name="Items">The page's results, without the raw iperf3 JSON.</param>
 /// <param name="Page">The 1-based page returned, clamped to the last page when the request ran past it.</param>

@@ -216,6 +216,73 @@ public class SpeedTestHistoryQueryTests : IDisposable
     }
 
     [Fact]
+    public async Task ClientScope_PagesOnlyClientDirections()
+    {
+        await SeedAsync(
+            Result("192.0.2.1", 0),
+            Result("192.0.2.2", 1, direction: SpeedTestDirection.ClientToServer),
+            Result("192.0.2.3", 2, direction: SpeedTestDirection.BrowserToServer),
+            Result("wan", 3, direction: SpeedTestDirection.OpenSpeedTestWan));
+        var scope = _context.Iperf3Results.Where(r => Iperf3ResultQueries.ClientDirections.Contains(r.Direction));
+
+        var page = await scope.PageAsync(_context, new SpeedTestHistoryFilter(), 1, 10);
+
+        page.Items.Select(r => r.DeviceHost).Should().Equal("192.0.2.3", "192.0.2.2");
+        page.Items.Should().OnlyContain(r => r.RawDownloadJson == null);
+    }
+
+    [Fact]
+    public async Task Stamp_ChangesOnAddAndDelete_AndIsNoneWhenEmpty()
+    {
+        var scope = _context.Iperf3Results.Where(r => r.Direction == SpeedTestDirection.OpenSpeedTestWan);
+        (await scope.StampAsync()).Should().Be(SpeedTestResultsStamp.None);
+
+        await SeedAsync(
+            Result("192.0.2.1", 0, direction: SpeedTestDirection.OpenSpeedTestWan),
+            Result("192.0.2.2", 5, direction: SpeedTestDirection.OpenSpeedTestWan),
+            Result("192.0.2.3", 9)); // outside the scope
+        var before = await scope.StampAsync();
+
+        before.Count.Should().Be(2);
+        before.NewestTestTime.Should().Be(T0.AddMinutes(5));
+        (await scope.StampAsync()).Should().Be(before);
+
+        var newest = await _context.Iperf3Results.SingleAsync(r => r.Id == before.MaxId);
+        _context.Iperf3Results.Remove(newest);
+        await _context.SaveChangesAsync();
+
+        var after = await scope.StampAsync();
+        after.Should().NotBe(before);
+        after.Count.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task WanResultSources_TranslateToADistinctSet()
+    {
+        await SeedAsync(
+            Result("wan", 0, direction: SpeedTestDirection.UwnWan),
+            Result("wan", 1, direction: SpeedTestDirection.UwnWan),
+            Result("wan", 2, direction: SpeedTestDirection.UwnWan));
+        var rows = await _context.Iperf3Results.ToListAsync();
+        rows[0].WanNetworkGroup = "WAN"; rows[0].WanName = "Fiber";
+        rows[1].WanNetworkGroup = "WAN"; rows[1].WanName = "Fiber";
+        rows[2].WanNetworkGroup = "WAN2"; rows[2].WanName = null; rows[2].Success = false;
+        await _context.SaveChangesAsync();
+
+        // The same query shape the WAN test services run.
+        var sources = await _context.Iperf3Results.AsNoTracking()
+            .Select(r => new WanResultSource(r.WanNetworkGroup, r.WanName, r.Success))
+            .Distinct()
+            .ToListAsync();
+
+        sources.Should().BeEquivalentTo(new[]
+        {
+            new WanResultSource("WAN", "Fiber", true),
+            new WanResultSource("WAN2", null, false),
+        });
+    }
+
+    [Fact]
     public async Task LanResults_HonorWindowAndDirection()
     {
         await SeedAsync(

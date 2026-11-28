@@ -520,9 +520,21 @@ public class ClientSpeedTestService : IClientSpeedTestService
         }
 
         var results = await query.ToListAsync();
+        await RetryRecentPathAnalysisAsync(db, results, "results");
+        return results;
+    }
 
-        // Retry path analysis for recent results (last 30 min) without a valid path
-        var retryWindow = DateTime.UtcNow.AddMinutes(-30);
+    /// <summary>How far back a result missing a valid path gets its path analysis retried.</summary>
+    private static readonly TimeSpan PathRetryWindow = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// Retries path analysis for results inside <see cref="PathRetryWindow"/> without a valid path, and saves
+    /// what it finds. Each result is retried once (<see cref="PathAnalysisRetryGate"/>). An untracked result
+    /// is attached first, so the save writes only the columns the retry changed.
+    /// </summary>
+    private async Task RetryRecentPathAnalysisAsync(NetworkOptimizerDbContext db, List<Iperf3Result> results, string kind)
+    {
+        var retryWindow = DateTime.UtcNow - PathRetryWindow;
         var needsRetry = results.Where(r =>
             r.TestTime > retryWindow &&
             (r.PathAnalysis == null ||
@@ -531,18 +543,89 @@ public class ClientSpeedTestService : IClientSpeedTestService
             .Where(r => PathAnalysisRetryGate.TryClaim(nameof(ClientSpeedTestService), r.Id))
             .ToList();
 
-        if (needsRetry.Count > 0)
-        {
-            _logger.LogInformation("Retrying path analysis for {Count} results without valid paths", needsRetry.Count);
-            foreach (var result in needsRetry)
-            {
-                await AnalyzePathAsync(result);
-                BackfillFromPathAnalysis(result);
-                await SettleWifiRatesAsync(result);
-            }
-            await db.SaveChangesAsync();
-        }
+        if (needsRetry.Count == 0) return;
 
+        _logger.LogInformation("Retrying path analysis for {Count} {Kind} without valid paths", needsRetry.Count, kind);
+        foreach (var result in needsRetry)
+        {
+            if (db.Entry(result).State == EntityState.Detached)
+                db.Attach(result);
+            await AnalyzePathAsync(result);
+            BackfillFromPathAnalysis(result);
+            await SettleWifiRatesAsync(result);
+        }
+        await db.SaveChangesAsync();
+    }
+
+    private static IQueryable<Iperf3Result> ClientScope(NetworkOptimizerDbContext db) =>
+        db.Iperf3Results.Where(r => Storage.Helpers.Iperf3ResultQueries.ClientDirections.Contains(r.Direction));
+
+    private static IQueryable<Iperf3Result> ClientWanScope(NetworkOptimizerDbContext db) =>
+        db.Iperf3Results.Where(r => r.Direction == SpeedTestDirection.OpenSpeedTestWan);
+
+    /// <inheritdoc />
+    public async Task<SpeedTestHistoryPage> GetHistoryPageAsync(SpeedTestHistoryFilter filter, int page, int pageSize)
+    {
+        await using var db = await CreateSiteDbAsync();
+        // Retry first, so the page reads the paths it writes.
+        var retryCutoff = DateTime.UtcNow - PathRetryWindow;
+        var recent = await Storage.Helpers.Iperf3ResultQueries.WithoutRawJson(
+            ClientScope(db).AsNoTracking().Where(r => r.TestTime > retryCutoff), db).ToListAsync();
+        await RetryRecentPathAnalysisAsync(db, recent, "results");
+        return await Storage.Helpers.Iperf3ResultQueries.PageAsync(ClientScope(db), db, filter, page, pageSize);
+    }
+
+    /// <inheritdoc />
+    public async Task<int?> GetHistoryIndexAsync(SpeedTestHistoryFilter filter, int resultId)
+    {
+        await using var db = await CreateSiteDbAsync();
+        return await Storage.Helpers.Iperf3ResultQueries.IndexOfAsync(ClientScope(db), db, filter, resultId);
+    }
+
+    /// <inheritdoc />
+    public async Task<List<Iperf3Result>> GetMapResultsAsync(int hours)
+    {
+        await using var db = await CreateSiteDbAsync();
+        var query = ClientScope(db).AsNoTracking();
+        if (hours > 0)
+        {
+            var cutoff = DateTime.UtcNow.AddHours(-hours);
+            query = query.Where(r => r.TestTime >= cutoff);
+        }
+        return await Storage.Helpers.Iperf3ResultQueries.WithoutRawJson(
+            Storage.Helpers.Iperf3ResultQueries.NewestFirst(query), db).ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> HasLocatedResultsAsync()
+    {
+        await using var db = await CreateSiteDbAsync();
+        return await ClientScope(db).AnyAsync(r => r.Latitude != null && r.Longitude != null);
+    }
+
+    /// <inheritdoc />
+    public async Task<SpeedTestResultsStamp> GetResultsStampAsync()
+    {
+        await using var db = await CreateSiteDbAsync();
+        return await Storage.Helpers.Iperf3ResultQueries.StampAsync(ClientScope(db));
+    }
+
+    /// <inheritdoc />
+    public async Task<SpeedTestResultsStamp> GetWanResultsStampAsync()
+    {
+        await using var db = await CreateSiteDbAsync();
+        return await Storage.Helpers.Iperf3ResultQueries.StampAsync(ClientWanScope(db));
+    }
+
+    /// <inheritdoc />
+    public async Task<List<Iperf3Result>> GetWanHistoryResultsAsync(int count)
+    {
+        await using var db = await CreateSiteDbAsync();
+        IQueryable<Iperf3Result> query = Storage.Helpers.Iperf3ResultQueries.NewestFirst(ClientWanScope(db).AsNoTracking());
+        if (count > 0)
+            query = query.Take(count);
+        var results = await Storage.Helpers.Iperf3ResultQueries.WithoutRawJson(query, db).ToListAsync();
+        await RetryRecentPathAnalysisAsync(db, results, "WAN results");
         return results;
     }
 
@@ -567,29 +650,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
             query = query.Take(count);
 
         var results = await query.ToListAsync();
-
-        // Retry path analysis for results without valid paths
-        var retryWindow = DateTime.UtcNow.AddMinutes(-30);
-        var needsRetry = results.Where(r =>
-            r.TestTime > retryWindow &&
-            (r.PathAnalysis == null ||
-             r.PathAnalysis.Path == null ||
-             !r.PathAnalysis.Path.IsValid))
-            .Where(r => PathAnalysisRetryGate.TryClaim(nameof(ClientSpeedTestService), r.Id))
-            .ToList();
-
-        if (needsRetry.Count > 0)
-        {
-            _logger.LogInformation("Retrying path analysis for {Count} WAN results without valid paths", needsRetry.Count);
-            foreach (var result in needsRetry)
-            {
-                await AnalyzePathAsync(result);
-                BackfillFromPathAnalysis(result);
-                await SettleWifiRatesAsync(result);
-            }
-            await db.SaveChangesAsync();
-        }
-
+        await RetryRecentPathAnalysisAsync(db, results, "WAN results");
         return results;
     }
 

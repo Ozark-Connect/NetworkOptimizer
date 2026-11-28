@@ -342,8 +342,17 @@ else
         }
     }
 
+    /// <summary>
+    /// Whether the host's whole history, not just <see cref="Results"/>, has a located result. A host that
+    /// passes only a time window sets it, so the card (and the slider that widens the window) stays when
+    /// the window has none.
+    /// </summary>
+    [Parameter]
+    public bool HasLocatedHistory { get; set; }
+
     // Check raw results for any location data (not filtered) - determines if map card shows at all
-    private bool HasAnyLocationData => Results.Any(r => r.Latitude.HasValue && r.Longitude.HasValue);
+    private bool HasAnyLocationData => HasLocatedHistory
+        || Results.Any(r => r.Latitude.HasValue && r.Longitude.HasValue);
 
     // Whether there are any AP markers (placed or unplaced) passed to this component
     private bool HasAnyApMarkers => ApMarkers.Any();

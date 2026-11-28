@@ -85,6 +85,18 @@ public interface IUwnSpeedTestService
     [RequireRole(Roles.Viewer)]
     Task<List<Iperf3Result>> GetResultsAsync(int count = 50, int hours = 0);
 
+    /// <summary>Results from the last <paramref name="hours"/> hours (0 = all time), without the raw JSON.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<List<Iperf3Result>> GetHistoryResultsAsync(int hours);
+
+    /// <summary>The distinct WAN group, name, and outcome on stored results, all time.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<List<WanResultSource>> GetWanResultSourcesAsync();
+
+    /// <summary>The newest successful result, all time, without the raw JSON.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<Iperf3Result?> GetLatestSuccessfulResultAsync();
+
     /// <summary>Deletes a stored result.</summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SpeedTestDeleted, TargetType = "wan_speedtest")]
@@ -151,6 +163,18 @@ public interface IGatewayWanSpeedTestService
     [RequireRole(Roles.Viewer)]
     Task<List<Iperf3Result>> GetResultsAsync(int count = 50, int hours = 0);
 
+    /// <summary>Results from the last <paramref name="hours"/> hours (0 = all time), without the raw JSON.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<List<Iperf3Result>> GetHistoryResultsAsync(int hours);
+
+    /// <summary>The distinct WAN group, name, and outcome on stored results, all time.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<List<WanResultSource>> GetWanResultSourcesAsync();
+
+    /// <summary>The newest successful result, all time, without the raw JSON.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<Iperf3Result?> GetLatestSuccessfulResultAsync();
+
     /// <summary>Deletes a stored result.</summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SpeedTestDeleted, TargetType = "wan_speedtest")]
@@ -203,6 +227,40 @@ public interface IClientSpeedTestService
     /// <summary>Recent client WAN results for this site.</summary>
     [RequireRole(Roles.Viewer)]
     Task<List<Iperf3Result>> GetWanResultsAsync(int count = 50, int hours = 0);
+
+    /// <summary>
+    /// One page of client speed test history, filtered and paged in the database, without the raw iperf3
+    /// JSON. Retries path analysis for recent results first.
+    /// </summary>
+    [RequireRole(Roles.Viewer)]
+    Task<SpeedTestHistoryPage> GetHistoryPageAsync(SpeedTestHistoryFilter filter, int page, int pageSize);
+
+    /// <summary>The 0-based position of a result in the filtered client history, or null when excluded.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<int?> GetHistoryIndexAsync(SpeedTestHistoryFilter filter, int resultId);
+
+    /// <summary>Client results from the last <paramref name="hours"/> hours (0 = all time), without the raw JSON.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<List<Iperf3Result>> GetMapResultsAsync(int hours);
+
+    /// <summary>Whether any client result, all time, carries a location.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<bool> HasLocatedResultsAsync();
+
+    /// <summary>A cheap fingerprint of the client results, for a poll to skip an unchanged reload.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<SpeedTestResultsStamp> GetResultsStampAsync();
+
+    /// <summary>A cheap fingerprint of the client WAN results, for a poll to skip an unchanged reload.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<SpeedTestResultsStamp> GetWanResultsStampAsync();
+
+    /// <summary>
+    /// The newest <paramref name="count"/> client WAN results (0 = all), without the raw JSON. Retries path
+    /// analysis for recent ones, as <see cref="GetWanResultsAsync"/> does.
+    /// </summary>
+    [RequireRole(Roles.Viewer)]
+    Task<List<Iperf3Result>> GetWanHistoryResultsAsync(int count);
 
     /// <summary>Results for one client address.</summary>
     [RequireRole(Roles.Viewer)]

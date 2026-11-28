@@ -314,7 +314,40 @@ public abstract class WanSpeedTestServiceBase
     }
 
     /// <summary>Get recent WAN speed test results for this service's directions.</summary>
-    public async Task<List<Iperf3Result>> GetResultsAsync(int count = 50, int hours = 0)
+    public Task<List<Iperf3Result>> GetResultsAsync(int count = 50, int hours = 0) =>
+        LoadResultsAsync(count, hours, withoutRawJson: false);
+
+    /// <summary>
+    /// Results from the last <paramref name="hours"/> hours (0 = all time) without the raw JSON, for the
+    /// WAN Speed Test page. Retries path analysis for recent ones, as <see cref="GetResultsAsync"/> does.
+    /// </summary>
+    public Task<List<Iperf3Result>> GetHistoryResultsAsync(int hours) =>
+        LoadResultsAsync(count: 0, hours, withoutRawJson: true);
+
+    /// <summary>The distinct WAN group, name, and outcome on this service's results, all time.</summary>
+    public async Task<List<WanResultSource>> GetWanResultSourcesAsync()
+    {
+        await using var db = await CreateSiteDbAsync();
+        var directions = OwnedDirections;
+        return await db.Iperf3Results.AsNoTracking()
+            .Where(r => directions.Contains(r.Direction))
+            .Select(r => new WanResultSource(r.WanNetworkGroup, r.WanName, r.Success))
+            .Distinct()
+            .ToListAsync();
+    }
+
+    /// <summary>This service's newest successful result, all time, without the raw JSON.</summary>
+    public async Task<Iperf3Result?> GetLatestSuccessfulResultAsync()
+    {
+        await using var db = await CreateSiteDbAsync();
+        var directions = OwnedDirections;
+        return await NetworkOptimizer.Storage.Helpers.Iperf3ResultQueries.WithoutRawJson(
+                NetworkOptimizer.Storage.Helpers.Iperf3ResultQueries.NewestFirst(
+                    db.Iperf3Results.AsNoTracking().Where(r => directions.Contains(r.Direction) && r.Success)), db)
+            .FirstOrDefaultAsync();
+    }
+
+    private async Task<List<Iperf3Result>> LoadResultsAsync(int count, int hours, bool withoutRawJson)
     {
         await using var db = await CreateSiteDbAsync();
         var directions = OwnedDirections;
@@ -331,6 +364,9 @@ public abstract class WanSpeedTestServiceBase
 
         if (count > 0)
             query = query.Take(count);
+
+        if (withoutRawJson)
+            query = NetworkOptimizer.Storage.Helpers.Iperf3ResultQueries.WithoutRawJson(query, db);
 
         var results = await query.ToListAsync();
 

@@ -14,7 +14,7 @@ public static class SpeedTestFilterHelper
     /// Searches device host, name, client MAC, and hops in the network path.
     /// </summary>
     /// <remarks>
-    /// LAN Speed Test history runs the same match in SQL (<c>SpeedTestRepository.ApplyHistoryFilter</c>).
+    /// Speed test history pages run the same match in SQL (<see cref="Iperf3ResultQueries.MatchingHistoryFilter"/>).
     /// Keep the two in step.
     /// </remarks>
     /// <param name="result">The speed test result to check</param>

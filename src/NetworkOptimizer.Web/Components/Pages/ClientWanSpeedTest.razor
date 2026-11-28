@@ -686,6 +686,13 @@
     private bool _loading;
     private List<Iperf3Result> _results = new();
     private (int Count, int MaxId) _resultsSignature;
+    private SpeedTestResultsStamp? _lastStamp; // what the last load saw, for the poll
+
+    /// <summary>The newest results the page shows: the history card, table, and charts all draw from these.</summary>
+    private const int ResultLimit = 200;
+
+    /// <summary>How long after a test its row can still change (the service's path-analysis retry window).</summary>
+    private static readonly TimeSpan ResultSettleWindow = TimeSpan.FromMinutes(30);
     private int _expandedId;
     private int _page = 1;
     private const int PageSize = 20;
@@ -829,7 +836,7 @@
             {
                 await InvokeAsync(async () =>
                 {
-                    if (await LoadResults())
+                    if (await HasNewResultsAsync() && await LoadResults())
                         await RenderActiveChart();
                     else
                         StateHasChanged();
@@ -851,12 +858,32 @@
         return server?.Name ?? serverId;
     }
 
+    /// <summary>
+    /// Whether the poll should reload: a result was added or deleted, or the newest one is young enough
+    /// that its path analysis may still be filling in.
+    /// </summary>
+    private async Task<bool> HasNewResultsAsync()
+    {
+        try
+        {
+            var stamp = await ClientSpeedTestService.GetWanResultsStampAsync();
+            return stamp != _lastStamp || stamp.NewestTestTime > DateTime.UtcNow - ResultSettleWindow;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
     private async Task<bool> LoadResults()
     {
         _loading = true;
         try
         {
-            _results = await ClientSpeedTestService.GetWanResultsAsync(200);
+            // The stamp first: a result landing mid-load makes the next poll reload again.
+            var stamp = await ClientSpeedTestService.GetWanResultsStampAsync();
+            _results = await ClientSpeedTestService.GetWanHistoryResultsAsync(ResultLimit);
+            _lastStamp = stamp;
             var signature = (_results.Count, _results.Count == 0 ? 0 : _results.Max(r => r.Id));
             var changed = signature != _resultsSignature;
             _resultsSignature = signature;
