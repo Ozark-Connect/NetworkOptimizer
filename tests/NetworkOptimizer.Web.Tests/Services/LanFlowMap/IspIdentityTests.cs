@@ -44,6 +44,37 @@ public class IspIdentityTests
     }
 
     [Fact]
+    public void OnACgnatWan_TheGatewaysGeoAsnWinsOverADisagreeingTracedAsn()
+    {
+        // The vote landed on the transit past an unannounced first mile; the gateway looked up the public egress address.
+        LanFlowMapService.ResolveIspIdentity(Access(64496, "Transit Carrier"), Gateway, "wan2", wanIpIsPublic: false)
+            .Should().Be(((int?)64501, "Satellite ISP"));
+    }
+
+    [Fact]
+    public void OnACgnatWan_AnAgreeingTracedAsnKeepsItsOwnName()
+    {
+        LanFlowMapService.ResolveIspIdentity(Access(64501, "Traced Satellite"), Gateway, "wan2", wanIpIsPublic: false)
+            .Should().Be(((int?)64501, "Traced Satellite"));
+    }
+
+    [Fact]
+    public void OnACgnatWan_WithNoGeoAsn_TheTracedAsnStays()
+    {
+        LanFlowMapService.ResolveIspIdentity(Access(64496, "Traced ISP"), Gateway, "wan3", wanIpIsPublic: false)
+            .Should().Be(((int?)64496, "Traced ISP"), "a geo asn of 0 means unknown");
+        LanFlowMapService.ResolveIspIdentity(Access(64496, "Traced ISP"), Gateway, "wan4", wanIpIsPublic: false)
+            .Should().Be(((int?)64496, "Traced ISP"), "a WAN with no geo_info entry has nothing to compare");
+    }
+
+    [Fact]
+    public void OnAPublicWan_TheTracedAsnWinsEvenWhenGeoDisagrees()
+    {
+        LanFlowMapService.ResolveIspIdentity(Access(64496, "Traced ISP"), Gateway, "wan2", wanIpIsPublic: true)
+            .Should().Be(((int?)64496, "Traced ISP"));
+    }
+
+    [Fact]
     public void WithNoTracedAsn_TheGatewaysGeoAsnIsUsed()
     {
         LanFlowMapService.ResolveIspIdentity(Access(pausedAsn: 64497, pausedName: "Paused ISP"), Gateway, "wan2")

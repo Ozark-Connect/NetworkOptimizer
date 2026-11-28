@@ -1550,3 +1550,116 @@ public class ResolveVantageFromLinkTests
             .Should().BeNull();
     }
 }
+
+/// <summary>
+/// A WAN on a CGNAT or private address has no ASN of its own, so the access ASN is a vote over hops. Behind an ISP whose
+/// first mile is unannounced the vote lands on its transit; UniFi's geo-IP lookup of the public egress address names the
+/// ISP. Hop IPs are documentation and CGNAT addresses; ASNs are from the private-use range.
+/// </summary>
+public class CgnatGeoAccessAsnTests
+{
+    private const int Isp = 64510;      // the ISP the gateway's geo_info names
+    private const int Transit = 64520;  // the first attributed hop past the ISP's unannounced first mile
+    private const int Cdn = 64530;
+
+    private static readonly IReadOnlySet<int> Dest = new HashSet<int> { Cdn };
+
+    // CGNAT first mile, unannounced, then the transit, then the destination.
+    private static readonly IReadOnlyList<string>[] Traces =
+    {
+        new[] { "100.64.0.1", "100.64.1.1", "203.0.113.20", "203.0.113.21", "198.51.100.5" },
+        new[] { "100.64.0.1", "100.64.1.2", "203.0.113.22", "198.51.100.6" },
+    };
+
+    private static readonly Dictionary<string, int> Map = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["203.0.113.20"] = Transit, ["203.0.113.21"] = Transit, ["203.0.113.22"] = Transit,
+        ["198.51.100.5"] = Cdn, ["198.51.100.6"] = Cdn,
+    };
+
+    [Fact]
+    public void The_vote_alone_crowns_the_transit()
+    {
+        UpstreamTracerService.DetermineAccessAsn(Traces, Map, wanIpAsn: null, Dest).Should().Be(Transit);
+    }
+
+    [Fact]
+    public void A_geo_asn_from_another_organization_replaces_the_voted_transit()
+    {
+        var voted = UpstreamTracerService.DetermineAccessAsn(Traces, Map, wanIpAsn: null, Dest);
+        UpstreamTracerService.PreferGeoAccessAsn(voted, Isp, "Columbus Networks USA, Inc.", "Example Fiber Telephone Company")
+            .Should().Be(Isp);
+    }
+
+    [Fact]
+    public void The_first_mile_runs_up_to_the_voted_transit_and_is_stamped_with_the_isp()
+    {
+        // The tracer collects the prefix against the voted ASN when geo replaced it: those hops are the ISP's.
+        UpstreamTracerService.CollectUnannouncedAccessAddresses(Traces, Map, Transit)
+            .Should().Equal("100.64.0.1", "100.64.1.1", "100.64.1.2");
+        UpstreamTracerService.CollectUnannouncedAccessAddresses(Traces, Map, Isp)
+            .Should().BeEmpty("against the geo ASN itself no trace reaches an ISP hop, which is why the voted one is the border");
+    }
+
+    [Fact]
+    public void An_agreeing_vote_is_unchanged()
+    {
+        // Main's Starlink shape: the ISP announces its border, so the vote and geo_info already agree.
+        UpstreamTracerService.PreferGeoAccessAsn(Isp, Isp, "SPACEX-STARLINK", "Space Exploration Technologies Corporation")
+            .Should().Be(Isp);
+    }
+
+    [Fact]
+    public void A_sibling_asn_of_the_same_isp_keeps_the_vote()
+    {
+        UpstreamTracerService.PreferGeoAccessAsn(Transit, Isp, "Example Fiber Backbone", "Example Fiber Telephone Company")
+            .Should().Be(Transit, "routers under one number, customers egressing under another: still the ISP");
+    }
+
+    [Fact]
+    public void No_geo_asn_keeps_the_vote()
+    {
+        UpstreamTracerService.PreferGeoAccessAsn(Transit, null, "Columbus Networks", null).Should().Be(Transit);
+        UpstreamTracerService.PreferGeoAccessAsn(Transit, 0, "Columbus Networks", "Unknown").Should().Be(Transit);
+    }
+
+    [Fact]
+    public void No_vote_takes_the_geo_asn()
+    {
+        UpstreamTracerService.PreferGeoAccessAsn(null, Isp, null, "Example Fiber").Should().Be(Isp);
+    }
+
+    [Theory]
+    [InlineData("Comcast Cable Communications, LLC", "COMCAST-7922", true)]
+    [InlineData("Columbus Networks USA, Inc.", "Example Fiber Telephone Company", false)]
+    [InlineData("AT&T Services, Inc.", "AT&T Mobility LLC", true)]
+    [InlineData("SPACEX-STARLINK", "Space Exploration Technologies Corporation", false)]
+    [InlineData("Columbus Networks USA, Inc.", "Example Fiber USA", false)]
+    [InlineData(null, "Example Fiber", false)]
+    [InlineData("Cable Networks Inc", "Wireless Networks LLC", false)]
+    public void Same_organization_needs_a_shared_distinctive_word(string? a, string? b, bool expected)
+    {
+        UpstreamTracerService.SameOrganization(a, b).Should().Be(expected);
+    }
+
+    [Fact]
+    public void Geo_info_is_read_per_wan_network_group()
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse("""
+            {
+              "type": "uxg",
+              "geo_info": {
+                "WAN": { "address": "203.0.113.10", "asn": 64500, "isp_name": "Fiber ISP", "isp_organization": "FIBER ISP INC" },
+                "WAN2": { "address": "198.51.100.20", "asn": "64501", "isp_name": "Satellite ISP" },
+                "WAN3": { "address": "192.0.2.30", "asn": 0, "isp_name": "Unknown ISP" }
+              }
+            }
+            """);
+        var device = doc.RootElement;
+
+        UpstreamTracerService.ReadWanGeo(device, "WAN").Should().Be(((int?)64500, "FIBER ISP INC"));
+        UpstreamTracerService.ReadWanGeo(device, "WAN2").Should().Be(((int?)64501, "Satellite ISP"));
+        UpstreamTracerService.ReadWanGeo(device, "WAN3").Asn.Should().BeNull("an ASN of 0 means unknown");
+        UpstreamTracerService.ReadWanGeo(device, "WAN4").Should().Be(((int?)null, (string?)null));
+    }
+}

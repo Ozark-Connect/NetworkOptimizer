@@ -723,6 +723,8 @@ public class UpstreamTracerService
         string? wanUplinkIfName = null;
         string? wanIp = null;
 
+        _wanGeoAsn = null;
+        _wanGeoName = null;
         using (var doc = System.Text.Json.JsonDocument.Parse(deviceJson))
         {
             var root = doc.RootElement;
@@ -831,7 +833,11 @@ public class UpstreamTracerService
                             primaryNg, wanInterfaceName);
                 }
 
-                if (wanInterfaceName != null) break;
+                if (wanInterfaceName != null)
+                {
+                    (_wanGeoAsn, _wanGeoName) = ReadWanGeo(device, GatewayWanHelper.WanNetworkGroupFromKey(wanInterfaceName));
+                    break;
+                }
             }
         }
 
@@ -1195,6 +1201,11 @@ public class UpstreamTracerService
     // name. Used by the curated-fallback injection for labeling.
     private string? _accessAsnName;
 
+    // UniFi's geo-IP lookup of the traced WAN's public egress address (stat/device geo_info), for a WAN whose own
+    // address is CGNAT or private. Null when the gateway reports none for this WAN.
+    private int? _wanGeoAsn;
+    private string? _wanGeoName;
+
     // Destination (CDN endpoint) ASNs and org names from the rotation, resolved once per
     // run during the access step (they gate the access-ISP pick) and reused by the transit
     // step. Transit-probe endpoints are excluded on purpose - their ASN is allowed to
@@ -1372,7 +1383,24 @@ public class UpstreamTracerService
         // WAN IP's ASN with per-trace voting instead.
         var asnByIp = BuildAsnByIpMap();
         var traceSequences = BuildTraceSequences();
-        var accessAsn = DetermineAccessAsn(traceSequences, asnByIp, wanIpAsn?.Asn, _destinationAsns);
+        var votedAsn = DetermineAccessAsn(traceSequences, asnByIp, wanIpAsn?.Asn, _destinationAsns);
+        var accessAsn = votedAsn;
+
+        // A CGNAT or private WAN address has no ASN of its own, so the pick above is a vote, and behind an ISP whose
+        // first mile is unannounced the first attributed hop is its transit. UniFi's geo-IP lookup of the public
+        // egress address names the ISP; it wins unless the voted ASN is the same organization.
+        if (wanIpAsn == null && _wanGeoAsn is > 0
+            && !string.IsNullOrEmpty(State.WanIpAddress) && !NetworkUtilities.IsPublicIpAddress(State.WanIpAddress))
+        {
+            var votedName = votedAsn is int v ? candidateHops.FirstOrDefault(h => h.Asn?.Asn == v)?.Asn?.Name : null;
+            accessAsn = PreferGeoAccessAsn(votedAsn, _wanGeoAsn, votedName, _wanGeoName);
+            if (accessAsn != votedAsn)
+                _logger.LogInformation(
+                    "Tracer: {Wan} is on a non-public address; the gateway's geo-IP ASN {GeoAsn} ({GeoName}) replaces the voted access ASN {VotedAsn} ({VotedName})",
+                    State.WanInterface, _wanGeoAsn, _wanGeoName, votedAsn, votedName);
+        }
+        var geoOverride = accessAsn != votedAsn;
+
         // Remember it so the reachability step can reach for a curated fallback endpoint
         // even when the access pool ends up empty or entirely unreachable.
         _accessAsn = accessAsn;
@@ -1388,13 +1416,16 @@ public class UpstreamTracerService
                 .Where(h => h.Asn?.Asn == accessAsn.Value)
                 .ToList();
         }
-        else
+        if (!accessAsn.HasValue || (geoOverride && !votedAsn.HasValue))
         {
-            _accessHopsResolved = LeadingUnattributedAccessHops(
+            // No attributed hop to anchor on (and, with a geo ASN, none of the ISP's own): the leading run of
+            // unattributed hops is the first mile.
+            var leading = LeadingUnattributedAccessHops(
                 candidateHops.Select(h => (h.Address, h.Asn != null)).ToList(),
                 _traceEndpoints.Select(e => e.Address))
                 .Select(a => candidateHops.First(h => h.Address == a))
                 .ToList();
+            _accessHopsResolved = leading.Concat(_accessHopsResolved).ToList();
         }
 
         // Unannounced first-mile hops: an ISP like Bell (#984) numbers its aggregation
@@ -1405,12 +1436,15 @@ public class UpstreamTracerService
         // RFC1918 prefix hops stay excluded (a bridged CPE's LAN address or a double-NAT
         // middlebox is not ISP infra); the reachability gate later disables any of these
         // that don't answer ping.
-        if (accessAsn.HasValue)
+        // With a geo ASN in place of the vote, the ISP's own hops carry no attribution, so the prefix runs up to the
+        // voted ASN: the transit the first mile hands off to.
+        var prefixBorderAsn = geoOverride && votedAsn.HasValue ? votedAsn : accessAsn;
+        if (prefixBorderAsn.HasValue)
         {
             var alreadyIncluded = new HashSet<string>(
                 _accessHopsResolved.Select(h => h.Address), StringComparer.OrdinalIgnoreCase);
             var unannounced = CollectUnannouncedAccessAddresses(
-                    traceSequences, asnByIp, accessAsn.Value, _gatewayIps, _minRttByIp)
+                    traceSequences, asnByIp, prefixBorderAsn.Value, _gatewayIps, _minRttByIp)
                 .Where(a => !alreadyIncluded.Contains(a) && !_gatewayIps.Contains(a) && byIp.ContainsKey(a))
                 .Select(a => byIp[a])
                 .OrderBy(h => h.HopNumber)
@@ -1470,7 +1504,8 @@ public class UpstreamTracerService
         // Access org display name: from an attributed access hop when one exists, else
         // from the WAN IP lookup (a fully silent/unannounced first mile still labels).
         var accessAsnRawName = _accessHopsResolved.FirstOrDefault(h => h.Asn != null)?.Asn?.Name
-                               ?? (accessAsn.HasValue && accessAsn.Value == wanIpAsn?.Asn ? wanIpAsn.Name : null);
+                               ?? (accessAsn.HasValue && accessAsn.Value == wanIpAsn?.Asn ? wanIpAsn.Name : null)
+                               ?? (accessAsn.HasValue && accessAsn.Value == _wanGeoAsn ? _wanGeoName : null);
         var orgName = CleanAsnName(accessAsnRawName);
         _accessAsnName = string.IsNullOrEmpty(orgName) ? null : orgName;
         // Which hop the WAN-side vendor evidence can speak for: the box on the other end of the
@@ -3890,6 +3925,64 @@ public class UpstreamTracerService
             result.Add(address);
         }
         return result;
+    }
+
+    /// <summary>
+    /// The gateway's geo-IP lookup for one WAN (stat/device <c>geo_info</c>, keyed by WAN network group): the ASN of
+    /// its public egress address and the ISP's organization name. Nulls when the gateway reports none; an ASN of 0
+    /// means unknown.
+    /// </summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "stat/device geo_info: per-WAN geo-IP with asn, isp_name, isp_organization")]
+    internal static (int? Asn, string? Name) ReadWanGeo(System.Text.Json.JsonElement device, string networkGroup)
+    {
+        if (!device.TryGetProperty("geo_info", out var geoInfo) || geoInfo.ValueKind != System.Text.Json.JsonValueKind.Object
+            || !geoInfo.TryGetProperty(networkGroup, out var geo) || geo.ValueKind != System.Text.Json.JsonValueKind.Object)
+            return (null, null);
+
+        int? asn = null;
+        if (geo.TryGetProperty("asn", out var asnProp))
+        {
+            if (asnProp.ValueKind == System.Text.Json.JsonValueKind.Number && asnProp.TryGetInt32(out var n)) asn = n;
+            else if (asnProp.ValueKind == System.Text.Json.JsonValueKind.String && int.TryParse(asnProp.GetString(), out var s)) asn = s;
+        }
+        string? Str(string name) =>
+            geo.TryGetProperty(name, out var p) && p.ValueKind == System.Text.Json.JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(p.GetString()) ? p.GetString() : null;
+        return (asn is > 0 ? asn : null, Str("isp_organization") ?? Str("isp_name"));
+    }
+
+    /// <summary>
+    /// The access ASN for a WAN on a CGNAT or private address, given the voted one and the gateway's geo-IP ASN. The
+    /// geo ASN wins unless the vote already agrees, or the voted ASN's name shares a word with the geo organization (a
+    /// sibling ASN of the same ISP, whose routers answer under one number and whose customers egress under another).
+    /// </summary>
+    internal static int? PreferGeoAccessAsn(int? votedAsn, int? geoAsn, string? votedName, string? geoName)
+    {
+        if (geoAsn is not > 0 || votedAsn == geoAsn) return votedAsn;
+        if (votedAsn == null) return geoAsn;
+        return SameOrganization(votedName, geoName) ? votedAsn : geoAsn;
+    }
+
+    private static readonly HashSet<string> OrgNameNoise = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "inc", "llc", "ltd", "corp", "corporation", "company", "co", "the", "of", "and", "communications",
+        "communication", "networks", "network", "telecom", "telephone", "cable", "internet", "services", "service",
+        "technologies", "technology", "broadband", "wireless", "group", "holdings", "limited", "as", "isp",
+        "usa", "mobility", "enterprises", "systems",
+    };
+
+    /// <summary>
+    /// Whether two organization names share a distinctive word of three characters or more. Words split on spaces,
+    /// commas and hyphens, and keep inner punctuation out, so "AT&amp;T" is one word ("att"). Numbers are not words.
+    /// </summary>
+    internal static bool SameOrganization(string? a, string? b)
+    {
+        static HashSet<string> Words(string? s) =>
+            new(Regex.Split(s ?? "", @"[\s,\-_/().]+")
+                .Select(w => Regex.Replace(w, "[^A-Za-z0-9]", "").ToLowerInvariant())
+                .Where(w => w.Length >= 3 && !w.All(char.IsDigit) && !OrgNameNoise.Contains(w)));
+        var words = Words(a);
+        return words.Count > 0 && Words(b).Overlaps(words);
     }
 
     /// <summary>

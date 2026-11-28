@@ -2493,16 +2493,24 @@ public class LanFlowMapService
     /// <summary>
     /// The access ISP's ASN and name for a WAN globe: the first enabled access hop with an ASN, else the
     /// gateway's own geo-IP lookup (the ASN UniFi Network draws its logo from), else a paused
-    /// access hop. The gateway fallback covers a WAN with no trace or no WAN vantage.
+    /// access hop. The gateway fallback covers a WAN with no trace or no WAN vantage. On a CGNAT or private WAN
+    /// address the traced ASN is a vote over hops, which can land on the transit past an unannounced first mile;
+    /// there the gateway's lookup of the public egress address wins when the two disagree.
     /// </summary>
     internal static (int? Asn, string? Name) ResolveIspIdentity(
-        Monitoring.AccessIspCloud access, NetworkOptimizer.UniFi.Models.UniFiDeviceResponse? gateway, string wanInterface)
+        Monitoring.AccessIspCloud access, NetworkOptimizer.UniFi.Models.UniFiDeviceResponse? gateway, string wanInterface,
+        bool wanIpIsPublic = true)
     {
-        if (access.AsnNumber is > 0)
-            return (access.AsnNumber, access.AsnName);
-
         NetworkOptimizer.UniFi.Models.WanGeoInfo? geo = null;
         gateway?.GeoInfo?.TryGetValue(GatewayWanHelper.WanNetworkGroupFromKey(wanInterface), out geo);
+
+        if (access.AsnNumber is > 0)
+        {
+            if (!wanIpIsPublic && geo?.Asn is > 0 && geo.Asn != access.AsnNumber)
+                return (geo.Asn, geo.AnyName ?? access.AsnName);
+            return (access.AsnNumber, access.AsnName);
+        }
+
         var name = access.AsnName ?? geo?.AnyName ?? access.PausedAsnName;
         if (geo?.Asn is > 0)
             return (geo.Asn, name);
@@ -2561,7 +2569,9 @@ public class LanFlowMapService
                 && upstream.Transits.Count == 0;
 
             rawByMac.TryGetValue(NormalizeMac(wan.GatewayMac!), out var gatewayRaw);
-            var (ispAsn, ispName) = ResolveIspIdentity(upstream.Access, gatewayRaw, wan.WanInterface);
+            // An unknown address keeps the traced ASN, as before.
+            var wanIpIsPublic = string.IsNullOrEmpty(wan.IpAddress) || NetworkUtilities.IsPublicIpAddress(wan.IpAddress);
+            var (ispAsn, ispName) = ResolveIspIdentity(upstream.Access, gatewayRaw, wan.WanInterface, wanIpIsPublic);
             var accessCloud = new LanCloud
             {
                 Id = $"cloud-access-{wan.WanInterface}",
