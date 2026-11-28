@@ -1025,6 +1025,97 @@ public class LanHealthTests
         f.Quiet.Should().Be(leaf);
     }
 
+    /// <summary>
+    /// Gateway to a switch carrying 10 clients (6 wired on its ports, 4 on an AP below it), two clients on the gateway's
+    /// own ports, a 1-client Device Bridge meshed off the AP, and an idle AP on the switch.
+    /// </summary>
+    private static List<LinkRecord> SmallSite()
+    {
+        LinkEnd Dev(string mac, DeviceType type, int? port = null) => new() { DeviceMac = mac, DeviceName = mac, DeviceType = type, PortIdx = port };
+        var links = new List<LinkRecord>
+        {
+            new() { Id = "gw-sw", Kind = LinkKind.FabricWired, ClientsBehind = 11, DevicesBehind = 4, Upstream = Dev(GatewayMac, DeviceType.Gateway, 1), Downstream = Dev(SwitchMac, DeviceType.Switch) },
+            new() { Id = "sw-ap", Kind = LinkKind.FabricWired, ClientsBehind = 5, DevicesBehind = 2, Upstream = Dev(SwitchMac, DeviceType.Switch, 9), Downstream = Dev(ApMac, DeviceType.AccessPoint) },
+            new() { Id = "ap-udb", Kind = LinkKind.FabricMesh, ClientsBehind = 1, DevicesBehind = 1, Upstream = Dev(ApMac, DeviceType.AccessPoint), Downstream = Dev("aa:bb:cc:00:00:07", DeviceType.DeviceBridge) },
+            new() { Id = "sw-idle", Kind = LinkKind.FabricWired, ClientsBehind = 0, DevicesBehind = 1, Upstream = Dev(SwitchMac, DeviceType.Switch, 10), Downstream = Dev("aa:bb:cc:00:00:08", DeviceType.AccessPoint) },
+        };
+        links.AddRange(Enumerable.Range(1, 6).Select(p => new LinkRecord { Id = $"sw-{p}", Kind = LinkKind.Access, ClientsBehind = 1, Upstream = Dev(SwitchMac, DeviceType.Switch, p) }));
+        links.AddRange(Enumerable.Range(2, 2).Select(p => new LinkRecord { Id = $"gw-{p}", Kind = LinkKind.Access, ClientsBehind = 1, Upstream = Dev(GatewayMac, DeviceType.Gateway, p) }));
+        return links;
+    }
+
+    [Fact]
+    public void TotalClients_CountsWiredClientsBehindAFabricSubtreeOnce()
+    {
+        // 11 behind the switch (its 6 wired, the AP's 5) and the gateway's own 2: 13, not 19.
+        LanHealthScorer.TotalClients(SmallSite()).Should().Be(13);
+    }
+
+    [Fact]
+    public void Share_ALeafWeighsItsOwnClients_ATrunkKeepsTheFloor()
+    {
+        var links = SmallSite();
+        var total = LanHealthScorer.TotalClients(links);
+        var floor = LanHealthScorer.FloorShare(links);
+        double Of(string id) => LanHealthScorer.Share(links.Single(l => l.Id == id), total, floor);
+        Of("ap-udb").Should().BeApproximately(1.0 / 13, 1e-9, "a 1-client Device Bridge is one client's worth");
+        Of("sw-idle").Should().BeApproximately(1.0 / 13, 1e-9, "an idle AP weighs one client, not the fabric floor");
+        Of("sw-ap").Should().BeApproximately(Math.Max(floor, 5.0 / 13), 1e-9, "a link feeding other devices keeps the floor");
+        Of("gw-sw").Should().BeApproximately(11.0 / 13, 1e-9);
+        Of("sw-1").Should().BeApproximately(1.0 / 13, 1e-9);
+        // A switch with nothing meshed or cabled below it still carries whatever is on its ports.
+        var leafSwitch = new LinkRecord { Kind = LinkKind.FabricWired, ClientsBehind = 0, DevicesBehind = 1, Upstream = new LinkEnd { DeviceType = DeviceType.Gateway }, Downstream = new LinkEnd { DeviceType = DeviceType.Switch } };
+        LanHealthScorer.Share(leafSwitch, total, floor).Should().Be(floor);
+    }
+
+    [Fact]
+    public void SiteScore_AFlappingLeafMeshLinkCostsItsOneClient()
+    {
+        var links = SmallSite();
+        var health = links.Select(l => new LinkHealth { Link = l, Score = l.Id == "ap-udb" ? 50 : 100 }).ToList();
+        LanHealthScorer.SiteScore(health).Should().BeApproximately(100 - 50.0 / 13, 0.1);
+    }
+
+    [Fact]
+    public void HourImpairment_ARelinkCostsItsClientsReconnectTime()
+    {
+        var link = ApLink();
+        var rows = new List<NetworkOptimizer.Storage.Models.LanHealthLinkHour> { new() { LinkId = link.Id, Relinks = 1, DownSeconds = 5 } };
+        LanHealthReportBuilder.HourImpairment(rows, QuarterSite(), [], false).Impairment
+            .Should().BeApproximately(0.25 * 60 / 3600, 1e-9);
+    }
+
+    [Fact]
+    public void ScoreStoredHour_ReadsTheBaseline_AsTheLiveReportDoes()
+    {
+        // Drops in the window and five days before it: a chronic fault only the baseline shows.
+        var link = ApLink();
+        var hour = new DateTime(2026, 1, 20, 12, 0, 0, DateTimeKind.Utc);
+        NetworkOptimizer.Storage.Models.LanHealthLinkHour Row(DateTime h, int drops)
+        {
+            var incidents = Enumerable.Range(0, drops).Select(i => new LinkIncident { Start = h.AddMinutes(5 + i), End = h.AddMinutes(5 + i).AddSeconds(3), Kind = IncidentKind.Drop }).ToList();
+            return new() { LinkId = link.Id, HourStart = h, Kind = (int)link.Kind, Drops = drops, IncidentsJson = LanHealthIncidentJson.Serialize(incidents) };
+        }
+        var all = new List<NetworkOptimizer.Storage.Models.LanHealthLinkHour>
+        {
+            Row(hour.AddDays(-7), 2), Row(hour.AddDays(-5), 2), Row(hour.AddDays(-3), 2), Row(hour.AddHours(-20), 3), Row(hour, 2),
+        };
+        var topology = new LanHealthEngine.Topology { Links = QuarterSite() };
+        var stored = new Dictionary<string, List<NetworkOptimizer.Storage.Models.LanHealthLinkHour>> { [link.Id] = all };
+        var (report, _, _) = LanHealthEngine.ScoreStoredHour(hour, [all[^1]], stored, topology);
+
+        var from = hour.AddHours(-47);
+        var window = new Dictionary<string, List<NetworkOptimizer.Storage.Models.LanHealthLinkHour>> { [link.Id] = all.Where(r => r.HourStart >= from).ToList() };
+        var baseline = new Dictionary<string, List<NetworkOptimizer.Storage.Models.LanHealthLinkHour>> { [link.Id] = all.Where(r => r.HourStart < from).ToList() };
+        var live = LanHealthReportBuilder.Build(topology.Links, window, baseline, [], false, null, FindingText.Utc, from, hour.AddHours(1));
+        var noBaseline = LanHealthReportBuilder.Build(topology.Links, window, new Dictionary<string, List<NetworkOptimizer.Storage.Models.LanHealthLinkHour>>(), [], false, null, FindingText.Utc, from, hour.AddHours(1));
+
+        double Points(LanHealthReport r) => r.Findings.Single(f => f.Detector == Detectors.LinkDrops && f.LinkId == link.Id).Points;
+        Points(report).Should().Be(Points(live));
+        report.Score.Should().Be(live.Score);
+        Points(report).Should().BeGreaterThan(Points(noBaseline), "the 3-day run back through the baseline weighs a chronic fault more");
+    }
+
     [Fact]
     public void LiveHours_IncludeTheLastClosedHourUntilItIsStored()
     {

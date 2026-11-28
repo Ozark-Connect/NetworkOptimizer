@@ -61,18 +61,48 @@ public static class LanHealthScorer
     {
         var scored = links.Where(l => l.Link.IsFabric || l.Exclusion != ExclusionLevel.ExcludeFromScore).ToList();
         if (scored.Count == 0) return null;
-        var totalClients = Math.Max(1, scored.Where(l => !l.Link.IsFabric).Sum(l => l.Link.ClientsBehind)
-            + scored.Where(l => l.Link.IsFabric && l.Link.Upstream.IsGateway).Sum(l => l.Link.ClientsBehind));
-        var floorShare = 1.0 / Math.Max(4, scored.Count(l => l.Link.IsFabric) + 1);
+        var records = scored.Select(l => l.Link).ToList();
+        var totalClients = TotalClients(records);
+        var floorShare = FloorShare(records);
         var lost = 0.0;
         foreach (var l in scored)
-        {
-            var share = l.Link.IsFabric
-                ? Math.Max(floorShare, (double)l.Link.ClientsBehind / totalClients)
-                : 1.0 / totalClients;
-            lost += (100 - l.Score) * Math.Min(1, share);
-        }
+            lost += (100 - l.Score) * Share(l.Link, totalClients, floorShare);
         return Math.Round(Math.Clamp(100 - lost, 0, 100), 1);
+    }
+
+    /// <summary>
+    /// The site's clients, each once: every gateway fabric subtree's, plus access ports outside those subtrees (the
+    /// gateway's own ports). A switch's access ports are already inside its uplink's subtree.
+    /// </summary>
+    internal static int TotalClients(IReadOnlyList<LinkRecord> links)
+    {
+        var children = links.Where(l => l.IsFabric).GroupBy(l => l.Upstream.DeviceMac, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Select(l => l.Downstream.DeviceMac).ToList(), StringComparer.OrdinalIgnoreCase);
+        var covered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var stack = new Stack<string>(links.Where(l => l.IsFabric && l.Upstream.IsGateway).Select(l => l.Downstream.DeviceMac));
+        while (stack.Count > 0)
+        {
+            var m = stack.Pop();
+            if (!covered.Add(m)) continue;
+            foreach (var c in children.GetValueOrDefault(m) ?? []) stack.Push(c);
+        }
+        return Math.Max(1, links.Where(l => l.IsFabric && l.Upstream.IsGateway).Sum(l => l.ClientsBehind)
+            + links.Where(l => !l.IsFabric && !covered.Contains(l.Upstream.DeviceMac)).Sum(l => l.ClientsBehind));
+    }
+
+    /// <summary>The least a fabric link that feeds other devices weighs: a fault there reaches everything behind it.</summary>
+    internal static double FloorShare(IReadOnlyList<LinkRecord> links) => 1.0 / Math.Max(4, links.Count(l => l.IsFabric) + 1);
+
+    /// <summary>
+    /// A link's share of the site: an access port its one client; a fabric link to a leaf (one device, not a switch)
+    /// the clients on that device; any other fabric link its subtree's clients, at least <paramref name="floorShare"/>.
+    /// </summary>
+    internal static double Share(LinkRecord link, int totalClients, double floorShare)
+    {
+        if (!link.IsFabric) return Math.Min(1, 1.0 / totalClients);
+        var clients = (double)link.ClientsBehind / totalClients;
+        var leaf = link.DevicesBehind <= 1 && !link.Downstream.IsSwitch;
+        return Math.Min(1, leaf ? Math.Max(1.0, link.ClientsBehind) / totalClients : Math.Max(floorShare, clients));
     }
 
     /// <summary>The site's LAN impairment for Site Health (0 none, 1 everyone), from the site score.</summary>

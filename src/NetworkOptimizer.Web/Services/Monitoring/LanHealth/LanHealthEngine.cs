@@ -17,7 +17,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 public sealed class LanHealthEngine
 {
     /// <summary>Bump when the roll-up changes; older rows are recomputed on the next backfill pass.</summary>
-    public const int Version = 23;
+    public const int Version = 24;
 
     internal static readonly TimeSpan RunEvery = TimeSpan.FromMinutes(15);
     internal static readonly TimeSpan Settle = TimeSpan.FromMinutes(5);
@@ -116,12 +116,15 @@ public sealed class LanHealthEngine
             for (var h = latest; h >= oldest && missing.Count < HoursPerTick; h = h.AddHours(-1))
                 if (!have.Contains(h)) missing.Add(h);
             var sw = Stopwatch.StartNew();
+            // Each hour's trailing score reads its 48 hours and their 14-day baseline: loaded once for the whole pass.
+            var stored = missing.Count == 0 ? new Dictionary<string, List<LanHealthLinkHour>>() : await LoadRowsAsync(db,
+                missing.Min().AddHours(-47).AddDays(-LanHealthReportBuilder.BaselineDays), missing.Max().AddHours(1), ct);
             // Oldest first, so each hour's trailing score can read the hours before it.
             foreach (var hour in missing.OrderBy(h => h))
             {
                 ct.ThrowIfCancellationRequested();
                 var rows = await RollupHourAsync(hour, topology, ct);
-                await SaveHourAsync(hour, rows, topology, ct);
+                await SaveHourAsync(hour, rows, topology, stored, ct);
             }
             if (sw.Elapsed > SlowRun)
                 _logger.LogInformation("LAN Health for {Site} rolled up {Hours} hour(s) in {Seconds:0.0} s", _slug, missing.Count, sw.Elapsed.TotalSeconds);
@@ -623,7 +626,12 @@ public sealed class LanHealthEngine
         }
     }
 
-    private async Task SaveHourAsync(DateTime hour, List<LanHealthLinkHour> rows, Topology topology, CancellationToken ct)
+    /// <summary>
+    /// Stores the hour's rows and its site hour. <paramref name="stored"/> holds the stored rows the hour's trailing
+    /// score reads; the hour's own rows replace its entries there, so the next hour reads them.
+    /// </summary>
+    private async Task SaveHourAsync(DateTime hour, List<LanHealthLinkHour> rows, Topology topology,
+        Dictionary<string, List<LanHealthLinkHour>> stored, CancellationToken ct)
     {
         await using var db = await _db(ct);
         var old = await db.LanHealthLinkHours.Where(r => r.HourStart == hour).ToListAsync(ct);
@@ -632,11 +640,13 @@ public sealed class LanHealthEngine
         db.LanHealthLinkHours.AddRange(rows);
         await db.SaveChangesAsync(ct);
 
-        // The trailing 48 hours' score at this hour, from the rows just stored and the ones before them.
-        var window = await LoadRowsAsync(db, hour.AddHours(-47), hour.AddHours(1), ct);
-        var report = LanHealthReportBuilder.Build(topology.Links, window, new Dictionary<string, List<LanHealthLinkHour>>(),
-            topology.Exclusions, topology.ScoreFabricOnly, null, FindingText.Utc, hour.AddHours(-47), hour.AddHours(1));
-        var (impairment, worst) = LanHealthReportBuilder.HourImpairment(rows, topology.Links, topology.Exclusions, topology.ScoreFabricOnly, report.Findings, hour.AddHours(1));
+        foreach (var list in stored.Values) list.RemoveAll(r => r.HourStart == hour);
+        foreach (var r in rows)
+        {
+            if (!stored.TryGetValue(r.LinkId, out var list)) stored[r.LinkId] = list = [];
+            list.Add(r);
+        }
+        var (report, impairment, worst) = ScoreStoredHour(hour, rows, stored, topology);
         var site = await db.LanHealthSiteHours.FirstOrDefaultAsync(h => h.HourStart == hour, ct);
         if (site == null) { site = new LanHealthSiteHour { HourStart = hour }; db.LanHealthSiteHours.Add(site); }
         site.Score = report.Score;
@@ -649,6 +659,24 @@ public sealed class LanHealthEngine
         site.Version = Version;
         site.ComputedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// A stored hour's trailing 48-hour report and its own impairment, from the stored rows: the window ending with the
+    /// hour and its 14-day baseline before it, as the live report reads them.
+    /// </summary>
+    internal static (LanHealthReport Report, double Impairment, string? Worst) ScoreStoredHour(DateTime hour,
+        IReadOnlyList<LanHealthLinkHour> hourRows, IReadOnlyDictionary<string, List<LanHealthLinkHour>> stored, Topology topology)
+    {
+        var from = hour.AddHours(-47);
+        var to = hour.AddHours(1);
+        Dictionary<string, List<LanHealthLinkHour>> Slice(DateTime a, DateTime b) => stored
+            .Select(kv => (kv.Key, Rows: kv.Value.Where(r => r.HourStart >= a && r.HourStart < b).OrderBy(r => r.HourStart).ToList()))
+            .Where(x => x.Rows.Count > 0).ToDictionary(x => x.Key, x => x.Rows);
+        var report = LanHealthReportBuilder.Build(topology.Links, Slice(from, to), Slice(from.AddDays(-LanHealthReportBuilder.BaselineDays), from),
+            topology.Exclusions, topology.ScoreFabricOnly, null, FindingText.Utc, from, to);
+        var (impairment, worst) = LanHealthReportBuilder.HourImpairment(hourRows, topology.Links, topology.Exclusions, topology.ScoreFabricOnly, report.Findings, to);
+        return (report, impairment, worst);
     }
 
     /// <summary>

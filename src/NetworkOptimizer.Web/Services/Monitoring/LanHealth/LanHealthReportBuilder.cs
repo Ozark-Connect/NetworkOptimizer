@@ -475,16 +475,18 @@ public static class LanHealthReportBuilder
         var condition = (open ?? []).Where(IsUnstable).GroupBy(f => f.LinkId)
             .ToDictionary(g => g.Key, g => g.Max(f => Condition(f, at)));
         var byId = links.ToDictionary(l => l.Id);
-        var total = Math.Max(1, links.Where(l => !l.IsFabric).Sum(l => l.ClientsBehind) + links.Where(l => l.IsFabric && l.Upstream.IsGateway).Sum(l => l.ClientsBehind));
+        var total = LanHealthScorer.TotalClients(links);
+        var floorShare = LanHealthScorer.FloorShare(links);
         double sum = 0;
         (string Name, double Part)? worst = null;
         foreach (var id in rowsById.Keys.Union(condition.Keys))
         {
             if (!byId.TryGetValue(id, out var link)) continue;
             if (ExclusionFor(link, exclusions, scoreFabricOnly) == ExclusionLevel.ExcludeFromScore) continue;
-            var share = link.IsFabric ? Math.Max(1.0 / Math.Max(4, links.Count(l => l.IsFabric) + 1), (double)link.ClientsBehind / total) : 1.0 / total;
+            var share = LanHealthScorer.Share(link, total, floorShare);
             var r = rowsById.GetValueOrDefault(id);
-            var disruption = (r?.Drops ?? 0) * (link.Downstream.IsAccessPoint ? ApDropDisruptionSeconds : WiredDropDisruptionSeconds);
+            // A counter-seen relink costs its clients the same reconnect time as a precisely timed drop.
+            var disruption = ((r?.Drops ?? 0) + (r?.Relinks ?? 0)) * (link.Downstream.IsAccessPoint ? ApDropDisruptionSeconds : WiredDropDisruptionSeconds);
             var down = r == null ? 0 : Math.Min(1, (Math.Max(r.DownSeconds, disruption) + r.LossBursts * 5) / 3600);
             var packets = (r?.UpRxPackets ?? 0) + (r?.DownRxPackets ?? 0);
             var errors = r?.ErrorBursts ?? 0;
