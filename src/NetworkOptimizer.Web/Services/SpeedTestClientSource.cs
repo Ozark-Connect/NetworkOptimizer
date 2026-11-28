@@ -80,9 +80,10 @@ public static class SpeedTestClientSource
 
     /// <summary>
     /// The name to show for a speed test result in its tables and cards. Null when there is no name:
-    /// the caller shows the IP. A client test from a remote client (Tailscale, Teleport, VPN, WAN) never
-    /// shows its stored name: an older build stored the gateway name there. Anything else shows its stored
-    /// name, and a Tailscale or Teleport address with no stored name shows its tailnet name or "Teleport Client".
+    /// the caller shows the IP. A client test from a remote client (Tailscale, VPN, WAN) never shows its
+    /// stored name: an older build stored the gateway name there. A Teleport client shows the name UniFi
+    /// Network gave it, stored at test time, unless that is the gateway's own name. Anything else shows its
+    /// stored name, and a Tailscale address with no stored name shows its tailnet name.
     /// </summary>
     /// <param name="result">The result to name.</param>
     /// <param name="tailnet">The site's tailnet, which names Tailscale devices.</param>
@@ -91,15 +92,10 @@ public static class SpeedTestClientSource
     {
         var hops = result.PathAnalysis?.Path?.Hops;
 
-        // Only the stored trace proves a client is remote: its hop is prepended at order -1. A LAN test that
-        // transits a tunnel carries that hop at a later order, and a Client WAN Test puts its WAN hop at 0.
-        // Server-initiated tests keep the name the user gave the device, whatever its path.
-        var remoteHop = result.Direction is SpeedTestDirection.ClientToServer or SpeedTestDirection.BrowserToServer
-            ? hops?.FirstOrDefault(h => h.Order == -1)
-            : null;
+        var remoteHop = RemoteHop(result);
         if (remoteHop != null)
             return remoteHop.Type == NetworkOptimizer.UniFi.Models.HopType.Teleport
-                ? "Teleport Client"
+                ? TrustedStoredName(result)
                 : tailnet.NameFor(result.DeviceHost);
 
         if (!string.IsNullOrEmpty(result.DeviceName))
@@ -107,8 +103,50 @@ public static class SpeedTestClientSource
 
         // The address alone is a guess (a LAN can use 100.64.0.0/10), so it only fills in a missing name
         return Detect(result.DeviceHost, networks, result.ClientMac, tailnet.IsPeer, hops?.Select(h => h.Type).ToList()) == "Teleport"
-            ? "Teleport Client"
+            ? null
             : tailnet.NameFor(result.DeviceHost);
+    }
+
+    /// <summary>
+    /// Whether a result came from a Teleport client: its stored trace says so, or, with no trace, its address does.
+    /// </summary>
+    /// <param name="result">The result.</param>
+    /// <param name="networks">The site's networks for the address guess; null skips it.</param>
+    public static bool IsTeleport(Iperf3Result result, IReadOnlyCollection<NetworkInfo>? networks = null)
+    {
+        if (RemoteHop(result) is { } hop)
+            return hop.Type == NetworkOptimizer.UniFi.Models.HopType.Teleport;
+        var hops = result.PathAnalysis?.Path?.Hops;
+        return Detect(result.DeviceHost, networks, result.ClientMac, pathHops: hops?.Select(h => h.Type).ToList()) == "Teleport";
+    }
+
+    /// <summary>
+    /// The hop that proves a client is remote, from its stored trace. A client LAN test prepends it at order -1 (a LAN
+    /// test that transits a tunnel carries that hop at a later order); a Client WAN Test ends at it. Server-initiated
+    /// tests keep the name the user gave the device, whatever its path, so they have none.
+    /// </summary>
+    private static NetworkOptimizer.UniFi.Models.NetworkHop? RemoteHop(Iperf3Result result)
+    {
+        var hops = result.PathAnalysis?.Path?.Hops;
+        if (hops == null || hops.Count == 0)
+            return null;
+        return result.Direction switch
+        {
+            SpeedTestDirection.ClientToServer or SpeedTestDirection.BrowserToServer => hops.FirstOrDefault(h => h.Order == -1),
+            SpeedTestDirection.OpenSpeedTestWan => hops.MaxBy(h => h.Order) is { Type: NetworkOptimizer.UniFi.Models.HopType.Teleport
+                or NetworkOptimizer.UniFi.Models.HopType.Tailscale or NetworkOptimizer.UniFi.Models.HopType.Vpn } last ? last : null,
+            _ => null,
+        };
+    }
+
+    /// <summary>A remote result's stored name, unless it is the gateway's own: an older build stored that there.</summary>
+    private static string? TrustedStoredName(Iperf3Result result)
+    {
+        if (string.IsNullOrEmpty(result.DeviceName))
+            return null;
+        var gatewayName = result.PathAnalysis?.Path?.Hops?
+            .FirstOrDefault(h => h.Type == NetworkOptimizer.UniFi.Models.HopType.Gateway)?.DeviceName;
+        return string.Equals(result.DeviceName, gatewayName, StringComparison.Ordinal) ? null : result.DeviceName;
     }
 
     /// <summary>

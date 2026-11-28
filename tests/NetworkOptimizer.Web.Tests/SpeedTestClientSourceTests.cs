@@ -125,7 +125,7 @@ public class SpeedTestClientSourceTests
         DeviceName = deviceName,
         PathAnalysis = hops.Length == 0
             ? null
-            : new PathAnalysisResult { Path = new NetworkPath { Hops = hops.Select(h => new NetworkHop { Order = h.Order, Type = h.Type }).ToList() } }
+            : new PathAnalysisResult { Path = new NetworkPath { Hops = hops.Select(h => new NetworkHop { Order = h.Order, Type = h.Type, DeviceName = h.Type == HopType.Gateway ? "Gateway" : "" }).ToList() } }
     };
 
     [Fact]
@@ -170,20 +170,55 @@ public class SpeedTestClientSourceTests
     }
 
     [Fact]
-    public void TeleportTrace_ShowsTeleportClient_NotTheStoredGatewayName()
+    public void TeleportTrace_HidesTheStoredGatewayName()
     {
-        // The stored Teleport hop decides the name; the address only matters for the no-trace guess
+        // An older build stored the gateway's name on a remote result: the caller shows the IP instead
         var result = Result("198.51.100.10", deviceName: "Gateway",
             (-1, HopType.Teleport), (0, HopType.Gateway));
-        SpeedTestClientSource.DisplayName(result, TailnetSnapshot.Empty).Should().Be("Teleport Client");
+        SpeedTestClientSource.DisplayName(result, TailnetSnapshot.Empty).Should().BeNull();
     }
 
     [Fact]
-    public void TeleportWithoutTrace_UsesTheAddressGuess()
+    public void TeleportTrace_ShowsTheNameUniFiGaveTheClient()
+    {
+        // Stored at test time from v2 clients/active: not the gateway's name, so it is the client's
+        var result = Result("198.51.100.10", deviceName: "Phone",
+            (-1, HopType.Teleport), (0, HopType.Gateway));
+        SpeedTestClientSource.DisplayName(result, TailnetSnapshot.Empty).Should().Be("Phone");
+        SpeedTestClientSource.IsTeleport(result).Should().BeTrue();
+    }
+
+    [Fact]
+    public void TeleportClientWanTest_ShowsItsNameAndIsTeleport()
+    {
+        // A Client WAN Test from a Teleport client ends at the Teleport hop
+        var result = Result(SpeedTestDirection.OpenSpeedTestWan, "192.168.2.3", "Phone",
+            (0, HopType.Wan), (1, HopType.Gateway), (2, HopType.Teleport));
+        SpeedTestClientSource.DisplayName(result, TailnetSnapshot.Empty).Should().Be("Phone");
+        SpeedTestClientSource.IsTeleport(result).Should().BeTrue();
+
+        var unnamed = Result(SpeedTestDirection.OpenSpeedTestWan, "192.168.2.3", null,
+            (0, HopType.Wan), (1, HopType.Gateway), (2, HopType.Teleport));
+        SpeedTestClientSource.DisplayName(unnamed, TailnetSnapshot.Empty).Should().BeNull("the caller shows the IP");
+    }
+
+    [Fact]
+    public void TeleportWithoutTrace_ShowsNoName_ButIsTeleport()
     {
         // The address guess needs the 192.168 prefix the app classifies on; 192.168.77.0/24 is
-        // outside this file's Networks fixture, matching StoredTrace_DecidesTeleport
-        SpeedTestClientSource.DisplayName(Result("192.168.77.10"), TailnetSnapshot.Empty, Networks).Should().Be("Teleport Client");
+        // outside this file's Networks fixture, matching StoredTrace_DecidesTeleport. The caller shows the IP.
+        SpeedTestClientSource.DisplayName(Result("192.168.77.10"), TailnetSnapshot.Empty, Networks).Should().BeNull();
+        SpeedTestClientSource.IsTeleport(Result("192.168.77.10"), Networks).Should().BeTrue();
+    }
+
+    [Fact]
+    public void LocalClients_AreNotTeleport()
+    {
+        SpeedTestClientSource.IsTeleport(Result("10.0.1.20", "Laptop", (0, HopType.WirelessClient), (1, HopType.AccessPoint)), Networks)
+            .Should().BeFalse();
+        SpeedTestClientSource.IsTeleport(Result(SpeedTestDirection.OpenSpeedTestWan, "10.0.1.20", "Laptop",
+            (0, HopType.Wan), (1, HopType.Gateway), (2, HopType.WirelessClient)), Networks).Should().BeFalse();
+        SpeedTestClientSource.IsTeleport(Result("100.64.0.10", null, (-1, HopType.Tailscale), (0, HopType.Gateway))).Should().BeFalse();
     }
 
     [Fact]
@@ -241,5 +276,40 @@ public class SpeedTestClientSourceTests
         var result = Result("10.0.1.20", deviceName: "Laptop",
             (0, HopType.WirelessClient), (1, HopType.AccessPoint), (2, HopType.Tailscale));
         SpeedTestClientSource.DisplayName(result, TailnetSnapshot.Empty, Networks).Should().Be("Laptop");
+    }
+}
+
+/// <summary>
+/// A Teleport client is in no stat/sta list. v2 clients/active lists it with type TELEPORT, its address, and the
+/// name UniFi Network shows (display_name), and no MAC.
+/// </summary>
+public class TeleportClientNameTests
+{
+    private static NetworkOptimizer.UniFi.Models.UniFiClientDetailResponse Client(string type, string ip, string? displayName, string? name = null) =>
+        new() { Type = type, Ip = ip, DisplayName = displayName, Name = name };
+
+    [Fact]
+    public void The_teleport_client_at_the_address_gives_its_display_name()
+    {
+        var clients = new[]
+        {
+            Client("WIRELESS", "192.168.2.3", "Laptop on the LAN"),
+            Client("TELEPORT", "192.168.2.4", "Other Phone"),
+            Client("TELEPORT", "192.168.2.3", "Phone"),
+        };
+
+        NetworkOptimizer.Web.Services.UniFiConnectionService.TeleportClientName(clients, "192.168.2.3").Should().Be("Phone");
+    }
+
+    [Fact]
+    public void Falls_back_to_name_then_nothing()
+    {
+        NetworkOptimizer.Web.Services.UniFiConnectionService.TeleportClientName(
+            [Client("TELEPORT", "192.168.2.3", null, "phone-name")], "192.168.2.3").Should().Be("phone-name");
+        NetworkOptimizer.Web.Services.UniFiConnectionService.TeleportClientName(
+            [Client("TELEPORT", "192.168.2.3", " ")], "192.168.2.3").Should().BeNull();
+        NetworkOptimizer.Web.Services.UniFiConnectionService.TeleportClientName(
+            [Client("WIRELESS", "192.168.2.3", "Laptop")], "192.168.2.3").Should().BeNull("only a Teleport entry names a Teleport client");
+        NetworkOptimizer.Web.Services.UniFiConnectionService.TeleportClientName(null, "192.168.2.3").Should().BeNull();
     }
 }

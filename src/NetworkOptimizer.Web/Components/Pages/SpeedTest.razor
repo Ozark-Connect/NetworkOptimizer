@@ -993,7 +993,7 @@
                                         var showDashLink = result.IsLocalLanClient();
                                         var isDeviceFiltered = string.Equals(deviceFilter, result.DeviceHost, StringComparison.OrdinalIgnoreCase);
                                     }
-                                    <ResultClientIcon Host="@result.DeviceHost" Mac="@result.ClientMac" Tailnet="_tailnet" Icons="_clientIcons" />
+                                    <ResultClientIcon Host="@result.DeviceHost" Mac="@result.ClientMac" Result="result" Tailnet="_tailnet" Icons="_clientIcons" />
                                     @if (SpeedTestClientSource.DisplayName(result, _tailnet) is { } deviceName)
                                     {
                                         <span>@deviceName</span>

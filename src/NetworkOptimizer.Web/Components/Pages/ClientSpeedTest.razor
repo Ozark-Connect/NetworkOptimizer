@@ -286,7 +286,7 @@
                                             var isLan = result.IsLocalLanClient();
                                             var isDeviceFiltered = string.Equals(deviceFilter, result.DeviceHost, StringComparison.OrdinalIgnoreCase);
                                         }
-                                        <ResultClientIcon Host="@result.DeviceHost" Mac="@result.ClientMac" Tailnet="_tailnet" Icons="_clientIcons" />
+                                        <ResultClientIcon Host="@result.DeviceHost" Mac="@result.ClientMac" Result="result" Networks="_networks" Tailnet="_tailnet" Icons="_clientIcons" />
                                         @if (DeviceNameOf(result) is { } deviceName)
                                         {
                                             <span>@deviceName</span>

@@ -1,11 +1,15 @@
 @using NetworkOptimizer.UniFi.Models
 
-@* The mark before a speed test result's client or device: Tailscale's for a tailnet device, else the
-   client's UniFi Network icon, else the UniFi device's image, else nothing. *@
+@* The mark before a speed test result's client or device: Tailscale's for a tailnet device, Teleport's for a
+   Teleport client, else the client's UniFi Network icon, else the UniFi device's image, else nothing. *@
 
 @if (SpeedTestClientSource.IsTailscale(Host, Tailnet.IsPeer))
 {
     <VpnIcon Type="HopType.Tailscale" Size="16" Class="client-tailscale-icon result-tailscale-icon" />
+}
+else if (Result != null && SpeedTestClientSource.IsTeleport(Result, Networks))
+{
+    <VpnIcon Type="HopType.Teleport" Size="16" Class="client-tailscale-icon result-tailscale-icon" />
 }
 else if ((Icons.UrlFor(Mac) ?? Icons.DeviceUrlFor(Host)) is { } url)
 {
@@ -18,6 +22,12 @@ else if ((Icons.UrlFor(Mac) ?? Icons.DeviceUrlFor(Host)) is { } url)
 
     /// <summary>The client the result is tied to, if any.</summary>
     [Parameter] public string? Mac { get; set; }
+
+    /// <summary>The result itself, whose stored trace marks a Teleport client. Without it no Teleport mark is drawn.</summary>
+    [Parameter] public NetworkOptimizer.Storage.Models.Iperf3Result? Result { get; set; }
+
+    /// <summary>The site's networks, for the Teleport address guess on a result with no trace; null skips it.</summary>
+    [Parameter] public IReadOnlyCollection<NetworkOptimizer.UniFi.NetworkInfo>? Networks { get; set; }
 
     /// <summary>The site's tailnet, which marks a Tailscale device.</summary>
     [Parameter] public TailnetSnapshot Tailnet { get; set; } = TailnetSnapshot.Empty;

@@ -310,7 +310,7 @@
                                             @{
                                                 var isDeviceFiltered = string.Equals(_deviceFilter, result.DeviceHost, StringComparison.OrdinalIgnoreCase);
                                             }
-                                            <ResultClientIcon Host="@result.DeviceHost" Mac="@result.ClientMac" Tailnet="_tailnet" Icons="_clientIcons" />
+                                            <ResultClientIcon Host="@result.DeviceHost" Mac="@result.ClientMac" Result="result" Tailnet="_tailnet" Icons="_clientIcons" />
                                             @{
                                                 var deviceName = SpeedTestClientSource.DisplayName(result, _tailnet);
                                             }

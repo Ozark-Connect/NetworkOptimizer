@@ -1984,6 +1984,16 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         return ifaces.UplinkIfName ?? ifaces.PhysicalIfName;
     }
 
+    /// <summary>The name UniFi Network shows for the Teleport client at <paramref name="ip"/>, from v2 clients/active.</summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "v2 clients/active: Teleport clients carry type TELEPORT, an ip, a display_name, and no mac")]
+    internal static string? TeleportClientName(IEnumerable<UniFiClientDetailResponse>? activeClients, string ip)
+    {
+        var client = activeClients?.FirstOrDefault(c =>
+            string.Equals(c.Type, "TELEPORT", StringComparison.OrdinalIgnoreCase) && c.Ip == ip);
+        var name = client?.DisplayName ?? client?.Name ?? client?.Hostname;
+        return string.IsNullOrWhiteSpace(name) ? null : name;
+    }
+
     /// <summary>
     /// Enrich a speed test result with client info from UniFi (MAC, name, Wi-Fi signal).
     /// </summary>
@@ -2008,7 +2018,17 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             }
 
             if (client == null)
+            {
+                // A Teleport client is in no stat/sta list, only in v2 clients/active (type TELEPORT, no MAC). Teleport
+                // hands out 192.168 addresses, so only those pay for the extra call.
+                if (setDeviceName && string.IsNullOrEmpty(result.DeviceName) && result.DeviceHost.StartsWith("192.168.", StringComparison.Ordinal)
+                    && TeleportClientName(await _client.GetActiveClientsAsync(), result.DeviceHost) is { } teleportName)
+                {
+                    result.DeviceName = teleportName;
+                    _logger.LogDebug("Named Teleport client {Ip} from clients/active: {Name}", result.DeviceHost, teleportName);
+                }
                 return;
+            }
 
             // Set MAC address
             if (overwriteMac || string.IsNullOrEmpty(result.ClientMac))

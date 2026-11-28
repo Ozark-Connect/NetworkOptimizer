@@ -765,11 +765,11 @@
                                 <a class="speed-test-row speed-test-row-link" href="@SpeedTestLinks.LanResult(test.Id)" @onclick:stopPropagation>
                                     @if (SpeedTestClientSource.DisplayName(test, _tailnet) is { } deviceName)
                                     {
-                                        <span class="speed-test-device"><ResultClientIcon Host="@test.DeviceHost" Mac="@test.ClientMac" Tailnet="_tailnet" Icons="_clientIcons" />@deviceName</span>
+                                        <span class="speed-test-device"><ResultClientIcon Host="@test.DeviceHost" Mac="@test.ClientMac" Result="test" Tailnet="_tailnet" Icons="_clientIcons" />@deviceName</span>
                                     }
                                     else if (!string.IsNullOrEmpty(test.DeviceHost))
                                     {
-                                        <span class="speed-test-device"><ResultClientIcon Host="@test.DeviceHost" Mac="@test.ClientMac" Tailnet="_tailnet" Icons="_clientIcons" /><code>@test.DeviceHost</code></span>
+                                        <span class="speed-test-device"><ResultClientIcon Host="@test.DeviceHost" Mac="@test.ClientMac" Result="test" Tailnet="_tailnet" Icons="_clientIcons" /><code>@test.DeviceHost</code></span>
                                     }
                                     else
                                     {
