@@ -606,6 +606,11 @@ else
         return ClientPerformanceLink.Href(clientMac, clientIp) is { } href ? new(href, "View in Client Performance") : null;
     }
 
+    /// <summary>Where a Client Speed Test that crosses the link runs from: the side away from the speed test server.</summary>
+    private static string ClientTestFrom(LinkRecord link, LanHealthSpeedTests.Suggestion s) => link.IsFabric
+        ? $" from a device {(s.ServerBelow ? "that is not below" : "below")} {link.Downstream.DeviceName} to cross this link."
+        : s.ServerBelow ? $" from a device other than {link.Downstream.DeviceName} to cross this link." : $" from {link.Downstream.DeviceName} to cross this link.";
+
     /// <summary>The speed tests that crossed the link in the window: the verdict the Slow Speed Tests finding reads, then the latest five.</summary>
     private RenderFragment SpeedTestsCard(LinkHealth l) => __builder =>
     {
@@ -617,6 +622,21 @@ else
                 @if (tests.Count == 0)
                 {
                     <p class="lan-health-sub">No speed tests crossed this link in @RangeLabel.</p>
+                    @if (l.TestSuggestion is { } s)
+                    {
+                        <p class="lan-health-sub">
+                            @if (s.Kind == LanHealthSpeedTests.SuggestionKind.ClientSpeedTest)
+                            {
+                                <a href="/client-speedtest">Run a Client Speed Test</a>
+                                @ClientTestFrom(l.Link, s)
+                            }
+                            else
+                            {
+                                <a href="@($"/speedtest?device={Uri.EscapeDataString(s.Ip!)}")">Run a LAN Speed Test to @s.Name</a>
+                                @(" to cross this link.")
+                            }
+                        </p>
+                    }
                 }
                 else
                 {

@@ -1804,6 +1804,7 @@
             await LoadHistory();
             await LoadDiscoveredDevices();
             await LoadApMarkers();
+            ApplyLinkedDevice();
         }
         finally
         {
@@ -2146,8 +2147,37 @@
         _scrollToLinkedResultId = id;
     }
 
+    /// <summary>A device a link wants tested (LAN Health's Speed Tests card): its IP, matched to a UniFi or saved device.</summary>
+    [SupplyParameterFromQuery(Name = "device")]
+    public string? DeviceParam { get; set; }
+
+    private string? _scrollToSection;
+
+    /// <summary>
+    /// Selects the ?device= UniFi device and scrolls to its card, or scrolls to Other Device Speed Test for a saved
+    /// device. It runs nothing: the reader still starts the test.
+    /// </summary>
+    private void ApplyLinkedDevice()
+    {
+        if (string.IsNullOrWhiteSpace(DeviceParam)) return;
+        var ip = DeviceParam.Trim();
+        if (discoveredDevices.FirstOrDefault(d => string.Equals(d.IpAddress, ip, StringComparison.OrdinalIgnoreCase)) is { } unifi)
+        {
+            if (IsRunnable(unifi)) _selectedDevices.Add(unifi.IpAddress);
+            _scrollToSection = "unifi-test";
+        }
+        else if (devices.Any(d => string.Equals(d.Host, ip, StringComparison.OrdinalIgnoreCase)))
+            _scrollToSection = "saved-devices-test";
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_scrollToSection is { } section && !_initialLoading)
+        {
+            _scrollToSection = null;
+            try { await ScrollTo(section); }
+            catch { /* the device is still selected, which is the point */ }
+        }
         if (_scrollToLinkedResultId is not { } linkedId) return;
         _scrollToLinkedResultId = null;
         // The cards above the table grow as their charts and map arrive, so noLandOnRow holds the

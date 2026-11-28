@@ -108,6 +108,59 @@ public static class LanHealthSpeedTests
         }
     }
 
+    /// <summary>What the link page offers when no test crossed a link: a UniFi device, a saved device, or a Client Speed Test.</summary>
+    public enum SuggestionKind { UniFiDevice, SavedDevice, ClientSpeedTest }
+
+    /// <summary>
+    /// A test that would cross a link. <paramref name="Ip"/> and <paramref name="Name"/> name the device for a LAN Speed
+    /// Test; <paramref name="ServerBelow"/> says the speed test server sits below the link, so a test crosses it only
+    /// from a device that is not below it.
+    /// </summary>
+    public sealed record Suggestion(SuggestionKind Kind, string? Ip, string? Name, bool ServerBelow);
+
+    /// <summary>A UniFi device as the suggestion reads it: eligible when LAN Speed Test lists it (not a gateway, runs iperf3).</summary>
+    public sealed record DeviceCandidate(string Mac, string Ip, string Name, bool Eligible);
+
+    /// <summary>A client by the device it hangs off (its switch or AP).</summary>
+    public sealed record ClientCandidate(string Mac, string Ip, string? UplinkMac);
+
+    /// <summary>
+    /// The cheapest test that would cross <paramref name="link"/>: a LAN Speed Test to a UniFi device on the far side
+    /// from the server (the link's own device first), else to a saved device that is a client there, else a Client
+    /// Speed Test from a device there. The far side is below the link unless the server itself sits below it.
+    /// </summary>
+    public static Suggestion SuggestTest(LinkRecord link, IReadOnlyList<LinkRecord> links, IReadOnlyList<DeviceCandidate> devices,
+        IReadOnlyList<(string Ip, string Name)> saved, IReadOnlyList<ClientCandidate> clients, string? serverIp)
+    {
+        var below = link.IsFabric
+            ? LanHealthEngine.Below(link.Downstream.DeviceMac, new LanHealthEngine.Topology { Links = links.ToList() }).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool ClientBelow(ClientCandidate c) => link.IsFabric
+            ? c.UplinkMac != null && below.Contains(LanLinkBuilder.Mac(c.UplinkMac))
+            : link.ClientMac != null && string.Equals(LanLinkBuilder.Mac(c.Mac), link.ClientMac, StringComparison.OrdinalIgnoreCase);
+        bool DeviceBelow(DeviceCandidate d) => below.Contains(LanLinkBuilder.Mac(d.Mac));
+        bool Same(string? a, string? b) => !string.IsNullOrEmpty(a) && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+        var serverBelow = !string.IsNullOrEmpty(serverIp)
+            && (clients.Any(c => ClientBelow(c) && Same(c.Ip, serverIp)) || devices.Any(d => DeviceBelow(d) && Same(d.Ip, serverIp))
+                || !link.IsFabric && Same(link.ClientIp, serverIp));
+        // The side a test must start from to cross the link: the side away from the server.
+        bool FarSideDevice(DeviceCandidate d) => DeviceBelow(d) != serverBelow;
+        bool FarSideClient(ClientCandidate c) => ClientBelow(c) != serverBelow;
+
+        var unifi = devices.Where(d => d.Eligible && !string.IsNullOrEmpty(d.Ip) && FarSideDevice(d))
+            .OrderByDescending(d => string.Equals(LanLinkBuilder.Mac(d.Mac), link.Downstream.DeviceMac, StringComparison.OrdinalIgnoreCase))
+            .ThenBy(d => d.Name, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+        if (unifi != null) return new Suggestion(SuggestionKind.UniFiDevice, unifi.Ip, unifi.Name, serverBelow);
+
+        var farIps = clients.Where(FarSideClient).Select(c => c.Ip).Where(ip => !string.IsNullOrEmpty(ip)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!link.IsFabric && !serverBelow && !string.IsNullOrEmpty(link.ClientIp)) farIps.Add(link.ClientIp);
+        var savedHit = saved.Where(s => farIps.Contains(s.Ip)).OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+        if (savedHit.Ip != null) return new Suggestion(SuggestionKind.SavedDevice, savedHit.Ip, savedHit.Name, serverBelow);
+
+        return new Suggestion(SuggestionKind.ClientSpeedTest, null, null, serverBelow);
+    }
+
     /// <summary>
     /// A wired client on another VLAN whose path crosses the trunks to the gateway and back, at a speed
     /// that can fill them: one Client Speed Test from it measures inter-VLAN routing and every trunk on the way.

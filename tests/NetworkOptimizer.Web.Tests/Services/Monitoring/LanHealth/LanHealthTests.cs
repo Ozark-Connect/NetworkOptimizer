@@ -1153,6 +1153,87 @@ public class LanHealthTests
         Excl(desk, "port").Key.Should().Be(desk.Id);
     }
 
+    private const string OtherApMac = "aa:bb:cc:00:00:0b";
+
+    /// <summary>Gateway to Switch A to AP 1, and the gateway to AP 2 on another branch.</summary>
+    private static List<LinkRecord> TestTree()
+    {
+        LinkEnd Dev(string mac, string name, DeviceType type) => new() { DeviceMac = mac, DeviceName = name, DeviceType = type };
+        return
+        [
+            new() { Id = "gw-sw", Kind = LinkKind.FabricWired, Upstream = Dev(GatewayMac, "Gateway A", DeviceType.Gateway), Downstream = Dev(SwitchMac, "Switch A", DeviceType.Switch) },
+            new() { Id = "sw-ap", Kind = LinkKind.FabricWired, Upstream = Dev(SwitchMac, "Switch A", DeviceType.Switch), Downstream = Dev(ApMac, "AP 1", DeviceType.AccessPoint) },
+            new() { Id = "gw-ap2", Kind = LinkKind.FabricWired, Upstream = Dev(GatewayMac, "Gateway A", DeviceType.Gateway), Downstream = Dev(OtherApMac, "AP 2", DeviceType.AccessPoint) },
+        ];
+    }
+
+    private static List<LanHealthSpeedTests.DeviceCandidate> TreeDevices(bool switchRuns = true, bool apRuns = true, bool otherRuns = true) =>
+    [
+        new(GatewayMac, "192.0.2.1", "Gateway A", false),
+        new(SwitchMac, "192.0.2.2", "Switch A", switchRuns),
+        new(ApMac, "192.0.2.3", "AP 1", apRuns),
+        new(OtherApMac, "192.0.2.4", "AP 2", otherRuns),
+    ];
+
+    private static readonly List<LanHealthSpeedTests.ClientCandidate> TreeClients =
+    [
+        new("00:11:22:33:44:10", "192.0.2.10", SwitchMac),   // a desktop on Switch A
+        new("00:11:22:33:44:11", "192.0.2.11", GatewayMac),  // the speed test server on the gateway, or below the switch
+    ];
+
+    [Fact]
+    public void SuggestTest_PicksTheLinksOwnUniFiDevice_ThenOneBelowIt()
+    {
+        var links = TestTree();
+        var link = links[0];
+        LanHealthSpeedTests.SuggestTest(link, links, TreeDevices(), [], TreeClients, "192.0.2.11")
+            .Should().Be(new LanHealthSpeedTests.Suggestion(LanHealthSpeedTests.SuggestionKind.UniFiDevice, "192.0.2.2", "Switch A", false));
+        LanHealthSpeedTests.SuggestTest(link, links, TreeDevices(switchRuns: false), [], TreeClients, "192.0.2.11")
+            .Ip.Should().Be("192.0.2.3", "AP 1 sits below Switch A, so a test to it crosses the link");
+    }
+
+    [Fact]
+    public void SuggestTest_WithNoUniFiDeviceBelow_TakesASavedDeviceBelow_ThenAClientSpeedTest()
+    {
+        var links = TestTree();
+        var link = links[0];
+        var none = TreeDevices(switchRuns: false, apRuns: false);
+        List<(string, string)> saved = [("192.0.2.10", "Desktop"), ("192.0.2.99", "Elsewhere")];
+        LanHealthSpeedTests.SuggestTest(link, links, none, saved, TreeClients, "192.0.2.11")
+            .Should().Be(new LanHealthSpeedTests.Suggestion(LanHealthSpeedTests.SuggestionKind.SavedDevice, "192.0.2.10", "Desktop", false));
+        LanHealthSpeedTests.SuggestTest(link, links, none, [("192.0.2.99", "Elsewhere")], TreeClients, "192.0.2.11")
+            .Should().Be(new LanHealthSpeedTests.Suggestion(LanHealthSpeedTests.SuggestionKind.ClientSpeedTest, null, null, false));
+    }
+
+    [Fact]
+    public void SuggestTest_WithTheServerBelowTheLink_TurnsToTheOtherSide()
+    {
+        var links = TestTree();
+        var link = links[0];
+        var clients = new List<LanHealthSpeedTests.ClientCandidate> { new("00:11:22:33:44:11", "192.0.2.11", SwitchMac) };
+        var s = LanHealthSpeedTests.SuggestTest(link, links, TreeDevices(), [], clients, "192.0.2.11");
+        s.Should().Be(new LanHealthSpeedTests.Suggestion(LanHealthSpeedTests.SuggestionKind.UniFiDevice, "192.0.2.4", "AP 2", true),
+            "a test from the server to AP 2 leaves the switch's subtree through this link; one to Switch A never reaches it");
+        LanHealthSpeedTests.SuggestTest(link, links, TreeDevices(otherRuns: false), [], clients, "192.0.2.11")
+            .Should().Be(new LanHealthSpeedTests.Suggestion(LanHealthSpeedTests.SuggestionKind.ClientSpeedTest, null, null, true));
+    }
+
+    [Fact]
+    public void SuggestTest_AnAccessPort_TakesItsClientAsASavedDevice()
+    {
+        var links = TestTree();
+        var port = new LinkRecord
+        {
+            Id = $"{SwitchMac}|3-access", Kind = LinkKind.Access, ClientMac = "00:11:22:33:44:10", ClientIp = "192.0.2.10",
+            Upstream = new LinkEnd { DeviceMac = SwitchMac, DeviceName = "Switch A", DeviceType = DeviceType.Switch, PortIdx = 3 },
+            Downstream = new LinkEnd { DeviceName = "Desktop", IsUniFi = false },
+        };
+        LanHealthSpeedTests.SuggestTest(port, links, TreeDevices(), [("192.0.2.10", "Desktop")], TreeClients, "192.0.2.11")
+            .Kind.Should().Be(LanHealthSpeedTests.SuggestionKind.SavedDevice);
+        LanHealthSpeedTests.SuggestTest(port, links, TreeDevices(), [], TreeClients, "192.0.2.11")
+            .Kind.Should().Be(LanHealthSpeedTests.SuggestionKind.ClientSpeedTest);
+    }
+
     [Fact]
     public void LiveHours_IncludeTheLastClosedHourUntilItIsStored()
     {

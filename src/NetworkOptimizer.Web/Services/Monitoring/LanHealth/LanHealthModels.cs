@@ -456,6 +456,8 @@ public sealed class LinkHealth
 
     /// <summary>The speed tests that crossed the link in the window, latest first, for the Speed Tests card.</summary>
     public List<LinkSpeedTest> SpeedTests { get; set; } = [];
+    /// <summary>The test that would cross the link, for the Speed Tests card when none did.</summary>
+    public LanHealthSpeedTests.Suggestion? TestSuggestion { get; set; }
 }
 
 /// <summary>The site's LAN Health over a window: the score card, the findings, and every link.</summary>

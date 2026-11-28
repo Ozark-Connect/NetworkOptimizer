@@ -757,6 +757,7 @@ public sealed class LanHealthEngine
             // Optics reads the modules now: the live report only, since a stored past hour has no reading of its own.
             await SfpAsync(topology, ct), await SpeedHistoryAsync(db, topology, ct));
         AddTestSuggestions(report, topology, tests);
+        await SuggestLinkTestsAsync(report, topology, db, ct);
         try
         {
             var since = DateTime.UtcNow - LanHealthReportBuilder.UpgradeSuspectWindow - TimeSpan.FromDays(2);
@@ -865,8 +866,36 @@ public sealed class LanHealthEngine
             .Where(r => r.Success && r.TestTime >= since && r.PathAnalysisJson != null && lan.Contains(r.Direction))
             .OrderByDescending(r => r.TestTime).Take(5000).ToListAsync(ct);
         _tests = LanHealthSpeedTests.FromResults(rows);
+        // The server the LAN Speed Test runs from: its address on the newest test it ran to a device.
+        _serverIp = rows.FirstOrDefault(r => r.Direction == SpeedTestDirection.ServerToDevice && !string.IsNullOrEmpty(r.LocalIp))?.LocalIp ?? _serverIp;
         _testsAt = DateTime.UtcNow;
         return _tests;
+    }
+
+    private string? _serverIp;
+
+    /// <summary>For each link no test crossed in the window, the test that would (the link page's Speed Tests card).</summary>
+    private async Task SuggestLinkTestsAsync(LanHealthReport report, Topology t, NetworkOptimizerDbContext db, CancellationToken ct)
+    {
+        var untested = report.Links.Where(l => l.SpeedTests.Count == 0).ToList();
+        if (untested.Count == 0) return;
+        List<(string Ip, string Name)> saved = [];
+        try
+        {
+            saved = (await db.DeviceSshConfigurations.AsNoTracking().Where(d => d.Enabled).Select(d => new { d.Host, d.Name }).ToListAsync(ct))
+                .Select(d => (d.Host, d.Name)).ToList();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "LAN Health: saved devices unavailable for {Site}", _slug);
+        }
+        var devices = t.Devices.Where(d => !string.IsNullOrEmpty(d.Mac))
+            .Select(d => new LanHealthSpeedTests.DeviceCandidate(LanLinkBuilder.Mac(d.Mac), d.Ip, d.Name ?? d.Mac, d.DeviceType != DeviceType.Gateway && d.CanRunIperf3))
+            .ToList();
+        var clients = t.Clients.Where(c => !string.IsNullOrEmpty(c.Mac))
+            .Select(c => new LanHealthSpeedTests.ClientCandidate(c.Mac, c.Ip, c.IsWired ? c.SwMac : c.ApMac)).ToList();
+        foreach (var l in untested)
+            l.TestSuggestion = LanHealthSpeedTests.SuggestTest(l.Link, t.Links, devices, saved, clients, _serverIp);
     }
 
     /// <summary>Untested-link and cross-VLAN suggestions: findings at 0 pts that never run a test.</summary>
