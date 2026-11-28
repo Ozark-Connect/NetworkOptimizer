@@ -1042,6 +1042,25 @@ public class ClientDashboardService
     }
 
     /// <summary>
+    /// A VPN client's browser WAN speed tests by its source host/IP, within a time range: the host-keyed
+    /// <see cref="GetWanSpeedResultsAsync"/>, since a VPN client has no UniFi MAC.
+    /// </summary>
+    public async Task<List<Iperf3Result>> GetWanSpeedResultsByHostAsync(string host, DateTime from, DateTime to)
+    {
+        await using var db = CreateSiteDb();
+        return await WanResultsByHost(db.Iperf3Results, host, from, to).ToListAsync();
+    }
+
+    /// <summary>The query behind <see cref="GetWanSpeedResultsByHostAsync"/>, newest first.</summary>
+    internal static IQueryable<Iperf3Result> WanResultsByHost(IQueryable<Iperf3Result> results, string host, DateTime from, DateTime to) =>
+        results
+            .Where(r => r.Direction == SpeedTestDirection.OpenSpeedTestWan
+                      && r.DeviceHost == host
+                      && r.TestTime >= from
+                      && r.TestTime <= to)
+            .OrderByDescending(r => r.TestTime);
+
+    /// <summary>
     /// Get speed test results for a client by its source host/IP, within a time range.
     /// Used for VPN clients (Tailscale/Teleport/remote-user VPN), which have no UniFi MAC:
     /// their browser/iperf3 results store <c>DeviceHost</c> = the VPN IP and a null MAC,

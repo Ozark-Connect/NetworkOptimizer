@@ -3362,9 +3362,9 @@
         _speedResults = _client!.IsVpn
             ? await DashboardService.GetSpeedResultsByHostAsync(_client.Ip ?? "", from, to)
             : await DashboardService.GetSpeedResultsAsync(_client.Mac, from, to);
-        // WAN results are keyed by MAC; a VPN client has none.
+        // WAN results too: by source IP for a VPN client, by MAC otherwise.
         _wanSpeedResults = _client.IsVpn
-            ? new()
+            ? await DashboardService.GetWanSpeedResultsByHostAsync(_client.Ip ?? "", from, to)
             : await DashboardService.GetWanSpeedResultsAsync(_client.Mac, from, to);
         RebuildResultRows();
         _latestSpeedResult = _speedResults.FirstOrDefault();

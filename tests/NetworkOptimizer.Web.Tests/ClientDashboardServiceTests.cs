@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Ssh;
@@ -196,4 +197,58 @@ public class ClientDashboardServiceTests
         GatewayNeighborTable.TryGetMacFromNeighborOutput(output, "fd00::1").Should().BeNull();
     }
 
+}
+
+/// <summary>
+/// Client Performance for a VPN client (Tailscale, Teleport, remote-user VPN): it has no UniFi MAC, so its Client WAN
+/// Test results are found by source IP, as its LAN results already were.
+/// </summary>
+public class ClientDashboardVpnWanResultsTests : IDisposable
+{
+    private static readonly DateTime T0 = new(2026, 11, 27, 12, 0, 0, DateTimeKind.Utc);
+    private readonly Microsoft.Data.Sqlite.SqliteConnection _connection = new("DataSource=:memory:");
+    private readonly NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext _db;
+
+    public ClientDashboardVpnWanResultsTests()
+    {
+        _connection.Open();
+        _db = new NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext(
+            new Microsoft.EntityFrameworkCore.DbContextOptionsBuilder<NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext>()
+                .UseSqlite(_connection).Options);
+        _db.Database.EnsureCreated();
+    }
+
+    public void Dispose()
+    {
+        _db.Dispose();
+        _connection.Dispose();
+    }
+
+    private static NetworkOptimizer.Storage.Models.Iperf3Result Row(string host, int minutes,
+        NetworkOptimizer.Storage.Models.SpeedTestDirection direction = NetworkOptimizer.Storage.Models.SpeedTestDirection.OpenSpeedTestWan) => new()
+    {
+        DeviceHost = host,
+        Direction = direction,
+        Success = true,
+        TestTime = T0.AddMinutes(minutes),
+    };
+
+    [Fact]
+    public void A_vpn_clients_wan_results_are_found_by_its_address_newest_first()
+    {
+        _db.Iperf3Results.AddRange(
+            Row("100.64.5.6", 0),
+            Row("100.64.5.6", 10),
+            Row("100.64.5.7", 5),
+            Row("100.64.5.6", 20, NetworkOptimizer.Storage.Models.SpeedTestDirection.BrowserToServer),
+            Row("100.64.5.6", -600));
+        _db.SaveChanges();
+
+        var rows = ClientDashboardService.WanResultsByHost(_db.Iperf3Results, "100.64.5.6", T0.AddMinutes(-60), T0.AddMinutes(60)).ToList();
+
+        rows.Select(r => r.TestTime).Should().Equal(T0.AddMinutes(10), T0);
+        rows.Should().OnlyContain(r => r.DeviceHost == "100.64.5.6"
+            && r.Direction == NetworkOptimizer.Storage.Models.SpeedTestDirection.OpenSpeedTestWan,
+            "another client's rows, LAN rows, and rows outside the range stay out");
+    }
 }
